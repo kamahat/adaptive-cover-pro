@@ -11,11 +11,7 @@ __pycache__
 
 # misc
 .coverage
-.vscode/*
-!.vscode/launch.json
-!.vscode/settings.json
-!.vscode/extensions.json
-!.vscode/tasks.json
+.vscode/
 coverage.xml
 
 # Deploy config (credentials — never commit)
