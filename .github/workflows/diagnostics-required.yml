@@ -11,6 +11,10 @@ on:
 permissions:
   issues: write
 
+concurrency:
+  group: diagnostics-required-${{ github.event.issue.number || 'schedule' }}
+  cancel-in-progress: false
+
 jobs:
   check-diagnostics-attachment:
     name: "Label Missing-Attachment Bug Reports"
