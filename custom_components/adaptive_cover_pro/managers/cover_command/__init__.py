@@ -1246,6 +1246,43 @@ class CoverCommandService:
             "wait_for_target": s.waiting,
         }
 
+    def record_preempted_skip(
+        self,
+        entity_id: str,
+        position: int,
+        *,
+        trigger: str,
+        winner_name: str,
+    ) -> None:
+        """Record a user move preempted by a higher-priority pipeline handler.
+
+        Surfaces a "preempted_by_handler" skip in ``last_skipped_action`` so
+        the existing Skipped Action diagnostic sensor labels the reason
+        (e.g. "Proxy slider to 30 preempted by weather override"). Used by
+        :meth:`Coordinator.async_apply_user_position` when the proxy slider
+        or ``set_position`` service is overruled by force_override / weather
+        / a custom-position slot with priority > 80.
+        """
+        current_position = self._get_current_position(entity_id)
+        self._diag.record_skipped_action(
+            entity_id,
+            "preempted_by_handler",
+            position,
+            trigger=trigger,
+            current_position=current_position,
+            inverse_state=False,
+            extras={"winner": winner_name},
+        )
+        self._diag.record_skip_event(
+            entity_id,
+            "preempted_by_handler",
+            position,
+            trigger=trigger,
+            inverse_state=False,
+            current_position=current_position,
+            extras={"winner": winner_name},
+        )
+
     def record_skipped_action(
         self,
         entity: str,

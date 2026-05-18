@@ -1066,57 +1066,11 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         # Store cover engine object for use by diagnostics/sensors
         self._cover_data = cover_data
 
-        # Build snapshot with raw state — handlers evaluate their own conditions
-        glare_zones_cfg = self._policy.glare_zones_config(
-            self._config_service, self.config_entry.options
-        )
-        active_zone_names: set[str] = set()
-        if glare_zones_cfg is not None:
-            for idx, zone in enumerate(glare_zones_cfg.zones):
-                if getattr(self, f"glare_zone_{idx}", True):
-                    active_zone_names.add(zone.name)
-
-        snapshot = PipelineSnapshot(
-            cover=cover_data,
-            config=cover_data.config,
-            cover_type=self._cover_type,
-            default_position=effective_default,
+        snapshot = self._build_pipeline_snapshot(
+            options,
+            cover_data=cover_data,
+            effective_default=effective_default,
             is_sunset_active=is_sunset_active,
-            # NOTE: configured_default and configured_sunset_pos are deliberately
-            # absent from PipelineSnapshot.  They are annotated onto PipelineResult
-            # by the coordinator after evaluation (see below) so the raw config
-            # values are never accessible to pipeline handler logic.
-            climate_readings=self._weather_readings,
-            climate_mode_enabled=self._toggles.switch_mode,
-            climate_options=self._build_climate_options(options),
-            force_override_sensors=self._read_force_sensor_states(options),
-            force_override_position=options.get(CONF_FORCE_OVERRIDE_POSITION, 0),
-            force_override_min_mode=bool(
-                options.get(CONF_FORCE_OVERRIDE_MIN_MODE, False)
-            ),
-            manual_override_active=self.manager.binary_cover_manual,
-            motion_timeout_active=self.is_motion_timeout_active,
-            weather_override_active=self.is_weather_override_active,
-            weather_override_position=options.get(CONF_WEATHER_OVERRIDE_POSITION, 0),
-            weather_override_min_mode=bool(
-                options.get(CONF_WEATHER_OVERRIDE_MIN_MODE, False)
-            ),
-            weather_bypass_auto_control=options.get(
-                CONF_WEATHER_BYPASS_AUTO_CONTROL, True
-            ),
-            glare_zones=glare_zones_cfg,
-            active_zone_names=frozenset(active_zone_names),
-            in_time_window=self.check_adaptive_time,
-            motion_control_enabled=self._toggles.motion_control,
-            custom_position_sensors=self._read_custom_position_sensor_states(options),
-            my_position_value=options.get(CONF_MY_POSITION_VALUE),
-            sunset_use_my=bool(options.get(CONF_SUNSET_USE_MY, False)),
-            enable_sun_tracking=bool(options.get(CONF_ENABLE_SUN_TRACKING, True)),
-            motion_timeout_mode=options.get(
-                CONF_MOTION_TIMEOUT_MODE, DEFAULT_MOTION_TIMEOUT_MODE
-            ),
-            current_cover_position=self._compute_mean_cover_position(),
-            policy=self._policy,
         )
         self._pipeline_result = self._pipeline.evaluate(snapshot)
 
@@ -1861,6 +1815,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             [(h.name, h.priority) for h in custom_handlers],
             sun_tracking_enabled,
         )
+        self._handler_by_name = {h.name: h for h in handlers}
         return PipelineRegistry(
             handlers, event_buffer=getattr(self, "_event_buffer", None)
         )
@@ -2097,6 +2052,190 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                     )
                 )
         return result
+
+    def _build_pipeline_snapshot(
+        self,
+        options: dict,
+        *,
+        cover_data=None,
+        effective_default: int | None = None,
+        is_sunset_active: bool | None = None,
+        manual_override_active: bool | None = None,
+    ) -> PipelineSnapshot:
+        """Build a ``PipelineSnapshot`` for evaluation.
+
+        Single source of truth used by both the per-cycle update loop (which
+        passes the freshly-computed ``cover_data`` / ``effective_default`` /
+        ``is_sunset_active``) and ``async_apply_user_position`` (which falls
+        back to the most-recent stored values to evaluate a preemption check
+        outside the update cycle).
+
+        Args:
+            options: Config entry options dict.
+            cover_data: AdaptiveGeneralCover for this cycle. Defaults to
+                ``self._cover_data`` when omitted.
+            effective_default: Pre-computed effective default position.
+                Recomputed from options when omitted.
+            is_sunset_active: Pre-computed sunset-window flag. Recomputed
+                from options when omitted.
+            manual_override_active: When ``None`` (default) uses
+                ``self.manager.binary_cover_manual``. Pass ``False`` from the
+                preemption-check path so a stale manual-override flag does
+                not self-claim priority 80 and let the cover move anyway.
+
+        """
+        if cover_data is None:
+            cover_data = self._cover_data
+        if effective_default is None or is_sunset_active is None:
+            h_def = int(options.get(CONF_DEFAULT_HEIGHT, 0))
+            sunset_pos_cfg = options.get(CONF_SUNSET_POS)
+            sunset_off = int(options.get(CONF_SUNSET_OFFSET) or 0)
+            sunrise_off = int(
+                options.get(CONF_SUNRISE_OFFSET, options.get(CONF_SUNSET_OFFSET) or 0)
+            )
+            effective_default, is_sunset_active = compute_effective_default(
+                h_def=h_def,
+                sunset_pos=sunset_pos_cfg,
+                sun_data=cover_data.sun_data,
+                sunset_off=sunset_off,
+                sunrise_off=sunrise_off,
+            )
+
+        glare_zones_cfg = self._policy.glare_zones_config(
+            self._config_service, self.config_entry.options
+        )
+        active_zone_names: set[str] = set()
+        if glare_zones_cfg is not None:
+            for idx, zone in enumerate(glare_zones_cfg.zones):
+                if getattr(self, f"glare_zone_{idx}", True):
+                    active_zone_names.add(zone.name)
+
+        manual_active = (
+            self.manager.binary_cover_manual
+            if manual_override_active is None
+            else manual_override_active
+        )
+
+        return PipelineSnapshot(
+            cover=cover_data,
+            config=cover_data.config,
+            cover_type=self._cover_type,
+            default_position=effective_default,
+            is_sunset_active=is_sunset_active,
+            # NOTE: configured_default and configured_sunset_pos are deliberately
+            # absent from PipelineSnapshot.  They are annotated onto PipelineResult
+            # by the coordinator after evaluation so the raw config values are
+            # never accessible to pipeline handler logic.
+            climate_readings=self._weather_readings,
+            climate_mode_enabled=self._toggles.switch_mode,
+            climate_options=self._build_climate_options(options),
+            force_override_sensors=self._read_force_sensor_states(options),
+            force_override_position=options.get(CONF_FORCE_OVERRIDE_POSITION, 0),
+            force_override_min_mode=bool(
+                options.get(CONF_FORCE_OVERRIDE_MIN_MODE, False)
+            ),
+            manual_override_active=manual_active,
+            motion_timeout_active=self.is_motion_timeout_active,
+            weather_override_active=self.is_weather_override_active,
+            weather_override_position=options.get(CONF_WEATHER_OVERRIDE_POSITION, 0),
+            weather_override_min_mode=bool(
+                options.get(CONF_WEATHER_OVERRIDE_MIN_MODE, False)
+            ),
+            weather_bypass_auto_control=options.get(
+                CONF_WEATHER_BYPASS_AUTO_CONTROL, True
+            ),
+            glare_zones=glare_zones_cfg,
+            active_zone_names=frozenset(active_zone_names),
+            in_time_window=self.check_adaptive_time,
+            motion_control_enabled=self._toggles.motion_control,
+            custom_position_sensors=self._read_custom_position_sensor_states(options),
+            my_position_value=options.get(CONF_MY_POSITION_VALUE),
+            sunset_use_my=bool(options.get(CONF_SUNSET_USE_MY, False)),
+            enable_sun_tracking=bool(options.get(CONF_ENABLE_SUN_TRACKING, True)),
+            motion_timeout_mode=options.get(
+                CONF_MOTION_TIMEOUT_MODE, DEFAULT_MOTION_TIMEOUT_MODE
+            ),
+            current_cover_position=self._compute_mean_cover_position(),
+            policy=self._policy,
+        )
+
+    async def async_apply_user_position(
+        self,
+        entity_id: str,
+        requested: int,
+        *,
+        trigger: str,
+        options: dict | None = None,
+        force: bool = False,
+    ) -> tuple[str, str]:
+        """Apply a user-initiated position to a single cover.
+
+        Single delegation point for any user-facing command (the
+        ``set_position`` service, the opt-in proxy cover entity, future
+        external triggers). Owns the min-mode floor clamp, the pipeline
+        preemption check, manual-override engagement, and dispatch to
+        ``CoverCommandService.apply_position``.
+
+        Default behavior (``force=False``): engages manual override and
+        consults the pipeline. When a handler with priority strictly greater
+        than :class:`ManualOverrideHandler` priority (force_override 100,
+        weather 90, custom-position slots configured > 80) wins, the move is
+        dropped and recorded via ``CoverCommandService.record_preempted_skip``.
+
+        ``force=True``: legacy programmatic behavior — skip the pipeline
+        preemption check and skip manual-override engagement. Used by the
+        ``adaptive_cover_pro.set_position`` service when callers explicitly
+        opt in.
+        """
+        opts = options if options is not None else self.config_entry.options
+        states = self._read_custom_position_sensor_states(opts)
+        floors = [s.position for s in states if s.is_on and s.min_mode]
+        effective_floor = max(floors) if floors else 0
+        clamped = max(int(requested), effective_floor)
+        if clamped != requested:
+            _LOGGER.info(
+                "%s: requested %d clamped to %d (active min-mode floor)",
+                trigger,
+                requested,
+                clamped,
+            )
+        else:
+            _LOGGER.debug(
+                "%s: requested %d, floor %d — no clamping needed",
+                trigger,
+                requested,
+                effective_floor,
+            )
+
+        if not force:
+            snapshot = self._build_pipeline_snapshot(opts, manual_override_active=False)
+            result = self._pipeline.evaluate(snapshot)
+            winner_step = next((s for s in result.decision_trace if s.matched), None)
+            if winner_step is not None:
+                winner_name = winner_step.handler
+                winner_handler = self._handler_by_name.get(winner_name)
+                winner_priority = (
+                    winner_handler.priority if winner_handler is not None else 0
+                )
+                if winner_priority > ManualOverrideHandler.priority:
+                    _LOGGER.info(
+                        "user move on %s preempted by %s (priority %d > %d)",
+                        entity_id,
+                        winner_name,
+                        winner_priority,
+                        ManualOverrideHandler.priority,
+                    )
+                    self._cmd_svc.record_preempted_skip(
+                        entity_id,
+                        clamped,
+                        trigger=trigger,
+                        winner_name=winner_name,
+                    )
+                    return "skipped", f"preempted_by_{winner_name}"
+            self.manager.mark_user_command(entity_id, reason=trigger)
+
+        ctx = self._build_position_context(entity_id, opts, force=True)
+        return await self._cmd_svc.apply_position(entity_id, clamped, trigger, ctx)
 
     def build_diagnostic_data(self) -> dict:
         """Build diagnostic data from current coordinator state."""

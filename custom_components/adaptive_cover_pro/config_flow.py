@@ -35,6 +35,7 @@ from .const import (
     CONF_ENABLE_GLARE_ZONES,
     CONF_ENABLE_MAX_POSITION,
     CONF_ENABLE_MIN_POSITION,
+    CONF_ENABLE_PROXY_COVER,
     CONF_ENABLE_SUN_TRACKING,
     CONF_END_ENTITY,
     CONF_END_TIME,
@@ -43,6 +44,7 @@ from .const import (
     CONF_SUNSET_USE_MY,
     CUSTOM_POSITION_SLOTS,
     DEFAULT_CUSTOM_POSITION_PRIORITY,
+    DEFAULT_ENABLE_PROXY_COVER,
     CONF_FORCE_OVERRIDE_MIN_MODE,
     CONF_FORCE_OVERRIDE_POSITION,
     CONF_FORCE_OVERRIDE_SENSORS,
@@ -1600,6 +1602,20 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
             "My Preset Value is not set — falls back to configured %."
         )
 
+    # Proxy cover toggle (system-wide; not part of the decision chain)
+    proxy_enabled = bool(config.get(CONF_ENABLE_PROXY_COVER))
+    lines.append("")
+    lines.append(f"**Proxy cover**: {'enabled' if proxy_enabled else 'disabled'}")
+    if proxy_enabled:
+        _any_min_mode = any(
+            bool(config.get(f"custom_position_min_mode_{_i}")) for _i in range(1, 5)
+        )
+        if not _any_min_mode:
+            lines.append(
+                "⚠️ Proxy cover is enabled but no custom-position slot has "
+                "Use as minimum on — the slider will not clamp."
+            )
+
     # =========================================================================
     # Section 4: Decision Priority (compact reference)
     # =========================================================================
@@ -2024,6 +2040,9 @@ def _build_cover_entity_schema(
                 )
             )
         )
+    schema_dict[
+        vol.Optional(CONF_ENABLE_PROXY_COVER, default=DEFAULT_ENABLE_PROXY_COVER)
+    ] = selector.BooleanSelector()
     return vol.Schema(schema_dict)
 
 

@@ -415,3 +415,98 @@ async def test_reset_button_sends_correct_position_with_climate_mode():
     sent_position = call[0][0]
     assert sent_position == CLIMATE_POSITION
     assert sent_position != SOLAR_POSITION
+
+
+# ---------------------------------------------------------------------------
+# mark_user_command — pre-emptive manual-override entry point used by the
+# proxy cover and the set_position service.
+# ---------------------------------------------------------------------------
+
+
+def test_mark_user_command_sets_flag_and_timestamp():
+    """mark_user_command flips manual_control and records a timestamp."""
+    from custom_components.adaptive_cover_pro.managers.manual_override import (
+        AdaptiveCoverManager,
+    )
+
+    manager = AdaptiveCoverManager(
+        hass=MagicMock(), reset_duration={"minutes": 15}, logger=MagicMock()
+    )
+    manager.add_covers(["cover.test"])
+
+    manager.mark_user_command("cover.test", reason="proxy_slider")
+
+    assert manager.is_cover_manual("cover.test")
+    assert "cover.test" in manager.manual_control_time
+    assert isinstance(manager.manual_control_time["cover.test"], dt.datetime)
+
+
+def test_mark_user_command_records_diagnostic_event():
+    """mark_user_command pushes a manual_override_set event into the ring buffer."""
+    from custom_components.adaptive_cover_pro.managers.manual_override import (
+        AdaptiveCoverManager,
+    )
+
+    manager = AdaptiveCoverManager(
+        hass=MagicMock(), reset_duration={"minutes": 15}, logger=MagicMock()
+    )
+
+    manager.mark_user_command("cover.test", reason="set_position")
+
+    events = manager.get_event_buffer()
+    matching = [
+        e
+        for e in events
+        if e.get("event") == "manual_override_set"
+        and e.get("entity_id") == "cover.test"
+        and e.get("reason") == "set_position"
+    ]
+    assert matching, f"expected manual_override_set event, got {events}"
+
+
+def test_mark_user_command_works_for_entity_not_in_covers():
+    """mark_user_command must not require entity_id ∈ self.covers.
+
+    The proxy may dispatch before add_covers() runs during integration setup.
+    """
+    from custom_components.adaptive_cover_pro.managers.manual_override import (
+        AdaptiveCoverManager,
+    )
+
+    manager = AdaptiveCoverManager(
+        hass=MagicMock(), reset_duration={"minutes": 15}, logger=MagicMock()
+    )
+    # Intentionally not calling add_covers(["cover.test"])
+
+    manager.mark_user_command("cover.test", reason="proxy_slider")
+
+    assert manager.is_cover_manual("cover.test")
+
+
+def test_mark_user_command_setdefault_does_not_extend_timestamp():
+    """Calling mark_user_command twice preserves the first timestamp.
+
+    Matches allow_reset=False semantics so successive drags do not extend
+    the override window.
+    """
+    from custom_components.adaptive_cover_pro.managers.manual_override import (
+        AdaptiveCoverManager,
+    )
+
+    manager = AdaptiveCoverManager(
+        hass=MagicMock(), reset_duration={"minutes": 15}, logger=MagicMock()
+    )
+
+    manager.mark_user_command("cover.test", reason="first")
+    first_ts = manager.manual_control_time["cover.test"]
+
+    # Move the clock forward slightly between calls
+    import time
+
+    time.sleep(0.01)
+    manager.mark_user_command("cover.test", reason="second")
+    second_ts = manager.manual_control_time["cover.test"]
+
+    assert (
+        second_ts == first_ts
+    ), f"timestamp must not be extended: first={first_ts}, second={second_ts}"

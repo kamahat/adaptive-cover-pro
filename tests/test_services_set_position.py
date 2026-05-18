@@ -83,6 +83,15 @@ def _make_coord(
     coord._cmd_svc = MagicMock()
     coord._cmd_svc.apply_position = AsyncMock(return_value=apply_position_result)
 
+    # Bind the real coordinator helper so the service exercises it.
+    from custom_components.adaptive_cover_pro.coordinator import (  # noqa: PLC0415
+        AdaptiveDataUpdateCoordinator,
+    )
+
+    coord.async_apply_user_position = (
+        AdaptiveDataUpdateCoordinator.async_apply_user_position.__get__(coord)
+    )
+
     return coord
 
 
@@ -686,3 +695,127 @@ async def test_non_min_mode_slot_on_does_not_clamp() -> None:
         "set_position",
         coord._build_position_context.return_value,
     )
+
+
+# ---------------------------------------------------------------------------
+# New contract: ``force`` parameter and pipeline preemption
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_service_default_engages_manual_override() -> None:
+    """Calling the service without ``force`` engages manual override."""
+    from custom_components.adaptive_cover_pro.services.set_position_service import (
+        async_handle_set_position,
+    )
+
+    coord = _make_coord(custom_states=[])
+    call = MagicMock()
+    call.data = {"position": 50}
+
+    with patch(
+        "custom_components.adaptive_cover_pro.services.set_position_service._resolve_targets",
+        return_value={coord: None},
+    ):
+        await async_handle_set_position(call)
+
+    # mark_user_command must have been called (via the bound real method).
+    coord.manager.mark_user_command.assert_called_once_with(
+        "cover.test_blind", reason="set_position"
+    )
+
+
+@pytest.mark.asyncio
+async def test_service_force_true_bypasses_pipeline() -> None:
+    """With ``force=True`` even an active weather override does not block.
+
+    Default pipeline mock auto-yields no winner step (iterating a MagicMock
+    returns empty), so the legacy bypass path is exercised directly: the
+    command dispatches and manual override is NOT engaged.
+    """
+    from custom_components.adaptive_cover_pro.services.set_position_service import (
+        async_handle_set_position,
+    )
+
+    coord = _make_coord(custom_states=[])
+    call = MagicMock()
+    call.data = {"position": 50, "force": True}
+
+    with patch(
+        "custom_components.adaptive_cover_pro.services.set_position_service._resolve_targets",
+        return_value={coord: None},
+    ):
+        await async_handle_set_position(call)
+
+    coord._cmd_svc.apply_position.assert_awaited_once()
+    coord.manager.mark_user_command.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_service_force_default_preempted_by_force_override() -> None:
+    """With force=False (default) and force_override winning, the call is rejected."""
+    from custom_components.adaptive_cover_pro.pipeline.types import (
+        DecisionStep,
+        PipelineResult,
+    )
+    from custom_components.adaptive_cover_pro.enums import ControlMethod
+    from custom_components.adaptive_cover_pro.services.set_position_service import (
+        async_handle_set_position,
+    )
+
+    coord = _make_coord(custom_states=[])
+    # Wire up the pipeline mock and handler lookup explicitly so the
+    # preemption branch resolves a real priority value.
+    coord._pipeline.evaluate.return_value = PipelineResult(
+        position=10,
+        control_method=ControlMethod.FORCE,
+        reason="force",
+        decision_trace=[
+            DecisionStep(
+                handler="force_override", matched=True, reason="force", position=10
+            )
+        ],
+    )
+    handler = MagicMock()
+    handler.priority = 100
+    coord._handler_by_name = {"force_override": handler}
+    coord._cmd_svc.record_preempted_skip = MagicMock()
+
+    call = MagicMock()
+    call.data = {"position": 50}
+
+    with patch(
+        "custom_components.adaptive_cover_pro.services.set_position_service._resolve_targets",
+        return_value={coord: None},
+    ):
+        await async_handle_set_position(call)
+
+    coord._cmd_svc.apply_position.assert_not_awaited()
+    coord.manager.mark_user_command.assert_not_called()
+    coord._cmd_svc.record_preempted_skip.assert_called_once_with(
+        "cover.test_blind",
+        50,
+        trigger="set_position",
+        winner_name="force_override",
+    )
+
+
+def test_schema_accepts_force_parameter() -> None:
+    """SET_POSITION_SCHEMA accepts the new optional ``force`` field."""
+    from custom_components.adaptive_cover_pro.services.set_position_service import (
+        SET_POSITION_SCHEMA,
+    )
+
+    result = SET_POSITION_SCHEMA({"position": 50, "force": True})
+    assert result["position"] == 50
+    assert result["force"] is True
+
+
+def test_schema_defaults_force_to_false() -> None:
+    """SET_POSITION_SCHEMA defaults ``force`` to False when omitted."""
+    from custom_components.adaptive_cover_pro.services.set_position_service import (
+        SET_POSITION_SCHEMA,
+    )
+
+    result = SET_POSITION_SCHEMA({"position": 50})
+    assert result.get("force") is False

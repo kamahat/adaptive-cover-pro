@@ -20,11 +20,13 @@
         "description": "Select the covers this instance controls and optionally attach them to a physical device in HA. Multiple covers can share one instance — they use the same settings and move independently. To control covers with different window orientations, create a separate instance for each.\n\n[Learn more]({learn_more})",
         "data": {
           "group": "Cover Entities",
-          "linked_device_id": "Attach to Device"
+          "linked_device_id": "Attach to Device",
+          "enable_proxy_cover": "Expose Proxy Cover Entity"
         },
         "data_description": {
           "group": "Select the cover entities to control via this integration instance. You can select multiple covers to control them as a group (all will receive the same position commands). Only select covers that serve this particular window - create separate integration instances for different windows.",
-          "linked_device_id": "Select a physical device to merge this integration's entities into. The integration's sensors, switches, and buttons will appear directly under that device in Home Assistant. Select 'None (standalone device)' to revert to a separate virtual Adaptive Cover device. Only devices that own the selected cover entities are shown."
+          "linked_device_id": "Select a physical device to merge this integration's entities into. The integration's sensors, switches, and buttons will appear directly under that device in Home Assistant. Select 'None (standalone device)' to revert to a separate virtual Adaptive Cover device. Only devices that own the selected cover entities are shown.",
+          "enable_proxy_cover": "Expose a proxy cover entity per physical cover. Use this on dashboards instead of the physical cover so the slider respects min-mode floors. Default: off."
         }
       },
       "geometry": {
@@ -544,11 +546,13 @@
         "description": "Select the covers this instance controls and optionally attach them to a physical device in HA. Multiple covers can share one instance — they use the same settings and move independently. To control covers with different window orientations, create a separate instance for each.\n\n[Learn more]({learn_more})",
         "data": {
           "group": "Cover Entities",
-          "linked_device_id": "Attach to Device"
+          "linked_device_id": "Attach to Device",
+          "enable_proxy_cover": "Expose Proxy Cover Entity"
         },
         "data_description": {
           "group": "Select the cover entities to control via this integration instance. You can select multiple covers to control them as a group (all will receive the same position commands). Only select covers that serve this particular window - create separate integration instances for different windows.",
-          "linked_device_id": "Select a physical device to merge this integration's entities into. The integration's sensors, switches, and buttons will appear directly under that device in Home Assistant. Select 'None (standalone device)' to revert to a separate virtual Adaptive Cover device. Only devices that own the selected cover entities are shown."
+          "linked_device_id": "Select a physical device to merge this integration's entities into. The integration's sensors, switches, and buttons will appear directly under that device in Home Assistant. Select 'None (standalone device)' to revert to a separate virtual Adaptive Cover device. Only devices that own the selected cover entities are shown.",
+          "enable_proxy_cover": "Expose a proxy cover entity per physical cover. Use this on dashboards instead of the physical cover so the slider respects min-mode floors. Default: off."
         }
       },
       "geometry": {
@@ -1660,11 +1664,15 @@
     },
     "set_position": {
       "name": "Set position (floor-enforced)",
-      "description": "Moves the cover to the requested position, clamping to the highest active custom-position minimum-mode floor. Use this instead of cover.set_cover_position when you need ACP's min-mode floors respected from automations. Tilt is not affected.",
+      "description": "Moves the cover to the requested position, clamping to the highest active custom-position minimum-mode floor. By default the call engages manual override and respects the priority pipeline (force_override / weather still win); set force=true to bypass the pipeline check and skip manual-override engagement. Tilt is not affected.",
       "fields": {
         "position": {
           "name": "Position",
           "description": "Target cover position (0–100%). Clamped up to the active minimum-mode floor if one is configured and its sensor is on."
+        },
+        "force": {
+          "name": "Force",
+          "description": "When true, bypass the priority pipeline check and skip manual-override engagement. Default false — service calls respect force_override / weather and engage manual override like a dashboard slider."
         }
       }
     }

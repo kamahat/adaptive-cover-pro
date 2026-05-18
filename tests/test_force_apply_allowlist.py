@@ -74,6 +74,10 @@ ALLOWED_LITERAL_FORCE_TRUE_SITES: frozenset[str] = frozenset(
         "_async_send_after_override_clear",
         # _on_window_closed removed: it now uses force=False so the end-time
         # target is not safety-tagged.  See issue #215/#216 fix.
+        # User-initiated single entry point (set_position service + opt-in
+        # proxy cover entity). Bypasses delta/time/manual_override gates so
+        # an explicit slider move always lands.
+        "async_apply_user_position",
     }
 )
 
@@ -105,7 +109,7 @@ def _enclosing_function(node: ast.AST, tree: ast.Module) -> str | None:
     current = parent.get(id(node))
     innermost = None
     while current is not None:
-        if isinstance(current, (ast.FunctionDef, ast.AsyncFunctionDef)):
+        if isinstance(current, ast.FunctionDef | ast.AsyncFunctionDef):
             innermost = current.name
             break
         current = parent.get(id(current))

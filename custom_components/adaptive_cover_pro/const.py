@@ -106,6 +106,8 @@ CONF_DISTANCE = "distance_shaded_area"  # blind→shaded distance, m (0.1-50.0)
 CONF_FOV_LEFT = "fov_left"  # left half-FOV from azimuth, degrees 0-180
 CONF_FOV_RIGHT = "fov_right"  # right half-FOV from azimuth, degrees 0-180
 CONF_ENTITIES = "group"  # list of HA cover entity_ids controlled
+CONF_ENABLE_PROXY_COVER = "enable_proxy_cover"  # opt-in proxy cover platform
+DEFAULT_ENABLE_PROXY_COVER = False
 
 
 # =============================================================================

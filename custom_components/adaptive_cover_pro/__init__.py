@@ -39,7 +39,13 @@ from .coordinator import AdaptiveDataUpdateCoordinator
 from .migrations import async_prune_legacy_entities, async_prune_legacy_sensor_entities
 from .services import async_setup_services, async_unload_services
 
-PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.BINARY_SENSOR, Platform.BUTTON]
+PLATFORMS = [
+    Platform.SENSOR,
+    Platform.SWITCH,
+    Platform.BINARY_SENSOR,
+    Platform.BUTTON,
+    Platform.COVER,
+]
 CONF_SUN = ["sun.sun"]
 
 

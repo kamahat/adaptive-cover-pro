@@ -490,6 +490,36 @@ class AdaptiveCoverManager:
         """
         self.manual_control[cover] = True
 
+    def mark_user_command(self, entity_id: str, *, reason: str) -> None:
+        """Engage manual override pre-emptively from an ACP-owned surface.
+
+        Pre-emptive analog of :meth:`handle_user_initiated_state_change` which
+        is post-facto: called from the proxy cover entity and the
+        ``adaptive_cover_pro.set_position`` service before the cover even
+        moves so the next coordinator cycle does not yank the cover off the
+        user's set point.
+
+        Uses ``setdefault`` for ``manual_control_time`` so successive drags
+        do not extend the override window (matches ``allow_reset=False``
+        semantics).  Does not require the entity to be in ``self.covers`` —
+        the proxy may dispatch before ``add_covers`` runs.
+
+        Args:
+            entity_id: Cover entity ID to mark as manually overridden.
+            reason: Short label recorded into the diagnostic event buffer
+                (e.g. ``"proxy_slider"``, ``"set_position"``).
+
+        """
+        self.manual_control[entity_id] = True
+        self.manual_control_time.setdefault(entity_id, dt.datetime.now(dt.UTC))
+        self._record_event(
+            entity_id,
+            "manual_override_set",
+            our_state=None,
+            new_position=None,
+            reason=reason,
+        )
+
     async def reset_if_needed(self) -> set[str]:
         """Reset expired manual overrides.
 

@@ -47,9 +47,10 @@ set_position:
   name: Set position
   description: >-
     Move the targeted covers to an explicit position. Clamps up to the highest
-    active custom-position minimum-mode floor across all slots, and sends with
-    force=True so manual override does not block the command. Tilt is not
-    affected; on venetian instances only the primary axis is moved.
+    active custom-position minimum-mode floor across all slots. By default the
+    call engages manual override and respects the priority pipeline (so an
+    active force_override or weather override still wins); set force=true to
+    bypass the pipeline check and skip manual-override engagement.
   target:
     entity:
       integration: adaptive_cover_pro
@@ -65,6 +66,16 @@ set_position:
           step: 1
           mode: slider
           unit_of_measurement: "%"
+    force:
+      name: Force
+      description: >-
+        When true, bypass the priority pipeline check and skip manual-override
+        engagement. Default false — service calls respect force_override /
+        weather and engage manual override like a dashboard slider.
+      required: false
+      default: false
+      selector:
+        boolean:
 
 set_position_limits:
   name: Set position limits

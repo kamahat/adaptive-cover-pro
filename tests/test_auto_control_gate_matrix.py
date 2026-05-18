@@ -314,6 +314,23 @@ async def _trigger_switch_auto_control_off_return(coord):
     await switch.async_turn_off()
 
 
+async def _trigger_async_apply_user_position(coord):
+    """Trigger: ``set_position`` service called with ``force=True``.
+
+    ``async_apply_user_position(force=True)`` builds a force=True context so
+    the slider move bypasses delta/time/manual_override gates. Not a safety
+    target — the move should not persist across window boundaries. The new
+    ``force=False`` default contract (pipeline preemption + manual-override
+    engagement) is covered in ``test_coordinator_apply_user_position.py``.
+    """
+    coord.config_entry = MagicMock()
+    coord.config_entry.options = {}
+    coord._read_custom_position_sensor_states = MagicMock(return_value=[])
+    await coord.async_apply_user_position(
+        "cover.test", 42, trigger="set_position", force=True
+    )
+
+
 CONTROL_GATE_MATRIX: list[MatrixCase] = [
     MatrixCase(
         id="manual_override_expiry",
@@ -376,6 +393,16 @@ CONTROL_GATE_MATRIX: list[MatrixCase] = [
         is_safety_target=False,
         setup=lambda _: None,
         trigger=_trigger_switch_auto_control_off_return,
+    ),
+    MatrixCase(
+        # User-initiated single entry point (set_position service + opt-in
+        # proxy cover entity). Bypasses gates via force=True so the slider
+        # move lands immediately, but the target is NOT persisted.
+        id="async_apply_user_position",
+        is_safety_bypass=True,
+        is_safety_target=False,
+        setup=lambda _: None,
+        trigger=_trigger_async_apply_user_position,
     ),
 ]
 

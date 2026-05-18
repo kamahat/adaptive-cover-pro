@@ -2024,3 +2024,52 @@ def test_motion_summary_hold_mode_no_sensors_shows_warning():
         and "hold_position" in summary.lower()
         or ("hold_position" in summary or "hold position" in summary.lower())
     )
+
+
+# ---------------------------------------------------------------------------
+# Proxy cover summary line + min-mode warning
+# ---------------------------------------------------------------------------
+
+
+def test_config_summary_shows_proxy_cover_disabled_by_default():
+    """Default-off proxy cover is reflected in the summary."""
+    from custom_components.adaptive_cover_pro.const import CONF_ENABLE_PROXY_COVER
+
+    cfg = _minimal_vertical()
+    cfg[CONF_ENABLE_PROXY_COVER] = False
+    summary = _build_config_summary(cfg, SensorType.BLIND)
+    assert "Proxy cover" in summary
+    proxy_line = next(ln for ln in summary.splitlines() if "Proxy cover" in ln)
+    assert "disabled" in proxy_line.lower()
+
+
+def test_config_summary_shows_proxy_cover_enabled():
+    """Enabled proxy cover is reflected in the summary."""
+    from custom_components.adaptive_cover_pro.const import CONF_ENABLE_PROXY_COVER
+
+    cfg = _minimal_vertical()
+    cfg[CONF_ENABLE_PROXY_COVER] = True
+    # A min-mode slot is configured so no warning fires.
+    cfg["custom_position_sensor_1"] = "binary_sensor.evening"
+    cfg["custom_position_1"] = 60
+    cfg["custom_position_min_mode_1"] = True
+    summary = _build_config_summary(cfg, SensorType.BLIND)
+    proxy_line = next(ln for ln in summary.splitlines() if "Proxy cover" in ln)
+    assert "enabled" in proxy_line.lower()
+
+
+def test_config_summary_warns_when_proxy_enabled_without_min_mode_slot():
+    """Proxy enabled with no min-mode slots → ⚠ warning line."""
+    from custom_components.adaptive_cover_pro.const import CONF_ENABLE_PROXY_COVER
+
+    cfg = _minimal_vertical()
+    cfg[CONF_ENABLE_PROXY_COVER] = True
+    # A custom slot is configured but min_mode=False.
+    cfg["custom_position_sensor_1"] = "binary_sensor.evening"
+    cfg["custom_position_1"] = 60
+    cfg["custom_position_min_mode_1"] = False
+    summary = _build_config_summary(cfg, SensorType.BLIND)
+    proxy_block = [ln for ln in summary.splitlines() if "proxy" in ln.lower()]
+    assert any(
+        "⚠" in ln for ln in proxy_block
+    ), f"expected ⚠ warning near proxy line; got: {proxy_block}"
