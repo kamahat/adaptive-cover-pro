@@ -41,6 +41,7 @@ from .const import (
 from .coordinator import AdaptiveDataUpdateCoordinator
 from .entity_base import AdaptiveCoverDiagnosticSensorBase, AdaptiveCoverSensorBase
 from .enums import ControlMethod
+from .unit_system import length_display_unit, to_display_length
 
 
 # ---------------------------------------------------------------------------
@@ -262,6 +263,47 @@ def _cover_position_value(s: _ACPSensor) -> Any:
     return s.data.states["state"]
 
 
+def _compute_distance_attrs(
+    coordinator: AdaptiveDataUpdateCoordinator,
+    snapshot,
+    target_position: Any,
+) -> dict[str, Any] | None:
+    """Build target_distance / actual_distances / distance_unit, or None to skip.
+
+    Translates the published position percentage into a physical distance using
+    the policy's lift-axis travel range. Inverse-agnostic: 100% always maps to
+    the full configured dimension regardless of inverse_state, since the value
+    is literal arithmetic on what the sensor publishes.
+    """
+    options = coordinator.config_entry.options
+    dim_m = coordinator._policy.lift_travel_metres(  # noqa: SLF001
+        coordinator._config_service, options  # noqa: SLF001
+    )
+    if dim_m is None or dim_m <= 0 or target_position is None:
+        return None
+    try:
+        target_pct = float(target_position)
+    except (TypeError, ValueError):
+        return None
+    hass = coordinator.hass
+    attrs: dict[str, Any] = {
+        "target_distance": round(
+            to_display_length(dim_m * target_pct / 100.0, hass), 2
+        ),
+        "distance_unit": length_display_unit(hass),
+    }
+    if snapshot and snapshot.cover_positions:
+        attrs["actual_distances"] = {
+            eid: (
+                None
+                if pos is None
+                else round(to_display_length(dim_m * pos / 100.0, hass), 2)
+            )
+            for eid, pos in snapshot.cover_positions.items()
+        }
+    return attrs
+
+
 def _cover_position_attrs(s: _ACPSensor) -> Mapping[str, Any] | None:
     attrs = dict(s.data.attributes) if s.data.attributes else {}
     attrs["control_method"] = s.data.states.get("control")
@@ -300,6 +342,13 @@ def _cover_position_attrs(s: _ACPSensor) -> Mapping[str, Any] | None:
                 attrs["all_at_target"] = None
         else:
             attrs["all_at_target"] = None
+
+    target_pos = s.data.states.get("held_position")
+    if target_pos is None:
+        target_pos = s.data.states.get("state")
+    distance_attrs = _compute_distance_attrs(s.coordinator, snapshot, target_pos)
+    if distance_attrs is not None:
+        attrs.update(distance_attrs)
 
     return attrs
 
@@ -644,7 +693,19 @@ def _climate_status_attrs(s: _ACPDiagnosticSensor) -> Mapping[str, Any] | None:
     active_temp = diagnostics.get("active_temperature")
     if active_temp is not None:
         attrs["active_temperature"] = active_temp
-        attrs["temperature_unit"] = s.hass.config.units.temperature_unit
+        # ``active_temperature`` is reported in the configured sensor's unit,
+        # not HA's locale unit (the integration never converts sensor reads).
+        # Surface the SENSOR's unit so the value's meaning is unambiguous;
+        # fall back to HA's locale only when no sensor is configured.
+        from .const import CONF_TEMP_ENTITY
+        from .unit_system import sensor_unit_label
+
+        ha_unit = str(s.hass.config.units.temperature_unit)
+        sensor_uom = sensor_unit_label(
+            s.hass, s.config_entry.options.get(CONF_TEMP_ENTITY), ha_unit
+        )
+        attrs["temperature_unit"] = sensor_uom
+        attrs["ha_temperature_unit"] = ha_unit
 
     temp_details = diagnostics.get("temperature_details", {})
     if temp_details:
