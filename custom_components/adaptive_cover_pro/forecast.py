@@ -110,7 +110,9 @@ def build_forecast(
         step_minutes=step_minutes,
         window_hours=window_hours,
     )
-    events = _build_events(sun_data=sun_data, samples=samples)
+    events = _build_events(
+        sun_data=sun_data, cover_factory=cover_factory, samples=samples
+    )
     return Forecast(samples=tuple(samples), events=tuple(events))
 
 
@@ -157,9 +159,19 @@ def _build_samples(
 
 
 def _build_events(
-    *, sun_data: SunData, samples: list[ForecastSample]
+    *,
+    sun_data: SunData,
+    cover_factory: Callable[[float, float], AdaptiveGeneralCover],
+    samples: list[ForecastSample],
 ) -> list[ForecastEvent]:
-    """Sunrise/sunset come from SunData; FOV transitions come from the samples."""
+    """Sunrise/sunset come from SunData; FOV transitions come from the samples.
+
+    FOV-enter/exit timestamps are refined from the coarse forecast cadence
+    (default 15 min) down to SunData's native 5-min grid by scanning the
+    grid points between the two samples that bracket the handler change —
+    otherwise the marker can lag the visible cover-position drop by up to
+    one full sample step.
+    """
     events: list[ForecastEvent] = []
     sunrise = sun_data.sunrise()
     sunset = sun_data.sunset()
@@ -168,25 +180,64 @@ def _build_events(
     if sunset is not None:
         events.append(ForecastEvent(t=sunset, kind=EVENT_SUNSET, label="Sunset"))
 
-    # FOV transitions: walk samples, emit an event when handler switches.
-    prev_handler: str | None = None
+    prev_sample: ForecastSample | None = None
     for sample in samples:
-        if prev_handler is None:
-            prev_handler = sample.handler
+        if prev_sample is None:
+            prev_sample = sample
             continue
-        if sample.handler == prev_handler:
+        if sample.handler == prev_sample.handler:
+            prev_sample = sample
             continue
-        if sample.handler == "solar":
+        target_valid = sample.handler == "solar"
+        crossing = _refine_fov_crossing(
+            sun_data=sun_data,
+            cover_factory=cover_factory,
+            t_before=prev_sample.t,
+            t_after=sample.t,
+            target_valid=target_valid,
+        )
+        t_event = crossing if crossing is not None else sample.t
+        if target_valid:
             events.append(
-                ForecastEvent(t=sample.t, kind=EVENT_FOV_ENTER, label="Sun enters FOV")
+                ForecastEvent(t=t_event, kind=EVENT_FOV_ENTER, label="Sun enters FOV")
             )
         else:
             events.append(
-                ForecastEvent(t=sample.t, kind=EVENT_FOV_EXIT, label="Sun exits FOV")
+                ForecastEvent(t=t_event, kind=EVENT_FOV_EXIT, label="Sun exits FOV")
             )
-        prev_handler = sample.handler
+        prev_sample = sample
 
     return sorted(events, key=lambda e: e.t)
+
+
+def _refine_fov_crossing(
+    *,
+    sun_data: SunData,
+    cover_factory: Callable[[float, float], AdaptiveGeneralCover],
+    t_before: datetime,
+    t_after: datetime,
+    target_valid: bool,
+) -> datetime | None:
+    """First grid time in [t_before, t_after] where direct_sun_valid matches target_valid.
+
+    Used to refine FOV-enter/exit event timestamps from the 15-min sample
+    cadence down to SunData's native 5-min grid; returns None when no
+    match is found.
+    """
+    times = list(sun_data.times)
+    if not times:
+        return None
+    azis = sun_data.solar_azimuth
+    eles = sun_data.solar_elevation
+    start_idx = _nearest_index(times, t_before)
+    end_idx = _nearest_index(times, t_after)
+    if start_idx is None or end_idx is None:
+        return None
+    for i in range(start_idx, min(end_idx, len(times) - 1) + 1):
+        cover = cover_factory(float(azis[i]), float(eles[i]))
+        if bool(cover.direct_sun_valid) == target_valid:
+            return times[i]
+    return None
 
 
 def _nearest_index(

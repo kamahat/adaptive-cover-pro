@@ -207,6 +207,42 @@ class TestBuildForecastEvents:
         assert EVENT_FOV_ENTER in kinds
         assert EVENT_FOV_EXIT in kinds
 
+    def test_fov_enter_event_refines_to_actual_crossing_not_next_sample(self):
+        """FOV-enter event lands on the true crossing time, not the first solar sample.
+
+        Pre-fix the event was placed at the first sample where handler='solar',
+        which lags the real FOV crossing by up to one full sample step (15 min).
+        Post-fix the event time is the SunData grid point where
+        ``direct_sun_valid`` actually flips True — accurate to the 5-min grid.
+        """
+        # 12 hours at 5-min step covers the full forecast window exactly.
+        n_samples = 12 * 60 // 5 + 1
+        sd = _make_sun_data(n_samples=n_samples, step_minutes=5)
+        # Encode "time" into azimuth so a factory ignoring ele can decide by azi.
+        sd.solar_azimuth = [float(i) for i in range(n_samples)]
+
+        # Crossing index 20 = 100 min from _NOW; 15-min samples bracket it
+        # at 90 min (azi 18) and 105 min (azi 21) — so a naive enter event
+        # would land at 105 min, but the true crossing is at 100 min.
+        crossing_idx = 20
+        crossing_time = _NOW + timedelta(minutes=crossing_idx * 5)
+
+        def factory(azi, _ele):
+            cover = MagicMock()
+            cover.direct_sun_valid = azi >= crossing_idx
+            cover.calculate_percentage = MagicMock(return_value=50)
+            return cover
+
+        f = build_forecast(
+            sun_data=sd, cover_factory=factory, default_position=0, now=_NOW
+        )
+
+        enter_events = [e for e in f.events if e.kind == EVENT_FOV_ENTER]
+        assert len(enter_events) == 1
+        assert (
+            enter_events[0].t == crossing_time
+        ), f"FOV-enter at {enter_events[0].t}, expected {crossing_time}"
+
     def test_events_returned_sorted_by_time(self):
         sd = _make_sun_data(
             sunrise=_NOW + timedelta(hours=4),

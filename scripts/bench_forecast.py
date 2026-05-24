@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 """Microbenchmark for the position-forecast hot path.
 
 Originally written to validate the fix for issue #437 (forecast computing
@@ -7,6 +8,7 @@ issues filed off that PR).
 
 Usage:
 
+    ./scripts/bench_forecast.py            # executable form
     venv/bin/python scripts/bench_forecast.py
 
 The script imports `custom_components.adaptive_cover_pro` directly, so
@@ -20,11 +22,19 @@ runs 10-100x slower in absolute terms but the speedup ratios hold.
 from __future__ import annotations
 
 import gc
+import os
 import sys
 import time
 from datetime import datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
+
+# Re-exec under the project venv so `./scripts/bench_forecast.py` works
+# without a manual `source venv/bin/activate` — system python3 lacks
+# astral / pandas. No-op when already inside any venv.
+_VENV_PYTHON = Path(__file__).resolve().parent.parent / "venv" / "bin" / "python"
+if sys.prefix == sys.base_prefix and _VENV_PYTHON.exists():
+    os.execv(str(_VENV_PYTHON), [str(_VENV_PYTHON), __file__, *sys.argv[1:]])
 
 # Baseline numbers reported in PR #440 (macOS dev hardware). "before" is
 # pre-fix main; "after" is the PR #440 branch tip. Used to print a delta
