@@ -582,6 +582,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         self._position_forecast = forecast
         if self.data is not None:
             self.data = replace(self.data, position_forecast=forecast)
+            self.async_update_listeners()
 
     async def async_check_entity_state_change(
         self, event: Event[EventStateChangedData]

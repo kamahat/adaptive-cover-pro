@@ -352,6 +352,29 @@ async def test_async_recompute_forecast_runs_in_executor(monkeypatch):
     assert args == (coord,)
     # Result lands on coordinator.data.
     assert coord.data.position_forecast is sentinel
+    # Listeners are notified so the sensor publishes the fresh forecast
+    # immediately, not on the next coordinator update cycle.
+    coord.async_update_listeners.assert_called_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.unit
+async def test_async_recompute_forecast_skips_listener_notify_when_data_missing(
+    monkeypatch,
+):
+    """Pre-first-refresh: no listener notify (there's no data to publish yet)."""
+    from custom_components.adaptive_cover_pro import coordinator as coord_mod
+
+    monkeypatch.setattr(
+        "custom_components.adaptive_cover_pro.forecast.build_forecast_for_coord",
+        MagicMock(return_value=MagicMock(name="Forecast")),
+    )
+
+    coord = _make_coord_for_forecast_helper()
+    coord.data = None
+
+    await coord_mod.AdaptiveDataUpdateCoordinator.async_recompute_forecast(coord)
+    coord.async_update_listeners.assert_not_called()
 
 
 @pytest.mark.asyncio
