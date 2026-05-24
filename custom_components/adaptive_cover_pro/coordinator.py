@@ -20,6 +20,7 @@ from homeassistant.core import (
     Event,
     HomeAssistant,
     State,
+    callback,
 )
 
 # EventStateChangedData was added in Home Assistant 2024.4+
@@ -559,6 +560,13 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         # 12-hour outlook, so refreshing more often than every few
         # minutes adds no information.  The timer fires a background
         # task each tick to keep the event loop free.
+        #
+        # ``@callback`` is required: without it HA classifies the plain
+        # ``def`` as ``HassJobType.Executor`` and dispatches the tick to
+        # a worker thread, where ``loop.create_task(..., eager_start=True)``
+        # raises ``RuntimeError: loop is not the running loop`` and the
+        # recompute silently never happens.
+        @callback
         def _tick(_now: dt.datetime) -> None:
             self.config_entry.async_create_background_task(
                 self.hass,

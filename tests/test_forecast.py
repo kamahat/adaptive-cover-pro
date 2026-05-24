@@ -527,6 +527,13 @@ async def test_forecast_scheduler_tick_fires_background_task(monkeypatch):
     coord_mod.AdaptiveDataUpdateCoordinator._start_forecast_scheduler(coord)
     assert len(captured_cb) == 1
 
+    # Tick must be a HA `@callback`, otherwise HA classifies the sync
+    # `def` as `HassJobType.Executor` and dispatches it to a worker
+    # thread — where `loop.create_task(..., eager_start=True)` raises
+    # `RuntimeError: loop is not the running loop` and the recompute
+    # silently never happens.
+    assert getattr(captured_cb[0], "_hass_callback", False) is True
+
     # Initial schedule already created one background task.
     initial_count = coord.config_entry.async_create_background_task.call_count
     # Fire two ticks.
