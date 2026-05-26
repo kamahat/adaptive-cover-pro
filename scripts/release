@@ -383,6 +383,11 @@ validate_branch() {
             if ! confirm "Continue with beta release from main?"; then
                 exit 1
             fi
+        elif [[ $current_branch != "develop" ]]; then
+            log_warning "Preferred beta source is develop. You're on $current_branch."
+            if ! confirm "Continue with beta release from $current_branch?"; then
+                exit 1
+            fi
         fi
     else
         # Production releases must be from main
