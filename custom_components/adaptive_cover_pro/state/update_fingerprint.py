@@ -74,7 +74,7 @@ def _climate_to_dict(readings: ClimateReadings | None) -> dict[str, Any]:
         "is_sunny": readings.is_sunny,
         "lux_below_threshold": readings.lux_below_threshold,
         "irradiance_below_threshold": readings.irradiance_below_threshold,
-        "cloud_coverage": readings.cloud_coverage,
+        "cloud_coverage_above_threshold": readings.cloud_coverage_above_threshold,
     }
 
 
@@ -124,7 +124,7 @@ def _md5_of(data: dict[str, Any]) -> str:
 class UpdateFingerprint:
     """Immutable snapshot of coordinator inputs for change detection.
 
-    The ``digest`` field is the MD5 of ALL pipeline inputs (sun, covers,
+    The ``_digest`` field is the MD5 of ALL pipeline inputs (sun, covers,
     every override/state flag, climate readings, custom-position sensors).
     Two ``UpdateFingerprint`` instances are equal when and only when their
     digests match — i.e. ALL inputs were identical.
