@@ -12,6 +12,7 @@ if TYPE_CHECKING:
 
 from ..const import BLANK_TIME
 from ..helpers import get_datetime_from_str, get_safe_state
+from .common import EventRecorder
 
 
 class TimeWindowManager:
@@ -35,6 +36,7 @@ class TimeWindowManager:
         self._hass = hass
         self.logger = logger
         self._event_buffer = event_buffer
+        self._events = EventRecorder(event_buffer)
         self._last_time_window_state: bool | None = None
 
         # Config values — set via update_config()
@@ -259,18 +261,12 @@ class TimeWindowManager:
                 "active" if self._last_time_window_state else "inactive",
                 "active" if current_state else "inactive",
             )
-            if self._event_buffer is not None:
-                import datetime as dt
-
-                self._event_buffer.record(
-                    {
-                        "ts": dt.datetime.now(dt.UTC).isoformat(),
-                        "event": "time_window_changed",
-                        "entity_id": "",
-                        "previous": self._last_time_window_state,
-                        "current": current_state,
-                    }
-                )
+            self._events.record(
+                "time_window_changed",
+                entity_id="",
+                previous=self._last_time_window_state,
+                current=current_state,
+            )
             self._last_time_window_state = current_state
 
             if current_state and on_window_open is not None:

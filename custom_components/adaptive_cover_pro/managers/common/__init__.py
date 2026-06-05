@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from .event_recorder import EventRecorder
 from .timeout_controller import TimeoutController
 
-__all__ = ["TimeoutController"]
+__all__ = ["EventRecorder", "TimeoutController"]

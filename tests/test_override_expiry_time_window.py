@@ -822,48 +822,57 @@ class TestIssue215StaleSafetyTarget:
         2. User manually closes at 20:42 (manual override starts)
         3. At step 2, discard_target() must clear the 100% safety target
         4. At 23:46 when override expires, nothing for reconcile to resend
+
+        The discard now lives in the manager's ``on_engaged`` edge callback
+        (wired by the coordinator to ``cmd_svc.discard_target``) rather than in
+        the coordinator's state-change loop, so this verifies the relocated
+        seam directly on a real engine.
         """
-        from custom_components.adaptive_cover_pro.coordinator import (
-            AdaptiveDataUpdateCoordinator,
+        from custom_components.adaptive_cover_pro.managers.manual_override import (
+            AdaptiveCoverManager,
         )
 
         cmd_svc = MagicMock()
         cmd_svc.discard_target = MagicMock()
 
-        coordinator = MagicMock()
-        coordinator.manual_toggle = True
-        coordinator.automatic_control = True
-        coordinator.manual_ignore_external = False
-        coordinator._is_in_startup_grace_period = MagicMock(return_value=False)
-        coordinator._target_just_reached = set()
-        coordinator._cmd_svc = cmd_svc
-        coordinator.logger = MagicMock()
-        coordinator._cover_type = "cover_blind"
-        coordinator.manual_reset = True
-        coordinator.manual_threshold = 5.0
-        coordinator._pending_cover_events = []
-        coordinator.cover_state_change = True
+        entity_id = "cover.smart_plug_in_unit"
+        manager = AdaptiveCoverManager(
+            hass=MagicMock(),
+            reset_duration={"hours": 2},
+            logger=MagicMock(),
+            on_engaged=cmd_svc.discard_target,
+        )
+        manager.add_covers([entity_id])
 
-        # Manager: entity is NOT yet in manual override, then IS after
-        manager = MagicMock()
-        manager.is_cover_manual.side_effect = [
-            False,  # was_manual check (before handle_state_change)
-            True,  # is_cover_manual check (after handle_state_change)
-        ]
-        manager.handle_state_change = MagicMock()
-        coordinator.manager = manager
+        # Policy reports the user-moved position (0) against the commanded
+        # safety target (100): a delta well past the threshold.
+        policy = MagicMock()
+        policy.read_axis_value.return_value = 0
+        policy.primary_axis_suppression.return_value = False
 
-        # Inject one fake state-change event representing user closing at 20:42
         event_data = MagicMock()
-        event_data.entity_id = "cover.smart_plug_in_unit"
-        coordinator._pending_cover_events = [event_data]
-        coordinator.cover_state_change = False  # method sets this flag
+        event_data.entity_id = entity_id
+        event_data.old_state = MagicMock()
+        new_state = MagicMock()
+        new_state.state = "open"
+        new_state.attributes = {}
+        new_state.context = None
+        new_state.last_updated = "2026-05-10T20:42:00+00:00"
+        event_data.new_state = new_state
 
-        await AdaptiveDataUpdateCoordinator.async_handle_cover_state_change(
-            coordinator, state=100
+        manager.handle_state_change(
+            event_data,
+            100,  # commanded safety target
+            policy,
+            True,  # allow_reset
+            lambda _e: False,  # is_waiting
+            5,  # manual_threshold
+            is_in_command_grace=lambda _e: False,
+            is_in_transit=lambda _e: False,
         )
 
-        cmd_svc.discard_target.assert_called_once_with("cover.smart_plug_in_unit")
+        assert manager.is_cover_manual(entity_id)
+        cmd_svc.discard_target.assert_called_once_with(entity_id)
 
     def test_reconcile_skips_after_manual_override_discards_target(self):
         """After discard_target() the entity has no target_call entry, so

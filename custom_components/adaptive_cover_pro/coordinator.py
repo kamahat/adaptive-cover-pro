@@ -54,7 +54,6 @@ from .const import (
     CONF_DEBUG_MODE,
     CONF_DEFAULT_HEIGHT,
     CONF_DRY_RUN,
-    CONF_ENABLE_SUN_TRACKING,
     CONF_ENTITIES,
     CONF_FORCE_OVERRIDE_POSITION,
     CONF_FORCE_OVERRIDE_SENSORS,
@@ -67,6 +66,8 @@ from .const import (
     CONF_MANUAL_IGNORE_INTERMEDIATE,
     CONF_MANUAL_OVERRIDE_DURATION,
     CONF_MANUAL_OVERRIDE_RESET,
+    CONF_MANUAL_OVERRIDE_STRATEGY,
+    CONF_MANUAL_THRESHOLD,
     CONF_MOTION_SENSORS,
     CONF_MY_POSITION_VALUE,
     CONF_OPEN_CLOSE_THRESHOLD,
@@ -78,9 +79,8 @@ from .const import (
     CONF_SUNSET_TIME_ENTITY,
     CONF_TRANSIT_TIMEOUT,
     CUSTOM_POSITION_SLOTS,
-    DEFAULT_CUSTOM_POSITION_ENABLED,
-    DEFAULT_CUSTOM_POSITION_PRIORITY,
     DEFAULT_DEBUG_EVENT_BUFFER_SIZE,
+    DEFAULT_MANUAL_OVERRIDE_STRATEGY,
     DEFAULT_TRANSIT_TIMEOUT_SECONDS,
     DOMAIN,
     LOGGER,
@@ -95,23 +95,20 @@ from .managers.cover_command import (
     build_special_positions,
 )
 from .managers.grace_period import GracePeriodManager
-from .managers.manual_override import AdaptiveCoverManager, inverse_state
+from .managers.manual_override import (
+    AdaptiveCoverManager,
+    DetectorConfig,
+    get_detector,
+    inverse_state,
+)
 from .managers.motion import MotionManager
 from .managers.weather import WeatherManager
 from .managers.time_window import TimeWindowManager
 from .managers.toggles import ToggleManager
 from .position_utils import interpolate_position
 from .pipeline.handlers import (
-    ClimateHandler,
-    CloudSuppressionHandler,
-    CustomPositionHandler,
-    DefaultHandler,
-    ForceOverrideHandler,
-    GlareZoneHandler,
     ManualOverrideHandler,
-    MotionTimeoutHandler,
-    SolarHandler,
-    WeatherOverrideHandler,
+    build_handlers,
 )
 from .pipeline.floors import effective_floor, gather_active_floors
 from .pipeline.registry import PipelineRegistry
@@ -265,6 +262,11 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             self.manual_duration,
             self.logger,
             event_buffer=self._event_buffer,
+            detector=get_detector(
+                self.config_entry.options.get(CONF_MANUAL_OVERRIDE_STRATEGY)
+                or DEFAULT_MANUAL_OVERRIDE_STRATEGY,
+                self._make_detector_config(self.config_entry.options),
+            ),
         )
         self.ignore_intermediate_states = self.config_entry.options.get(
             CONF_MANUAL_IGNORE_INTERMEDIATE, False
@@ -368,7 +370,18 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             # coordinator's debug-categories gate (INFO when debug_mode +
             # category enabled, otherwise DEBUG).
             debug_log=self._debug_log,
+            # Clock the post-command window for time-based override detectors.
+            on_command_sent=self.manager.note_command_sent,
         )
+
+        # Wire the manual-override engine's edge + origin seams once. Any
+        # detection channel that flips a cover into manual override fires
+        # on_engaged → discard the latched command target (issue #215/#216);
+        # every current and future detector inherits this without coordinator
+        # changes. The ACP-origin predicate lets detectors distinguish
+        # ACP-issued context ids from genuine user actions.
+        self.manager.set_transition_callbacks(on_engaged=self._cmd_svc.discard_target)
+        self.manager.set_acp_context_predicate(self._cmd_svc.was_acp_position_context)
 
         # Late-bind cover-type policy dependencies (e.g. VenetianPolicy
         # constructs its DualAxisSequencer here once cmd_svc + grace_mgr are
@@ -424,6 +437,22 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         # ``async_track_time_interval`` cancel handle.
         self._position_forecast: Forecast | None = None
         self._forecast_unsub: Callable[[], None] | None = None
+
+    def _make_detector_config(self, options) -> DetectorConfig:
+        """Build the manual-override DetectorConfig from raw options.
+
+        Single source of truth shared by manager construction and
+        ``update_config`` so the detector and the engine never drift.
+        """
+        return DetectorConfig(
+            manual_threshold=options.get(CONF_MANUAL_THRESHOLD),
+            command_window_seconds=float(
+                options.get(CONF_TRANSIT_TIMEOUT) or DEFAULT_TRANSIT_TIMEOUT_SECONDS
+            ),
+            reset=options.get(CONF_MANUAL_OVERRIDE_RESET, False),
+            duration=options.get(CONF_MANUAL_OVERRIDE_DURATION) or {"hours": 2},
+            ignore_external=options.get(CONF_MANUAL_IGNORE_EXTERNAL, False),
+        )
 
     # --- Property delegates for CoverCommandService state ---
 
@@ -717,17 +746,13 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             return
 
         for entity_id in tracked:
-            was_manual = self.manager.is_cover_manual(entity_id)
+            # On the not-manual→manual edge the manager fires on_engaged →
+            # discard_target (issue #215/#216); see set_transition_callbacks.
             self.manager.handle_stop_service_call(
                 entity_id,
                 int(my_position_value),
                 self._cmd_svc.is_waiting_for_target,
             )
-            # When a cover transitions into manual override via stop_cover,
-            # discard any pre-existing safety-tagged target so reconciliation
-            # cannot resurrect it (issue #215/#216).
-            if not was_manual and self.manager.is_cover_manual(entity_id):
-                self._cmd_svc.discard_target(entity_id)
             # Update target so the next reconciliation compares against
             # My rather than the stale calculated state.
             self._cmd_svc.set_target(entity_id, int(my_position_value))
@@ -1610,7 +1635,6 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                 and ctx.user_id is not None
                 and not self._cmd_svc.was_acp_position_context(ctx.id)
             ):
-                was_manual = self.manager.is_cover_manual(entity_id)
                 handled = self.manager.handle_user_initiated_state_change(
                     entity_id,
                     new_state_obj,
@@ -1619,8 +1643,8 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                     context_id=ctx.id,
                 )
                 if handled:
-                    if not was_manual and self.manager.is_cover_manual(entity_id):
-                        self._cmd_svc.discard_target(entity_id)
+                    # On the not-manual→manual edge the manager fires
+                    # on_engaged → discard_target (issue #215/#216).
                     # Consume any pending target_just_reached flag so the
                     # numeric path doesn't fire later for the same entity.
                     self._target_just_reached.discard(entity_id)
@@ -1647,12 +1671,15 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             recorded_target = self._cmd_svc.get_target(entity_id)
             expected_position = state if recorded_target is None else recorded_target
 
-            was_manual = self.manager.is_cover_manual(entity_id)
             secondary_axis_check = (
                 self._policy.secondary_axis_check(self._pipeline_result, self._cmd_svc)
                 if self._pipeline_result is not None
                 else None
             )
+            # On the not-manual→manual edge the manager fires on_engaged →
+            # discard_target, so a freshly-detected override drops any
+            # pre-existing integration target (incl. safety-tagged end-time
+            # defaults) before reconciliation can resurrect it (issue #215/#216).
             self.manager.handle_state_change(
                 event_data,
                 expected_position,
@@ -1664,12 +1691,6 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                 is_in_command_grace=self._grace_mgr.is_in_command_grace_period,
                 is_in_transit=self._cmd_svc._is_cover_in_transit,
             )
-            # When a cover transitions into manual override, discard any
-            # pre-existing integration target (including safety-tagged
-            # end-time defaults) so reconciliation cannot resurrect it
-            # later (issue #215/#216).
-            if not was_manual and self.manager.is_cover_manual(entity_id):
-                self._cmd_svc.discard_target(entity_id)
 
         self.cover_state_change = False
         self.logger.debug("Cover state change handled")
@@ -1719,62 +1740,19 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         self.logger.debug("First refresh handled")
 
     def _build_pipeline(self) -> PipelineRegistry:
-        """Build the override pipeline, creating one CustomPositionHandler per slot.
+        """Build the override pipeline from the registry of handler factories.
 
         Called once at coordinator initialisation.  Because the integration
         reloads fully on every options change (see ``_async_update_listener``
-        in ``__init__.py``), this method always sees the current configuration
-        and there is no need to rebuild the pipeline at runtime.
-
-        Custom position slots are created only for entries that have both a
-        sensor and a position configured.  Each carries an independent priority
-        so the PipelineRegistry can sort them into the correct evaluation order
-        alongside all other handlers.
+        in ``__init__.py``), this always sees the current configuration and
+        there is no need to rebuild at runtime. Handler composition lives in
+        ``pipeline.handlers.build_handlers`` (registry-driven), so adding a
+        handler never touches the coordinator.
         """
-        options = self.config_entry.options
-        custom_handlers: list[CustomPositionHandler] = []
-        for slot, slot_keys in CUSTOM_POSITION_SLOTS.items():
-            sensor = options.get(slot_keys["sensor"])
-            position = options.get(slot_keys["position"])
-            enabled = bool(
-                options.get(slot_keys["enabled"], DEFAULT_CUSTOM_POSITION_ENABLED)
-            )
-            if sensor and position is not None and enabled:
-                priority = int(
-                    options.get(slot_keys["priority"])
-                    or DEFAULT_CUSTOM_POSITION_PRIORITY
-                )
-                raw_tilt = options.get(slot_keys["tilt"])
-                tilt = int(raw_tilt) if raw_tilt is not None else None
-                custom_handlers.append(
-                    CustomPositionHandler(
-                        slot=slot,
-                        entity_id=sensor,
-                        position=int(position),
-                        priority=priority,
-                        tilt=tilt,
-                    )
-                )
-
-        sun_tracking_enabled = options.get(CONF_ENABLE_SUN_TRACKING, True)
-        solar_handlers = [SolarHandler()] if sun_tracking_enabled else []
-        handlers = [
-            ForceOverrideHandler(),
-            WeatherOverrideHandler(),
-            ManualOverrideHandler(),
-            *custom_handlers,
-            MotionTimeoutHandler(),
-            CloudSuppressionHandler(),
-            ClimateHandler(),
-            GlareZoneHandler(),
-            *solar_handlers,
-            DefaultHandler(),
-        ]
+        handlers = build_handlers(self.config_entry.options)
         self.logger.debug(
-            "Pipeline built with %d custom position handler(s): %s; sun_tracking_enabled=%s",
-            len(custom_handlers),
-            [(h.name, h.priority) for h in custom_handlers],
-            sun_tracking_enabled,
+            "Pipeline built: %s",
+            [(h.name, h.priority) for h in handlers],
         )
         self._handler_by_name = {h.name: h for h in handlers}
         return PipelineRegistry(
@@ -1801,6 +1779,11 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         self.manual_duration = rc.manual_override.duration
         self.manual_ignore_external = rc.manual_override.ignore_external
         self.manual_threshold = rc.tracking.manual_threshold
+        # Apply manual-override config to the engine + active detector at
+        # runtime (auto-reset duration, threshold, command window) so changes
+        # take effect without a reload. The detection *strategy* itself is
+        # selected at construction; switching it requires a config-entry reload.
+        self.manager.update_config(self._make_detector_config(options))
         self.start_value = rc.tracking.interp_start
         self.end_value = rc.tracking.interp_end
         self.normal_list = rc.tracking.interp_list
@@ -2533,5 +2516,5 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         self.logger.debug("Coordinator shutdown complete")
 
 
-# AdaptiveCoverManager and inverse_state have been moved to managers/manual_override.py
-# They are re-imported above to maintain backward compatibility.
+# AdaptiveCoverManager and inverse_state live in the managers/manual_override
+# package. They are re-imported above to maintain backward compatibility.

@@ -13,7 +13,7 @@ from ..const import (
     DEFAULT_WINDOW_AZIMUTH,
     DEGREES_IN_CIRCLE,
 )
-from .common import TimeoutController
+from .common import EventRecorder, TimeoutController
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -62,6 +62,7 @@ class WeatherManager:
         self._hass = hass
         self._logger = logger
         self._event_buffer = event_buffer
+        self._events = EventRecorder(event_buffer)
 
         # Config (updated via update_config)
         self._wind_speed_sensor: str | None = None
@@ -255,17 +256,12 @@ class WeatherManager:
         self.cancel_weather_timeout()
         previous = self._override_active
         self._override_active = True
-        if not previous and self._event_buffer is not None:
-            import datetime as dt
-
-            self._event_buffer.record(
-                {
-                    "ts": dt.datetime.now(dt.UTC).isoformat(),
-                    "event": "weather_override_changed",
-                    "entity_id": "",
-                    "previous": False,
-                    "current": True,
-                }
+        if not previous:
+            self._events.record(
+                "weather_override_changed",
+                entity_id="",
+                previous=False,
+                current=True,
             )
 
     def reconcile(self) -> str | None:
@@ -329,19 +325,13 @@ class WeatherManager:
             return
 
         self._override_active = False
-        if self._event_buffer is not None:
-            import datetime as dt
-
-            self._event_buffer.record(
-                {
-                    "ts": dt.datetime.now(dt.UTC).isoformat(),
-                    "event": "weather_override_changed",
-                    "entity_id": "",
-                    "previous": True,
-                    "current": False,
-                    "reason": f"clear-delay expired ({timeout_seconds}s)",
-                }
-            )
+        self._events.record(
+            "weather_override_changed",
+            entity_id="",
+            previous=True,
+            current=False,
+            reason=f"clear-delay expired ({timeout_seconds}s)",
+        )
         self._logger.info(
             "Weather clear-delay expired (%s seconds) — resuming normal control",
             timeout_seconds,

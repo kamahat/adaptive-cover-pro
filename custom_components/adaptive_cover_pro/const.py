@@ -488,6 +488,11 @@ CONF_MANUAL_IGNORE_INTERMEDIATE = "manual_ignore_intermediate"
 # If True, only commands routed through ACP (proxy entity or set_position
 # service) engage manual override; all other position changes are ignored.
 CONF_MANUAL_IGNORE_EXTERNAL = "manual_ignore_external"
+# Which manual-override detection strategy to use. Maps to a registered
+# OverrideDetector via managers.manual_override.get_detector. Changing this
+# selects a different detection pattern; takes effect on config-entry reload.
+CONF_MANUAL_OVERRIDE_STRATEGY = "manual_override_strategy"
+DEFAULT_MANUAL_OVERRIDE_STRATEGY = "position_delta"
 # Position threshold separating "open" vs "closed" classification, % (1-99).
 CONF_OPEN_CLOSE_THRESHOLD = "open_close_threshold"
 

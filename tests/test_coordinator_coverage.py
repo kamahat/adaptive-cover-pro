@@ -216,9 +216,9 @@ def test_build_pipeline_custom_position_priority_fallback():
     """_build_pipeline uses DEFAULT_CUSTOM_POSITION_PRIORITY when priority config is falsy."""
     from custom_components.adaptive_cover_pro.coordinator import (
         AdaptiveDataUpdateCoordinator,
-        DEFAULT_CUSTOM_POSITION_PRIORITY,
     )
     from custom_components.adaptive_cover_pro.const import (
+        DEFAULT_CUSTOM_POSITION_PRIORITY,
         CONF_CUSTOM_POSITION_SENSOR_1,
         CONF_CUSTOM_POSITION_1,
         CONF_CUSTOM_POSITION_PRIORITY_1,
@@ -299,9 +299,9 @@ def test_read_custom_position_sensor_states_with_priority_fallback():
     """_read_custom_position_sensor_states uses default priority when config is falsy."""
     from custom_components.adaptive_cover_pro.coordinator import (
         AdaptiveDataUpdateCoordinator,
-        DEFAULT_CUSTOM_POSITION_PRIORITY,
     )
     from custom_components.adaptive_cover_pro.const import (
+        DEFAULT_CUSTOM_POSITION_PRIORITY,
         CONF_CUSTOM_POSITION_SENSOR_1,
         CONF_CUSTOM_POSITION_1,
         CONF_CUSTOM_POSITION_PRIORITY_1,

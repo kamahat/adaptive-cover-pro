@@ -11,7 +11,7 @@ if TYPE_CHECKING:
 
 from ..const import DEFAULT_MOTION_TIMEOUT
 from ..helpers import is_entity_active
-from .common import TimeoutController
+from .common import EventRecorder, TimeoutController
 
 
 class MotionManager:
@@ -40,6 +40,7 @@ class MotionManager:
         self._hass = hass
         self._logger = logger
         self._event_buffer = event_buffer
+        self._events = EventRecorder(event_buffer, now_fn=self._now)
 
         self._sensors: list[str] = []
         self._timeout_seconds: int = DEFAULT_MOTION_TIMEOUT
@@ -167,27 +168,15 @@ class MotionManager:
         """
         # Record the "cancelled" event before the controller swaps timers
         # so the diagnostic ring still shows the cancel-on-restart edge.
-        if self._timer.is_running and self._event_buffer is not None:
-            self._event_buffer.record(
-                {
-                    "ts": self._now().isoformat(),
-                    "event": "motion_timeout_canceled",
-                }
-            )
+        if self._timer.is_running:
+            self._events.record("motion_timeout_canceled")
 
         timeout_seconds = self._timeout_seconds
         self._logger.info(
             "No motion detected - starting %s second timeout before using default position",
             timeout_seconds,
         )
-        if self._event_buffer is not None:
-            self._event_buffer.record(
-                {
-                    "ts": self._now().isoformat(),
-                    "event": "motion_timeout_started",
-                    "timeout_seconds": timeout_seconds,
-                }
-            )
+        self._events.record("motion_timeout_started", timeout_seconds=timeout_seconds)
 
         async def _on_expire() -> None:
             await self._on_motion_timeout_expired(timeout_seconds, refresh_callback)
@@ -208,13 +197,7 @@ class MotionManager:
             self._logger.debug(
                 "Motion detected during timeout - canceling default position"
             )
-            if self._event_buffer is not None:
-                self._event_buffer.record(
-                    {
-                        "ts": self._now().isoformat(),
-                        "event": "motion_detected_during_timeout",
-                    }
-                )
+            self._events.record("motion_detected_during_timeout")
             return
 
         self._motion_timeout_active = True
@@ -222,24 +205,12 @@ class MotionManager:
             "Motion timeout expired (%s seconds) - using default position",
             timeout_seconds,
         )
-        if self._event_buffer is not None:
-            self._event_buffer.record(
-                {
-                    "ts": self._now().isoformat(),
-                    "event": "motion_timeout_expired",
-                    "timeout_seconds": timeout_seconds,
-                }
-            )
+        self._events.record("motion_timeout_expired", timeout_seconds=timeout_seconds)
 
         await refresh_callback()
 
     def cancel_motion_timeout(self) -> None:
         """Cancel the running timeout task, if any."""
-        if self._timer.is_running and self._event_buffer is not None:
-            self._event_buffer.record(
-                {
-                    "ts": self._now().isoformat(),
-                    "event": "motion_timeout_canceled",
-                }
-            )
+        if self._timer.is_running:
+            self._events.record("motion_timeout_canceled")
         self._timer.cancel()

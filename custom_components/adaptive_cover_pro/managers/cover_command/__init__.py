@@ -88,6 +88,7 @@ class CoverCommandService:
         *,
         event_buffer=None,
         debug_log=None,
+        on_command_sent=None,
     ) -> None:
         """Initialize the CoverCommandService.
 
@@ -113,6 +114,11 @@ class CoverCommandService:
                 by the manual-override classifier so its diagnostic lines respect
                 the coordinator's debug-categories gate.  Defaults to plain
                 ``logger.debug`` when omitted.
+            on_command_sent: Optional ``(entity_id) -> None`` callable invoked
+                whenever an outbound position command is dispatched (alongside
+                the command grace period start).  The coordinator wires this to
+                ``AdaptiveCoverManager.note_command_sent`` so time-based
+                manual-override detectors can clock the post-command window.
 
         """
         # Local import: ``cover_types.venetian.sequencer`` imports
@@ -139,6 +145,7 @@ class CoverCommandService:
         self._max_retries = max_retries
         self._wait_for_target_timeout_seconds = transit_timeout_seconds
         self._on_tick = on_tick
+        self._on_command_sent = on_command_sent
 
         # Per-entity positioning state — single source of truth.
         # All previously-parallel dicts/sets (target_call, _sent_at,
@@ -1612,6 +1619,8 @@ class CoverCommandService:
         # reconciliation knows whether to resend it when auto_control is off.
         s.is_safety = is_safety
         self._grace_mgr.start_command_grace_period(entity)
+        if self._on_command_sent is not None:
+            self._on_command_sent(entity)
 
         return plan.service, plan.service_data, plan.supports_position
 
