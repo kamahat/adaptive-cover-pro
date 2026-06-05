@@ -1100,7 +1100,9 @@ async def test_force_apply_bypasses_position_delta_gate(svc, mock_hass):
     Uses current=64, target=60 (delta=4): outside tolerance=3 but below
     min_change=5, confirming force bypasses the delta gate (not the band).
     """
-    _patch_position(svc, 64)  # delta=4 to target=60 → outside tolerance=3, below min_change=5
+    _patch_position(
+        svc, 64
+    )  # delta=4 to target=60 → outside tolerance=3, below min_change=5
     with _patch_caps():
         outcome, detail = await svc.apply_position(
             "cover.test",
@@ -1457,7 +1459,9 @@ async def test_force_true_bypasses_time_delta_and_position_delta(svc, mock_hass)
     position_tolerance=3) but below min_change=5, so both time and position
     delta gates would block without force=True.
     """
-    _patch_position(svc, 56)  # delta=4 to target=60 → outside tolerance=3, below min_change=5
+    _patch_position(
+        svc, 56
+    )  # delta=4 to target=60 → outside tolerance=3, below min_change=5
     recent = dt.datetime.now(dt.UTC) - dt.timedelta(seconds=30)
     with (
         _patch_caps(),

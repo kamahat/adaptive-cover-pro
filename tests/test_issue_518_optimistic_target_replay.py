@@ -51,7 +51,9 @@ def _make_state_change_data(
     event.new_state.attributes = {"current_position": new_position}
     event.new_state.last_updated = dt.datetime.now(dt.UTC)
     event.old_state = MagicMock()
-    event.old_state.state = old_state_str if old_state_str is not None else new_state_str
+    event.old_state.state = (
+        old_state_str if old_state_str is not None else new_state_str
+    )
     event.old_state.attributes = {"current_position": old_position}
     return event
 

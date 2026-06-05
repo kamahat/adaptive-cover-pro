@@ -185,8 +185,15 @@ class StateClassifier:
                 # Optimistic-target guard (Issue #518): see _check_optimistic_guard.
                 now = dt.datetime.now(dt.UTC)
                 if self._check_optimistic_guard(
-                    event, entity_id, old_position, position, target,
-                    cmd_svc=cmd_svc, grace_mgr=grace_mgr, now=now, logger=logger,
+                    event,
+                    entity_id,
+                    old_position,
+                    position,
+                    target,
+                    cmd_svc=cmd_svc,
+                    grace_mgr=grace_mgr,
+                    now=now,
+                    logger=logger,
                 ):
                     return
 

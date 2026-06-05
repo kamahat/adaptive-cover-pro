@@ -813,7 +813,9 @@ async def test_apply_position_out_of_band_sends_command(mock_hass, logger, grace
 
 
 @pytest.mark.asyncio
-async def test_apply_position_zero_tolerance_sends_command(mock_hass, logger, grace_mgr):
+async def test_apply_position_zero_tolerance_sends_command(
+    mock_hass, logger, grace_mgr
+):
     """Issue #507 — position_tolerance=0 (default): backward-compat, genuine moves proceed.
 
     Covers at 98 targeting 100 with default tolerance=0 must still be commanded,
