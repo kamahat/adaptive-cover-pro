@@ -401,6 +401,22 @@ def test_start_entity_preferred_over_default_start_time():
     assert "until 00:00:00" not in summary
 
 
+def test_blank_start_end_time_not_shown_as_literal():
+    """Blank-sentinel start/end times must not render as 'from 00:00:00'.
+
+    Regression for issue #492: a cleared TimeSelector coerces to the blank
+    sentinel '00:00:00'. The summary must treat it as unset (sunrise/sunset)
+    rather than printing a literal midnight window.
+    """
+    from custom_components.adaptive_cover_pro.const import BLANK_TIME
+
+    cfg = {CONF_START_TIME: BLANK_TIME, CONF_END_TIME: BLANK_TIME}
+    summary = _build_config_summary(cfg, CoverType.BLIND)
+    assert "from 00:00:00" not in summary
+    assert "until 00:00:00" not in summary
+    assert "Active during daylight" in summary
+
+
 def test_explicit_start_time_used_when_no_entity():
     """Static time is used when no entity is configured."""
     cfg = {CONF_START_TIME: "07:00", CONF_END_TIME: "21:00"}
@@ -1826,6 +1842,53 @@ def test_custom_position_bypass_annotation_shown():
     summary = _build_config_summary(cfg, CoverType.BLIND)
     custom_line = next(ln for ln in summary.splitlines() if "Custom #1" in ln)
     assert "bypasses delta" in custom_line
+
+
+def test_custom_position_tilt_only_summary_line():
+    """A tilt-only slot renders a 'tilt only' note describing the slat-fix mode."""
+    cfg = {
+        "custom_position_sensor_1": "binary_sensor.glare",
+        "custom_position_1": 80,
+        "custom_position_priority_1": 77,
+        "custom_position_tilt_1": 30,
+        "custom_position_tilt_only_1": True,
+    }
+    summary = _build_config_summary(cfg, CoverType.VENETIAN)
+    custom_line = next(ln for ln in summary.splitlines() if "Custom #1" in ln)
+    assert "tilt only" in custom_line.lower()
+    assert "30%" in custom_line
+
+
+def test_custom_position_tilt_only_mutual_exclusion_warning():
+    """tilt_only + min_mode (or use_my) produces a config warning."""
+    cfg = {
+        "custom_position_sensor_1": "binary_sensor.glare",
+        "custom_position_1": 80,
+        "custom_position_priority_1": 77,
+        "custom_position_tilt_1": 30,
+        "custom_position_tilt_only_1": True,
+        "custom_position_min_mode_1": True,
+    }
+    summary = _build_config_summary(cfg, CoverType.VENETIAN)
+    assert "⚠️" in summary
+    assert "tilt only" in summary.lower()
+    assert "#1" in summary
+
+
+def test_custom_position_tilt_only_no_warning_when_alone():
+    """tilt_only alone (no min_mode/use_my conflict) produces no warning."""
+    cfg = {
+        "custom_position_sensor_1": "binary_sensor.glare",
+        "custom_position_1": 80,
+        "custom_position_priority_1": 77,
+        "custom_position_tilt_1": 30,
+        "custom_position_tilt_only_1": True,
+    }
+    summary = _build_config_summary(cfg, CoverType.VENETIAN)
+    warning_lines = [
+        ln for ln in summary.splitlines() if "⚠️" in ln and "tilt only" in ln.lower()
+    ]
+    assert warning_lines == []
 
 
 def test_weather_state_list_in_cloud_line():

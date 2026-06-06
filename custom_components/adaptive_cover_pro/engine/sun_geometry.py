@@ -44,6 +44,10 @@ class SunGeometry:
         self.logger = logger
         self.eval_time = eval_time
 
+    # ------------------------------------------------------------------
+    # Azimuth helpers
+    # ------------------------------------------------------------------
+
     @property
     def azi_min_abs(self) -> int:
         return (self.config.win_azi - self.config.fov_left + DEGREES_IN_CIRCLE) % DEGREES_IN_CIRCLE

@@ -18,6 +18,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import selector
 
 from .const import (
+    BLANK_TIME,
     CONF_AWNING_ANGLE,
     CONF_AZIMUTH,
     CONF_BLIND_SPOT_ELEVATION,
@@ -89,6 +90,7 @@ from .const import (
     CONF_OPEN_CLOSE_THRESHOLD,
     CONF_OUTSIDE_THRESHOLD,
     CONF_OUTSIDETEMP_ENTITY,
+    CONF_POSITION_TOLERANCE,
     CONF_PRESENCE_ENTITY,
     CONF_RETURN_SUNSET,
     CONF_SENSOR_TYPE,
@@ -423,6 +425,15 @@ AUTOMATION_SCHEMA = vol.Schema(
                 unit_of_measurement="%",
             )
         ),
+        vol.Optional(CONF_POSITION_TOLERANCE, default=3): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=0,
+                max=20,
+                step=1,
+                mode=selector.NumberSelectorMode.SLIDER,
+                unit_of_measurement="%",
+            )
+        ),
         vol.Optional(CONF_DELTA_TIME, default=2): selector.NumberSelector(
             selector.NumberSelectorConfig(
                 min=2,
@@ -434,11 +445,14 @@ AUTOMATION_SCHEMA = vol.Schema(
         vol.Optional(CONF_START_ENTITY): selector.EntitySelector(
             selector.EntitySelectorConfig(domain=["sensor", "input_datetime"])
         ),
-        vol.Optional(CONF_START_TIME, default="00:00:00"): selector.TimeSelector(),
+        # No default: a cleared TimeSelector must leave the key absent so it can
+        # be stripped (issue #492). Blank stripping is enforced in
+        # async_step_automation since the suggested-values path can re-add it.
+        vol.Optional(CONF_START_TIME): selector.TimeSelector(),
         vol.Optional(CONF_END_ENTITY): selector.EntitySelector(
             selector.EntitySelectorConfig(domain=["sensor", "input_datetime"])
         ),
-        vol.Optional(CONF_END_TIME, default="00:00:00"): selector.TimeSelector(),
+        vol.Optional(CONF_END_TIME): selector.TimeSelector(),
     }
 )
 
@@ -586,6 +600,9 @@ def _build_custom_position_schema_dict(sensor_type: str | None = None) -> dict:
         )
         if include_tilt:
             schema[vol.Optional(slot_keys["tilt"])] = _position_slider()
+            schema[vol.Optional(slot_keys["tilt_only"], default=False)] = (
+                selector.BooleanSelector()
+            )
     if include_tilt:
         schema[vol.Optional(CONF_DEFAULT_TILT)] = _position_slider()
         schema[vol.Optional(CONF_SUNSET_TILT)] = _position_slider()
@@ -1315,8 +1332,9 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
         ]
     )
     has_motion = bool(config.get(CONF_MOTION_SENSORS))
-    # Build per-slot custom position data: list of (slot, entity_id, position, priority, use_my, tilt)
-    _custom_slots: list[tuple[int, str, int, int, bool, int | None]] = []
+    # Build per-slot custom position data:
+    # list of (slot, entity_id, position, priority, use_my, tilt, tilt_only)
+    _custom_slots: list[tuple[int, str, int, int, bool, int | None, bool]] = []
     for _i in range(1, 5):
         _sensor = config.get(f"custom_position_sensor_{_i}")
         _pos = config.get(f"custom_position_{_i}")
@@ -1327,7 +1345,10 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
             )
             _use_my = bool(config.get(f"custom_position_use_my_{_i}"))
             _slot_tilt = config.get(f"custom_position_tilt_{_i}")
-            _custom_slots.append((_i, _sensor, int(_pos), _pri, _use_my, _slot_tilt))
+            _tilt_only = bool(config.get(f"custom_position_tilt_only_{_i}"))
+            _custom_slots.append(
+                (_i, _sensor, int(_pos), _pri, _use_my, _slot_tilt, _tilt_only)
+            )
     has_custom_position = bool(_custom_slots)
     my_pos = config.get(CONF_MY_POSITION_VALUE)  # None = not configured
     has_cloud = bool(config.get(CONF_CLOUD_SUPPRESSION))
@@ -1488,19 +1509,40 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
 
     # Custom positions — each slot at its own configured priority
     if has_custom_position:
-        for _slot, _eid, _pos, _pri, _use_my, _slot_tilt in _custom_slots:
-            target = _pos_label(_pos, _use_my)
-            cp_min = (
-                " (as minimum)"
-                if config.get(f"custom_position_min_mode_{_slot}")
-                else ""
-            )
+        for _slot, _eid, _pos, _pri, _use_my, _slot_tilt, _tilt_only in _custom_slots:
             tilt_note = f", tilt {_slot_tilt}%" if _slot_tilt is not None else ""
-            lines.append(
-                f"🎯 Custom #{_slot}: if {_eid} is on → {target}{cp_min}{tilt_note}"
-                f" — bypasses delta gates and auto-control"
-                f"{_badge(_pri)}"
-            )
+            if _tilt_only:
+                # Tilt-only fixes the slat angle and lets the position pipeline
+                # (solar etc.) drive the carriage — min_mode/use_my are ignored.
+                slat = _slot_tilt if _slot_tilt is not None else 0
+                lines.append(
+                    f"🎯 Custom #{_slot}: if {_eid} is on → tilt only "
+                    f"(slat fixed at {slat}%; position driven by sun tracking)"
+                    f"{_badge(_pri)}"
+                )
+            else:
+                target = _pos_label(_pos, _use_my)
+                cp_min = (
+                    " (as minimum)"
+                    if config.get(f"custom_position_min_mode_{_slot}")
+                    else ""
+                )
+                lines.append(
+                    f"🎯 Custom #{_slot}: if {_eid} is on → {target}{cp_min}{tilt_note}"
+                    f" — bypasses delta gates and auto-control"
+                    f"{_badge(_pri)}"
+                )
+        # Mutual-exclusion warning: tilt_only wins over min_mode / use_my
+        # (issue #514). Surface the conflict so the user knows the latter two
+        # are ignored for that slot.
+        for _slot, _eid, _pos, _pri, _use_my, _slot_tilt, _tilt_only in _custom_slots:
+            if _tilt_only and (
+                config.get(f"custom_position_min_mode_{_slot}") or _use_my
+            ):
+                lines.append(
+                    f"⚠️ Custom #{_slot}: tilt only is on — "
+                    "Use as minimum / Use My position are ignored for this slot."
+                )
 
     # Motion timeout (75)
     timeout_mode = config.get(CONF_MOTION_TIMEOUT_MODE, DEFAULT_MOTION_TIMEOUT_MODE)
@@ -1693,13 +1735,21 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
     timing_parts = []
     if start_entity:
         timing_parts.append(f"from {start_entity}")
-    elif start_time:
+    elif start_time and start_time != BLANK_TIME:
         timing_parts.append(f"from {start_time}")
     if end_entity:
         timing_parts.append(f"until {end_entity}")
-    elif end_time:
+    elif end_time and end_time != BLANK_TIME:
         timing_parts.append(f"until {end_time}")
-    if timing_parts or sunset_pos is not None:
+    # A schedule key present but blank (cleared TimeSelector → "00:00:00") still
+    # means the user configured the automation window — show "Active during
+    # daylight" rather than nothing, so the summary reflects the real behavior
+    # (issue #492). CONF_*_TIME default to BLANK_TIME, so test membership too.
+    schedule_configured = any(
+        config.get(key) not in (None, BLANK_TIME)
+        for key in (CONF_START_ENTITY, CONF_END_ENTITY)
+    ) or any(key in config for key in (CONF_START_TIME, CONF_END_TIME))
+    if timing_parts or sunset_pos is not None or schedule_configured:
         timing_str = (
             " ".join(timing_parts) if timing_parts else "Active during daylight"
         )
@@ -1907,7 +1957,7 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
     if summary_policy.supports_glare_zones:
         _chain_entries.append((45, "Glare", has_glare))
     # Insert one entry per custom slot at its configured priority
-    for _slot, _eid, _pos, _pri, _use_my, _slot_tilt in _custom_slots:
+    for _slot, _eid, _pos, _pri, _use_my, _slot_tilt, _tilt_only in _custom_slots:
         _chain_entries.append((_pri, f"Custom#{_slot}({_pri})", True))
     # Sort highest priority first
     _chain_entries.sort(key=lambda e: e[0], reverse=True)
@@ -2029,6 +2079,7 @@ SYNC_CATEGORIES: dict[str, frozenset[str]] = {
     "automation": frozenset(
         {
             CONF_DELTA_POSITION,
+            CONF_POSITION_TOLERANCE,
             CONF_DELTA_TIME,
             CONF_START_TIME,
             CONF_START_ENTITY,
@@ -3248,7 +3299,10 @@ class OptionsFlowHandler(OptionsFlow):
         return self.async_show_menu(  # type: ignore[return-value]
             step_id="init",
             menu_options=menu_options,
-            description_placeholders={"instance_name": self.config_entry.title},
+            description_placeholders={
+                "instance_name": self.config_entry.title,
+                "coffee_url": "https://www.buymeacoffee.com/jrhubott",
+            },
         )
 
     async def async_step_cover_entities(self, user_input: dict[str, Any] | None = None):
@@ -3387,6 +3441,14 @@ class OptionsFlowHandler(OptionsFlow):
         """Manage automation options."""
         if user_input is not None:
             self.optional_entities([CONF_START_ENTITY, CONF_END_ENTITY], user_input)
+            # A cleared TimeSelector either omits the key or coerces to the blank
+            # sentinel "00:00:00". Treat both as "unset": drop the key from the
+            # submission and from any previously-stored option so it never
+            # persists as a literal midnight window (issue #492).
+            for time_key in (CONF_START_TIME, CONF_END_TIME):
+                if user_input.get(time_key) in (None, BLANK_TIME):
+                    user_input.pop(time_key, None)
+                    self.options.pop(time_key, None)
             self.options.update(user_input)
             return await self.async_step_init()
         return self.async_show_form(

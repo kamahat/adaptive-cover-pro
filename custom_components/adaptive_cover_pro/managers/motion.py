@@ -22,6 +22,7 @@ class MotionManager:
         self._logger = logger
         self._event_buffer = event_buffer
         self._events = EventRecorder(event_buffer, now_fn=self._now)
+
         self._sensors: list[str] = []
         self._timeout_seconds: int = DEFAULT_MOTION_TIMEOUT
         self._timer = TimeoutController(logger, label="motion timeout")
@@ -69,8 +70,22 @@ class MotionManager:
         return had_active or had_pending
 
     def start_motion_timeout(self, refresh_callback: Callable) -> None:
+        """Start the no-motion timeout task.
+
+        Cancels any existing timeout before creating a new one so only one
+        timer runs at a time.
+
+        Args:
+            refresh_callback: Async callable invoked when timeout expires and
+                covers should switch to the default position.  Typically
+                ``coordinator.async_refresh``.
+
+        """
+        # Record the "cancelled" event before the controller swaps timers
+        # so the diagnostic ring still shows the cancel-on-restart edge.
         if self._timer.is_running:
             self._events.record("motion_timeout_canceled")
+
         timeout_seconds = self._timeout_seconds
         self._logger.info(
             "No motion detected - starting %s second timeout before using default position",
@@ -87,15 +102,22 @@ class MotionManager:
         self, timeout_seconds: int, refresh_callback: Callable
     ) -> None:
         if self.is_motion_detected:
-            self._logger.debug("Motion detected during timeout - canceling default position")
+            self._logger.debug(
+                "Motion detected during timeout - canceling default position"
+            )
             self._events.record("motion_detected_during_timeout")
             return
         self._motion_timeout_active = True
-        self._logger.info("Motion timeout expired (%s seconds) - using default position", timeout_seconds)
+        self._logger.info(
+            "Motion timeout expired (%s seconds) - using default position",
+            timeout_seconds,
+        )
         self._events.record("motion_timeout_expired", timeout_seconds=timeout_seconds)
+
         await refresh_callback()
 
     def cancel_motion_timeout(self) -> None:
+        """Cancel the running timeout task, if any."""
         if self._timer.is_running:
             self._events.record("motion_timeout_canceled")
         self._timer.cancel()

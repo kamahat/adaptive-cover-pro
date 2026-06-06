@@ -148,7 +148,8 @@
           "start_time": "Heure de début",
           "start_entity": "Entité indiquant l'heure de début",
           "end_time": "Heure de fin",
-          "end_entity": "Entité indiquant l'heure de fin"
+          "end_entity": "Entité indiquant l'heure de fin",
+          "position_tolerance": "Tolérance de correspondance de position"
         },
         "data_description": {
           "delta_position": "Changement de position minimum (%) requis avant d'ajuster le store. Empêche les minuscules ajustements tandis que le soleil se déplace lentement. Valeurs typiques : 1-2% (très réactif, peut ajuster fréquemment), 5% (équilibré, recommandé pour la plupart), 10% (moins fréquent, mouvements plus importants). Exemple : Si le store est à 30% et le soleil se déplace légèrement, n'ajustez que si la nouvelle position est 35% ou plus (avec un seuil de 5%). Réduit l'usure du moteur et le bruit des minuscules ajustements constants.",
@@ -156,7 +157,8 @@
           "start_time": "Ne commencez pas le contrôle automatique avant cette heure (format 24 heures). Utilisez ceci pour rester endormi sans stores du matin (réglez sur 08:00 ou plus tard), correspondez à votre routine (réglez sur l'heure du réveil), ou laissez vide pour commencer au lever du soleil. Exemple : '07:30' signifie que le contrôle automatique commence à 7:30 AM. Le contrôle manuel fonctionne toujours avant cette heure.",
           "start_entity": "Entité représentant l'état de l'heure de début, remplaçant l'heure de début fixe définie ci-dessus. Utile pour automatiser l'heure de début avec une entité (par ex., un capteur qui fournit l'heure du réveil en fonction du calendrier ou du suivi du sommeil).",
           "end_time": "Arrêtez le contrôle automatique après cette heure (format 24 heures). Utilisez ceci pour garder l'intimité du soir (réglez sur 18:00 ou 19:00), retournez à la valeur par défaut avant le coucher, ou laissez vide pour continuer jusqu'au coucher du soleil. Exemple : '20:00' signifie que le contrôle automatique s'arrête à 20:00. Le contrôle manuel fonctionne toujours après cette heure.",
-          "end_entity": "Entité représentant l'état de l'heure de fin, remplaçant l'heure de fin fixe définie ci-dessus. Utile pour automatiser l'heure de fin avec une entité (par ex., un capteur qui fournit l'heure du coucher basée sur le calendrier ou la routine quotidienne)."
+          "end_entity": "Entité représentant l'état de l'heure de fin, remplaçant l'heure de fin fixe définie ci-dessus. Utile pour automatiser l'heure de fin avec une entité (par ex., un capteur qui fournit l'heure du coucher basée sur le calendrier ou la routine quotidienne).",
+          "position_tolerance": "Écart autorisé (%) entre la position commandée et la position signalée par le store avant que l'intégration la considère comme « non arrivée » et renvoyez la commande. Ceci est distinct de l'ajustement minimum ci-dessus : l'ajustement détermine si une nouvelle commande doit être envoyée, tandis que cette tolérance détermine si une commande déjà envoyée a été exécutée. La valeur par défaut de 3 % couvre l'arrondi normal du moteur (par ex. un store qui se stabilise à 98 % quand il est commandé à 100 %). Augmentez-la pour les actionneurs qui sous-dépassent ou surpassent systématiquement — par exemple, réglez 6 % si un store commandé à 100 % signale 95 % et serait autrement cliqué et réessayé chaque minute."
         }
       },
       "manual_override": {
@@ -222,7 +224,11 @@
           "custom_position_tilt_3": "Inclinaison pour le créneau 3",
           "custom_position_tilt_4": "Inclinaison pour le créneau 4",
           "default_tilt": "Inclinaison par défaut",
-          "sunset_tilt": "Inclinaison au coucher du soleil"
+          "sunset_tilt": "Inclinaison au coucher du soleil",
+          "custom_position_tilt_only_1": "Emplacement 1 : inclinaison uniquement",
+          "custom_position_tilt_only_2": "Emplacement 2 : inclinaison uniquement",
+          "custom_position_tilt_only_3": "Emplacement 3 : inclinaison uniquement",
+          "custom_position_tilt_only_4": "Emplacement 4 : inclinaison uniquement"
         },
         "data_description": {
           "custom_position_sensor_1": "Capteur binaire que, quand « activé », déplace le store à sa position configurée. Laissez vide pour sauter cet emplacement.",
@@ -250,7 +256,11 @@
           "custom_position_tilt_3": "Angle d'inclinaison (0–100 %) à appliquer lorsque le capteur du créneau 3 est actif. Stores vénitiens uniquement. Laisser vide pour laisser le moteur calculer l'inclinaison automatiquement.",
           "custom_position_tilt_4": "Angle d'inclinaison (0–100 %) à appliquer lorsque le capteur du créneau 4 est actif. Stores vénitiens uniquement. Laisser vide pour laisser le moteur calculer l'inclinaison automatiquement.",
           "default_tilt": "Angle d'inclinaison par défaut (0–100 %) pour les stores vénitiens lorsqu'aucun autre gestionnaire ne remplace l'inclinaison. Appliqué chaque fois que le gestionnaire de position par défaut est actif. Laisser vide pour laisser le moteur calculer l'inclinaison à partir de la géométrie solaire.",
-          "sunset_tilt": "Angle d'inclinaison (0–100 %) pour les stores vénitiens pendant la fenêtre du coucher du soleil. Remplace l'inclinaison par défaut lorsque la fenêtre horaire du coucher du soleil est active. Laisser vide pour revenir à l'inclinaison par défaut."
+          "sunset_tilt": "Angle d'inclinaison (0–100 %) pour les stores vénitiens pendant la fenêtre du coucher du soleil. Remplace l'inclinaison par défaut lorsque la fenêtre horaire du coucher du soleil est active. Laisser vide pour revenir à l'inclinaison par défaut.",
+          "custom_position_tilt_only_1": "Quand activé, l'emplacement 1 fixe uniquement l'angle de lamelle (sa valeur d'inclinaison) — le suivi solaire pilote toujours la position du store. Stores vénitiens uniquement. Remplace le Mode minimum et Utiliser Ma position pour cet emplacement.",
+          "custom_position_tilt_only_2": "Quand activé, l'emplacement 2 fixe uniquement l'angle de lamelle (sa valeur d'inclinaison) — le suivi solaire pilote toujours la position du store. Stores vénitiens uniquement. Remplace le Mode minimum et Utiliser Ma position pour cet emplacement.",
+          "custom_position_tilt_only_3": "Quand activé, l'emplacement 3 fixe uniquement l'angle de lamelle (sa valeur d'inclinaison) — le suivi solaire pilote toujours la position du store. Stores vénitiens uniquement. Remplace le Mode minimum et Utiliser Ma position pour cet emplacement.",
+          "custom_position_tilt_only_4": "Quand activé, l'emplacement 4 fixe uniquement l'angle de lamelle (sa valeur d'inclinaison) — le suivi solaire pilote toujours la position du store. Stores vénitiens uniquement. Remplace le Mode minimum et Utiliser Ma position pour cet emplacement."
         }
       },
       "motion_override": {
@@ -506,7 +516,7 @@
           "light_cloud": "☁️ Capteurs de lumière et nuages",
           "temperature_climate": "🌡️ Température et climat"
         },
-        "description": "Configuration : **{instance_name}**"
+        "description": "Configuration : **{instance_name}**\n\nSi Adaptive Cover Pro vous a été utile, vous pouvez [☕ Buy Me a Coffee]({coffee_url})."
       },
       "automation": {
         "title": "Horaires et synchronisation",
@@ -517,7 +527,8 @@
           "start_time": "Heure de début",
           "start_entity": "Entité indiquant l'heure de début",
           "end_time": "Heure de fin",
-          "end_entity": "Entité indiquant l'heure de fin"
+          "end_entity": "Entité indiquant l'heure de fin",
+          "position_tolerance": "Tolérance de correspondance de position"
         },
         "data_description": {
           "delta_position": "Changement de position minimum (%) requis avant d'ajuster le store. Empêche les minuscules ajustements tandis que le soleil se déplace lentement. Valeurs typiques : 1-2% (très réactif, peut ajuster fréquemment), 5% (équilibré, recommandé pour la plupart), 10% (moins fréquent, mouvements plus importants). Exemple : Si le store est à 30% et le soleil se déplace légèrement, n'ajustez que si la nouvelle position est 35% ou plus (avec un seuil de 5%). Réduit l'usure du moteur et le bruit des minuscules ajustements constants.",
@@ -525,7 +536,8 @@
           "start_time": "Ne commencez pas le contrôle automatique avant cette heure (format 24 heures). Utilisez ceci pour rester endormi sans stores du matin (réglez sur 08:00 ou plus tard), correspondez à votre routine (réglez sur l'heure du réveil), ou laissez vide pour commencer au lever du soleil. Exemple : '07:30' signifie que le contrôle automatique commence à 7:30 AM. Le contrôle manuel fonctionne toujours avant cette heure.",
           "start_entity": "Entité représentant l'état de l'heure de début, remplaçant l'heure de début fixe définie ci-dessus. Utile pour automatiser l'heure de début avec une entité (par ex., un capteur qui fournit l'heure du réveil en fonction du calendrier ou du suivi du sommeil).",
           "end_time": "Arrêtez le contrôle automatique après cette heure (format 24 heures). Utilisez ceci pour garder l'intimité du soir (réglez sur 18:00 ou 19:00), retournez à la valeur par défaut avant le coucher, ou laissez vide pour continuer jusqu'au coucher du soleil. Exemple : '20:00' signifie que le contrôle automatique s'arrête à 20:00. Le contrôle manuel fonctionne toujours après cette heure.",
-          "end_entity": "Entité représentant l'état de l'heure de fin, remplaçant l'heure de fin fixe définie ci-dessus. Utile pour automatiser l'heure de fin avec une entité (par ex., un capteur qui fournit l'heure du coucher basée sur le calendrier ou la routine quotidienne)."
+          "end_entity": "Entité représentant l'état de l'heure de fin, remplaçant l'heure de fin fixe définie ci-dessus. Utile pour automatiser l'heure de fin avec une entité (par ex., un capteur qui fournit l'heure du coucher basée sur le calendrier ou la routine quotidienne).",
+          "position_tolerance": "Écart autorisé (%) entre la position commandée et la position signalée par le store avant que l'intégration la considère comme « non arrivée » et renvoyez la commande. Ceci est distinct de l'ajustement minimum ci-dessus : l'ajustement détermine si une nouvelle commande doit être envoyée, tandis que cette tolérance détermine si une commande déjà envoyée a été exécutée. La valeur par défaut de 3 % couvre l'arrondi normal du moteur (par ex. un store qui se stabilise à 98 % quand il est commandé à 100 %). Augmentez-la pour les actionneurs qui sous-dépassent ou surpassent systématiquement — par exemple, réglez 6 % si un store commandé à 100 % signale 95 % et serait autrement cliqué et réessayé chaque minute."
         }
       },
       "cover_entities": {
@@ -715,7 +727,11 @@
           "custom_position_tilt_3": "Inclinaison pour le créneau 3",
           "custom_position_tilt_4": "Inclinaison pour le créneau 4",
           "default_tilt": "Inclinaison par défaut",
-          "sunset_tilt": "Inclinaison au coucher du soleil"
+          "sunset_tilt": "Inclinaison au coucher du soleil",
+          "custom_position_tilt_only_1": "Emplacement 1 : inclinaison uniquement",
+          "custom_position_tilt_only_2": "Emplacement 2 : inclinaison uniquement",
+          "custom_position_tilt_only_3": "Emplacement 3 : inclinaison uniquement",
+          "custom_position_tilt_only_4": "Emplacement 4 : inclinaison uniquement"
         },
         "data_description": {
           "custom_position_sensor_1": "Capteur binaire que, quand « activé », déplace le store à sa position configurée. Laissez vide pour sauter cet emplacement.",
@@ -743,7 +759,11 @@
           "custom_position_tilt_3": "Angle d'inclinaison (0–100 %) à appliquer lorsque le capteur du créneau 3 est actif. Stores vénitiens uniquement. Laisser vide pour laisser le moteur calculer l'inclinaison automatiquement.",
           "custom_position_tilt_4": "Angle d'inclinaison (0–100 %) à appliquer lorsque le capteur du créneau 4 est actif. Stores vénitiens uniquement. Laisser vide pour laisser le moteur calculer l'inclinaison automatiquement.",
           "default_tilt": "Angle d'inclinaison par défaut (0–100 %) pour les stores vénitiens lorsqu'aucun autre gestionnaire ne remplace l'inclinaison. Appliqué chaque fois que le gestionnaire de position par défaut est actif. Laisser vide pour laisser le moteur calculer l'inclinaison à partir de la géométrie solaire.",
-          "sunset_tilt": "Angle d'inclinaison (0–100 %) pour les stores vénitiens pendant la fenêtre du coucher du soleil. Remplace l'inclinaison par défaut lorsque la fenêtre horaire du coucher du soleil est active. Laisser vide pour revenir à l'inclinaison par défaut."
+          "sunset_tilt": "Angle d'inclinaison (0–100 %) pour les stores vénitiens pendant la fenêtre du coucher du soleil. Remplace l'inclinaison par défaut lorsque la fenêtre horaire du coucher du soleil est active. Laisser vide pour revenir à l'inclinaison par défaut.",
+          "custom_position_tilt_only_1": "Quand activé, l'emplacement 1 fixe uniquement l'angle de lamelle (sa valeur d'inclinaison) — le suivi solaire pilote toujours la position du store. Stores vénitiens uniquement. Remplace le Mode minimum et Utiliser Ma position pour cet emplacement.",
+          "custom_position_tilt_only_2": "Quand activé, l'emplacement 2 fixe uniquement l'angle de lamelle (sa valeur d'inclinaison) — le suivi solaire pilote toujours la position du store. Stores vénitiens uniquement. Remplace le Mode minimum et Utiliser Ma position pour cet emplacement.",
+          "custom_position_tilt_only_3": "Quand activé, l'emplacement 3 fixe uniquement l'angle de lamelle (sa valeur d'inclinaison) — le suivi solaire pilote toujours la position du store. Stores vénitiens uniquement. Remplace le Mode minimum et Utiliser Ma position pour cet emplacement.",
+          "custom_position_tilt_only_4": "Quand activé, l'emplacement 4 fixe uniquement l'angle de lamelle (sa valeur d'inclinaison) — le suivi solaire pilote toujours la position du store. Stores vénitiens uniquement. Remplace le Mode minimum et Utiliser Ma position pour cet emplacement."
         }
       },
       "motion_override": {

@@ -162,7 +162,22 @@ class AdaptiveCoverManager:
     # --- diagnostics bookkeeping -----------------------------------------
 
     def _record_primary_axis_suppression(self, entity_id: str, *, delta: float) -> None:
-        """Log a primary-axis publish-lag suppression and throttle the WARN."""
+        """Log a primary-axis publish-lag suppression and throttle the WARN.
+
+        Issue #33 Phase 5 (cross-axis): the position-axis equivalent of
+        ``manual_override_rejected_tilt_suppression``. Keeps a 24 h
+        rolling window of suppressions per entity (surfaced under
+        ``primary_axis_suppression_last_24h`` in diagnostics) and emits a
+        WARN line on the first hit per entity plus at most one per hour.
+
+        Why a counter at all: a user whose actuator publishes its
+        post-move state inside the default 45 s window is silent —
+        suppression does the right thing. A user whose actuator publishes
+        at 60+ s gets repeated rejections, and the counter is the only
+        signal in diagnostics that tells them to bump
+        ``venetian_backrotate_publish_lag``. The throttled WARN log makes
+        the same suggestion visible in the HA log.
+        """
         now = dt.datetime.now(dt.UTC)
         deque = self._primary_axis_suppression_counts.setdefault(
             entity_id, collections.deque()
@@ -190,7 +205,13 @@ class AdaptiveCoverManager:
             self._last_suppression_warn_at[entity_id] = now
 
     def primary_axis_suppression_counts(self) -> dict[str, int]:
-        """Return per-entity counts of primary-axis suppressions in the last 24 h."""
+        """Return per-entity counts of primary-axis suppressions in the last 24 h.
+
+        Used by ``DiagnosticsBuilder._build_debug_info`` to surface the
+        cross-axis publish-lag guard's activity. Empty entries are pruned
+        so the returned dict only carries entities with at least one
+        suppression in the window.
+        """
         return {
             eid: len(deque)
             for eid, deque in self._primary_axis_suppression_counts.items()
@@ -226,14 +247,26 @@ class AdaptiveCoverManager:
         self._event_buffer.resize(size)
 
     def add_covers(self, entity):
-        """Add covers to tracking."""
+        """Add covers to tracking.
+
+        Updates the set of tracked cover entities. Called during coordinator
+        updates to ensure all configured covers are being monitored.
+
+        Args:
+            entity: List or set of cover entity IDs to track
+
+        """
         self.covers.update(entity)
         self._detector.on_covers_added(entity)
 
     # --- command-timing clock --------------------------------------------
 
     def note_command_sent(self, entity_id: str) -> None:
-        """Record that ACP just issued a command to ``entity_id``."""
+        """Record that ACP just issued a command to ``entity_id``.
+
+        Stamps the post-command settle clock (feeding ``seconds_since_command``
+        on the detection context) and notifies the active detector.
+        """
         now = dt.datetime.now(dt.UTC)
         self._last_command_at[entity_id] = now.timestamp()
         self._detector.note_command_sent(entity_id, now)
@@ -252,7 +285,12 @@ class AdaptiveCoverManager:
         *,
         set_timestamp: Callable[[], None],
     ) -> None:
-        """Apply a detector decision: record events, suppression, mark, fire edge."""
+        """Apply a detector decision: record events, suppression, mark, fire edge.
+
+        ``set_timestamp`` is invoked (only when marking) to record the
+        per-channel ``manual_control_time``. The not-manual→manual edge fires
+        ``on_marked`` + the ``on_engaged`` callback.
+        """
         if decision.event_name is not None:
             self._record_event(
                 entity_id, decision.event_name, **(decision.event_kwargs or {})
@@ -283,7 +321,34 @@ class AdaptiveCoverManager:
         is_in_command_grace: Callable[[str], bool] | None = None,
         is_in_transit: Callable[[str], bool] | None = None,
     ):
-        """Process state change for manual override."""
+        """Process state change for manual override.
+
+        Runs the upstream gates (tracked / wait-for-target / command-grace /
+        secondary axis), resolves the primary-axis position, then delegates the
+        position decision to the active detector and applies its verdict.
+
+        Args:
+            states_data: StateChangedData with entity_id, old_state, new_state
+            our_state: Expected position from coordinator calculation
+            policy: ``CoverTypePolicy`` describing the cover's axes. Used to
+                read the new entity position via the same axis-routing rule
+                that drives ``CoverCommandService`` and ``CoverProvider``.
+            allow_reset: If True, updates timestamp on subsequent changes
+            is_waiting: Callable(entity_id) -> bool indicating whether the cover
+                is currently expected to be moving toward a commanded target.
+            manual_threshold: Minimum position delta to trigger manual detection
+            secondary_axis_check: Optional ``SecondaryAxisCheck`` supplied by
+                the cover-type policy. When provided, the secondary axis is
+                evaluated up front and a manual-override match short-circuits
+                the position-axis check.
+            is_in_command_grace: Optional callable ``(entity_id) -> bool`` that
+                returns True while the command-grace window is active. When
+                True, override detection is suppressed.
+            is_in_transit: Optional callable ``(entity_id) -> bool`` returning
+                True when HA reports the cover state as ``opening``/``closing``;
+                passed through to the detector via the context (issue #271).
+
+        """
         event = states_data
         if event is None:
             return
@@ -335,6 +400,10 @@ class AdaptiveCoverManager:
             if res.consumed:
                 return
 
+        # Single source of truth for "which axis carries the current value
+        # on this entity?" — same path used by CoverCommandService and
+        # CoverProvider, so manual-override detection sees the same number
+        # the coordinator commanded against.
         caps = check_cover_features(self.hass, entity_id)
         new_position = policy.read_axis_value(
             self.hass, entity_id, caps, state_obj=new_state
@@ -385,7 +454,18 @@ class AdaptiveCoverManager:
         context_user_id: str | None,
         context_id: str | None,
     ) -> bool:
-        """Mark manual override for a state change confirmed user-initiated by HA context."""
+        """Mark manual override for a state change confirmed user-initiated by HA context.
+
+        Called from the coordinator when ``new_state.context`` carries a non-None
+        ``user_id`` and ``context.id`` is **not** in the ACP position-context
+        tracker. Delegates to the active detector's ``on_user_context_change``
+        hook (default: mark manual). This path bypasses the position-math
+        comparison because the math is unreliable for assumed-state and
+        OPEN/CLOSE-only covers.
+
+        Returns True when the override was set, False when the entity is not
+        tracked (or the detector declined).
+        """
         if entity_id not in self.covers:
             return False
         decision = self._detector.on_user_context_change(
@@ -424,7 +504,20 @@ class AdaptiveCoverManager:
         my_position_value: int,
         is_waiting,
     ) -> None:
-        """Mark manual override when a user-initiated cover.stop_cover is detected."""
+        """Mark manual override when a user-initiated cover.stop_cover is detected.
+
+        Delegates to the active detector's ``on_stop_to_my`` hook (default: mark
+        unless the cover is still moving toward a commanded target). Covers
+        non-position-capable covers (e.g. Somfy RTS) where pressing STOP moves
+        the cover to the hardware "My" preset but never reports a new position.
+
+        Args:
+            entity_id:        Cover entity_id that received stop_cover.
+            my_position_value: The position (0–100) the My preset represents.
+            is_waiting:       Callable(entity_id) -> bool from
+                              CoverCommandService.
+
+        """
         if entity_id not in self.covers:
             return
         decision = self._detector.on_stop_to_my(
@@ -454,7 +547,19 @@ class AdaptiveCoverManager:
         )
 
     def set_last_updated(self, entity_id, new_state, allow_reset):
-        """Set last updated time for manual control."""
+        """Set last updated time for manual control.
+
+        Records timestamp of manual override detection for duration tracking.
+        Behavior depends on allow_reset setting: if True, updates timestamp
+        on each manual change; if False, keeps original timestamp to prevent
+        duration extension.
+
+        Args:
+            entity_id: Cover entity ID
+            new_state: New state object containing last_updated timestamp
+            allow_reset: If True, updates timestamp on subsequent changes
+
+        """
         if entity_id not in self.manual_control_time or allow_reset:
             last_updated = new_state.last_updated
             self.manual_control_time[entity_id] = last_updated
@@ -472,11 +577,40 @@ class AdaptiveCoverManager:
             )
 
     def mark_manual_control(self, cover: str) -> None:
-        """Mark cover as manual."""
+        """Mark cover as manual.
+
+        Sets manual control flag for cover. Called when manual override is
+        detected. Prevents automatic position commands until reset.
+
+        Args:
+            cover: Cover entity ID to mark
+
+        """
         self.manual_control[cover] = True
 
     def mark_user_command(self, entity_id: str, *, reason: str) -> None:
-        """Engage manual override pre-emptively from an ACP-owned surface."""
+        """Engage manual override pre-emptively from an ACP-owned surface.
+
+        Pre-emptive analog of :meth:`handle_user_initiated_state_change` which
+        is post-facto: called from the proxy cover entity and the
+        ``adaptive_cover_pro.set_position`` service before the cover even
+        moves so the next coordinator cycle does not yank the cover off the
+        user's set point.
+
+        Uses ``setdefault`` for ``manual_control_time`` so successive drags
+        do not extend the override window (matches ``allow_reset=False``
+        semantics).  Does not require the entity to be in ``self.covers`` —
+        the proxy may dispatch before ``add_covers`` runs. Does NOT fire the
+        ``on_engaged`` edge callback: these ACP-routed paths set a command
+        target immediately afterward, so the command-side discard would be
+        counter-productive.
+
+        Args:
+            entity_id: Cover entity ID to mark as manually overridden.
+            reason: Short label recorded into the diagnostic event buffer
+                (e.g. ``"proxy_managed"``, ``"set_position"``).
+
+        """
         self.manual_control[entity_id] = True
         self.manual_control_time.setdefault(entity_id, dt.datetime.now(dt.UTC))
         self._record_event(
@@ -488,7 +622,19 @@ class AdaptiveCoverManager:
         )
 
     async def reset_if_needed(self) -> set[str]:
-        """Reset expired manual overrides."""
+        """Reset expired manual overrides.
+
+        Checks all covers with manual control timestamps and resets those where
+        configured duration has elapsed. Called on every coordinator update to
+        ensure timely automatic reset.
+
+        Returns:
+            Set of entity IDs whose manual override just expired this call.
+            Empty set when nothing changed. The coordinator uses this to
+            proactively send the current pipeline position to those covers
+            so they don't linger at the user-moved position.
+
+        """
         expired: set[str] = set()
         current_time = dt.datetime.now(dt.UTC)
         manual_control_time_copy = dict(self.manual_control_time)
@@ -503,7 +649,17 @@ class AdaptiveCoverManager:
         return expired
 
     def reset(self, entity_id):
-        """Reset manual control."""
+        """Reset manual control.
+
+        Clears manual control flag and timestamp for cover. Called when duration
+        expires, user presses reset button, or manual detection is disabled.
+        Re-enables automatic position commands. Notifies the active detector and
+        fires the ``on_cleared`` edge callback.
+
+        Args:
+            entity_id: Cover entity ID to reset
+
+        """
         self.manual_control[entity_id] = False
         self.manual_control_time.pop(entity_id, None)
         self.logger.debug("Reset manual override for %s", entity_id)
@@ -519,17 +675,36 @@ class AdaptiveCoverManager:
             self._on_cleared([entity_id])
 
     def is_cover_manual(self, entity_id):
-        """Check if cover is manual."""
+        """Check if cover is manual.
+
+        Args:
+            entity_id: Cover entity ID to check
+
+        Returns:
+            True if cover is under manual control, False otherwise
+
+        """
         return self.manual_control.get(entity_id, False)
 
     @property
     def binary_cover_manual(self):
-        """Check if any cover is manual."""
+        """Check if any cover is manual.
+
+        Returns:
+            True if at least one tracked cover is under manual control,
+            False if all covers are under automatic control
+
+        """
         return any(value for value in self.manual_control.values())
 
     @property
     def manual_controlled(self):
-        """Get list of manual covers."""
+        """Get list of manual covers.
+
+        Returns:
+            List of cover entity IDs currently under manual control
+
+        """
         return [k for k, v in self.manual_control.items() if v]
 
 

@@ -168,6 +168,8 @@ _ALWAYS: Callable[[ClimateContext], bool] = lambda _ctx: True  # noqa: E731
 # The four rule tables — branch order matches the original routers verbatim
 # ---------------------------------------------------------------------------
 
+# normal_with_presence: winter-heating → winter-insulation → low-light →
+# summer-cooling → glare(defer/None).
 NORMAL_WITH_PRESENCE: tuple[ClimateRule, ...] = (
     ClimateRule(
         lambda c: c.is_winter and c.cover_valid,
@@ -192,6 +194,9 @@ NORMAL_WITH_PRESENCE: tuple[ClimateRule, ...] = (
     ClimateRule(_ALWAYS, ClimateStrategy.GLARE_CONTROL, _defer),
 )
 
+# normal_without_presence: inside cover.valid → low-light → summer → winter;
+# then winter-insulation; else low-light(default). Each valid-block rule carries
+# the cover_valid guard so the flat order matches the nested original.
 NORMAL_WITHOUT_PRESENCE: tuple[ClimateRule, ...] = (
     ClimateRule(
         lambda c: c.cover_valid and c.is_low_light,
@@ -216,6 +221,10 @@ NORMAL_WITHOUT_PRESENCE: tuple[ClimateRule, ...] = (
     ClimateRule(_ALWAYS, ClimateStrategy.LOW_LIGHT, _default),
 )
 
+# tilt_with_presence: inside cover.valid (and only when NOT both-seasons, the
+# original's defensive `if is_summer and is_winter: pass`) → winter → low-light →
+# summer; then winter-insulation; else glare(tilt default). Seasons are mutually
+# exclusive in practice; the not-both guards preserve the misconfig fall-through.
 TILT_WITH_PRESENCE: tuple[ClimateRule, ...] = (
     ClimateRule(
         lambda c: c.cover_valid and c.is_winter and not c.is_summer,
@@ -242,6 +251,9 @@ TILT_WITH_PRESENCE: tuple[ClimateRule, ...] = (
     ClimateRule(_ALWAYS, ClimateStrategy.GLARE_CONTROL, _tilt_default),
 )
 
+# tilt_without_presence: inside cover.valid → low-light → summer(closed) →
+# winter+mode2 → glare(tilt default, the valid-block catch-all); then
+# winter-insulation; else glare(solar).
 TILT_WITHOUT_PRESENCE: tuple[ClimateRule, ...] = (
     ClimateRule(
         lambda c: c.cover_valid and c.is_low_light,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from ...const import ControlMethod
+from ...const import ControlMethod, custom_position_handler_name
 from ..handler import OverrideHandler
 from ..helpers import compute_raw_calculated_position
 from ..types import PipelineResult, PipelineSnapshot
@@ -57,7 +57,7 @@ class CustomPositionHandler(OverrideHandler):
     @property
     def name(self) -> str:  # type: ignore[override]
         """Handler name includes the slot number for clear decision-trace output."""
-        return f"custom_position_{self._slot}"
+        return custom_position_handler_name(self._slot)
 
     def evaluate(self, snapshot: PipelineSnapshot) -> PipelineResult | None:
         """Return the configured position when this slot's sensor is active.
@@ -71,6 +71,11 @@ class CustomPositionHandler(OverrideHandler):
         for state in snapshot.custom_position_sensors:
             if state.entity_id == self._entity_id:
                 if state.is_on:
+                    # Tilt-only mode defers to the tilt-axis overlay pass — the
+                    # slot fixes the slat angle but never claims position
+                    # (issue #514). See pipeline/tilt_axis.py.
+                    if state.tilt_only:
+                        return None
                     # Floor mode (without use_my) defers to the floor-clamp
                     # composition pass — see pipeline/floors.py.
                     if state.min_mode and not state.use_my:

@@ -33,6 +33,8 @@ class WeatherManager:
         self._logger = logger
         self._event_buffer = event_buffer
         self._events = EventRecorder(event_buffer)
+
+        # Config (updated via update_config)
         self._wind_speed_sensor: str | None = None
         self._wind_direction_sensor: str | None = None
         self._wind_speed_threshold: float = DEFAULT_WEATHER_WIND_SPEED_THRESHOLD
@@ -161,7 +163,12 @@ class WeatherManager:
         previous = self._override_active
         self._override_active = True
         if not previous:
-            self._events.record("weather_override_changed", entity_id="", previous=False, current=True)
+            self._events.record(
+                "weather_override_changed",
+                entity_id="",
+                previous=False,
+                current=True,
+            )
 
     def reconcile(self) -> str | None:
         if not self.configured_sensors: return None
@@ -185,8 +192,18 @@ class WeatherManager:
             self._override_active = True
             return
         self._override_active = False
-        self._events.record("weather_override_changed", entity_id="", previous=True, current=False, reason=f"clear-delay expired ({timeout_seconds}s)")
-        self._logger.info("Weather clear-delay expired (%s seconds) — resuming normal control", timeout_seconds)
+        self._events.record(
+            "weather_override_changed",
+            entity_id="",
+            previous=True,
+            current=False,
+            reason=f"clear-delay expired ({timeout_seconds}s)",
+        )
+        self._logger.info(
+            "Weather clear-delay expired (%s seconds) — resuming normal control",
+            timeout_seconds,
+        )
+
         await refresh_callback()
 
     def cancel_weather_timeout(self) -> None:

@@ -289,9 +289,6 @@ async def test_user_context_fast_path_marks_override_for_user_event():
 
     entity_id = "cover.patio_awning"
     coordinator = _make_coordinator(entity_id=entity_id, target=0)
-    # is_cover_manual: False before the fast-path, True after (simulating that
-    # handle_user_initiated_state_change marked the cover).
-    coordinator.manager.is_cover_manual = MagicMock(side_effect=[False, True])
     event_data = _make_state_change_data(
         entity_id,
         new_state_value="open",
@@ -310,8 +307,10 @@ async def test_user_context_fast_path_marks_override_for_user_event():
     assert call.kwargs["context_id"] == "ctx-holly-open-1"
     # Existing position-math path was NOT called
     coordinator.manager.handle_state_change.assert_not_called()
-    # And the latched target was discarded so reconciliation stops fighting
-    coordinator._cmd_svc.discard_target.assert_called_once_with(entity_id)
+    # The latched target is now discarded inside the manager's on_engaged edge
+    # callback (wired to _cmd_svc.discard_target), not by the coordinator, so it
+    # is no longer asserted at this seam — see test_override_detector for the
+    # engine-level edge behavior.
 
 
 @pytest.mark.asyncio

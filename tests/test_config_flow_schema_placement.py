@@ -8,7 +8,9 @@ from custom_components.adaptive_cover_pro import config_flow as cf
 from custom_components.adaptive_cover_pro.const import (
     CONF_DEBUG_EVENT_BUFFER_SIZE,
     CONF_DEBUG_MODE,
+    CONF_DELTA_POSITION,
     CONF_MANUAL_OVERRIDE_DURATION,
+    CONF_POSITION_TOLERANCE,
     CONF_TRANSIT_TIMEOUT,
     CONF_VENETIAN_MODE,
 )
@@ -16,6 +18,18 @@ from custom_components.adaptive_cover_pro.const import (
 
 def _schema_keys(schema) -> set[str]:
     return {str(k) for k in schema.schema}
+
+
+def test_position_tolerance_in_automation_schema_with_default_three() -> None:
+    """CONF_POSITION_TOLERANCE lives on the automation step, default 3 (issue #507)."""
+    keys = _schema_keys(cf.AUTOMATION_SCHEMA)
+    assert CONF_POSITION_TOLERANCE in keys
+    # Placed alongside the movement delta on the automation step.
+    assert CONF_DELTA_POSITION in keys
+    marker = next(
+        k for k in cf.AUTOMATION_SCHEMA.schema if str(k) == CONF_POSITION_TOLERANCE
+    )
+    assert marker.default() == 3
 
 
 @pytest.mark.parametrize(
@@ -94,6 +108,56 @@ def test_custom_position_schema_awning_excludes_tilt_slots() -> None:
         assert (
             slot_keys["tilt"] not in keys
         ), f"{slot_keys['tilt']} should not be in awning"
+
+
+# ---------------------------------------------------------------------------
+# Per-slot tilt-only boolean — venetian only (issue #514)
+# ---------------------------------------------------------------------------
+
+
+def test_custom_position_schema_venetian_includes_tilt_only_slots() -> None:
+    """Venetian schema includes the per-slot tilt_only boolean."""
+    from custom_components.adaptive_cover_pro.const import (
+        CUSTOM_POSITION_SLOTS,
+        CoverType,
+    )
+
+    schema = cf._build_custom_position_schema_dict(sensor_type=CoverType.VENETIAN)
+    keys = {str(k) for k in schema}
+    for slot_keys in CUSTOM_POSITION_SLOTS.values():
+        assert (
+            slot_keys["tilt_only"] in keys
+        ), f"{slot_keys['tilt_only']} missing for venetian"
+
+
+def test_custom_position_schema_blind_excludes_tilt_only_slots() -> None:
+    """Blind schema must not include the per-slot tilt_only boolean."""
+    from custom_components.adaptive_cover_pro.const import (
+        CUSTOM_POSITION_SLOTS,
+        CoverType,
+    )
+
+    schema = cf._build_custom_position_schema_dict(sensor_type=CoverType.BLIND)
+    keys = {str(k) for k in schema}
+    for slot_keys in CUSTOM_POSITION_SLOTS.values():
+        assert (
+            slot_keys["tilt_only"] not in keys
+        ), f"{slot_keys['tilt_only']} should not be in blind"
+
+
+def test_custom_position_schema_awning_excludes_tilt_only_slots() -> None:
+    """Awning schema must not include the per-slot tilt_only boolean."""
+    from custom_components.adaptive_cover_pro.const import (
+        CUSTOM_POSITION_SLOTS,
+        CoverType,
+    )
+
+    schema = cf._build_custom_position_schema_dict(sensor_type=CoverType.AWNING)
+    keys = {str(k) for k in schema}
+    for slot_keys in CUSTOM_POSITION_SLOTS.values():
+        assert (
+            slot_keys["tilt_only"] not in keys
+        ), f"{slot_keys['tilt_only']} should not be in awning"
 
 
 # ---------------------------------------------------------------------------

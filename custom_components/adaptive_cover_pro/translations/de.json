@@ -148,7 +148,8 @@
           "start_time": "Startzeit",
           "start_entity": "Entität, die die Startzeit angibt",
           "end_time": "Endzeit",
-          "end_entity": "Entität, die die Endzeit angibt"
+          "end_entity": "Entität, die die Endzeit angibt",
+          "position_tolerance": "Positionsabweichungs-Toleranz"
         },
         "data_description": {
           "delta_position": "Minimale Positionsänderung (%) erforderlich, bevor die Beschattung angepasst wird. Verhindert winzige Anpassungen bei langsamer Sonnenbewegung. Typische Werte: 1–2% (sehr responsiv, häufige Anpassungen), 5% (ausgewogen, für die meisten empfohlen), 10% (seltener, größere Bewegungen). Beispiel: Wenn die Beschattung bei 30% ist und die Sonne sich leicht bewegt, nur anpassen, wenn die neue Position 35% oder mehr beträgt (mit 5%-Schwellwert). Reduziert Verschleiß und Geräusche durch ständige winzige Anpassungen.",
@@ -156,7 +157,8 @@
           "start_time": "Automatische Steuerung nicht vor dieser Uhrzeit starten (24-Stunden-Format). Nutzen Sie dies, um morgens länger zu schlafen ohne Jalousien (auf 08:00 oder später einstellen), Ihre Routine abzugleichen (auf Ihre Aufwachzeit einstellen) oder lassen Sie es leer, um bei Sonnenaufgang zu starten. Beispiel: „07:30“ bedeutet, dass die automatische Steuerung um 07:30 Uhr beginnt. Manuelle Steuerung funktioniert davor weiterhin.",
           "start_entity": "Entität, die den Startzeitpunkt darstellt und die oben eingestellte feste Startzeit außer Kraft setzt. Nützlich zur Automatisierung der Startzeit mit einer Entität (z. B. Sensor, der die Aufwachzeit basierend auf Kalender oder Schlafverfolgung bereitstellt).",
           "end_time": "Automatische Steuerung nach dieser Uhrzeit beenden (24-Stunden-Format). Nutzen Sie dies für Abendprivatsphäre (auf 18:00 oder 19:00 einstellen), Rückkehr zum Standard vor dem Schlafengehen oder lassen Sie es leer, um bis zum Sonnenuntergang weiterzumachen. Beispiel: „20:00“ bedeutet, dass die automatische Steuerung um 20:00 Uhr endet. Manuelle Steuerung funktioniert nach dieser Zeit weiterhin.",
-          "end_entity": "Entität, die den Endzeitpunkt darstellt und die oben eingestellte feste Endzeit außer Kraft setzt. Nützlich zur Automatisierung der Endzeit mit einer Entität (z. B. Sensor, der die Schlafenszeit basierend auf Kalender oder täglicher Routine bereitstellt)."
+          "end_entity": "Entität, die den Endzeitpunkt darstellt und die oben eingestellte feste Endzeit außer Kraft setzt. Nützlich zur Automatisierung der Endzeit mit einer Entität (z. B. Sensor, der die Schlafenszeit basierend auf Kalender oder täglicher Routine bereitstellt).",
+          "position_tolerance": "Erlaubter Toleranzbereich (%) zwischen der angeforderten Position und der von der Beschattung gemeldeten Position, bevor die Integration sie als \"nicht angekommen\" behandelt und den Befehl erneut sendet. Dies unterscheidet sich von der Minimalen Positionsanpassung oben: Die Anpassung entscheidet, ob ein neuer Befehl gesendet wird, während diese Toleranz entscheidet, ob ein bereits gesendeter Befehl akzeptiert wurde. Der Standard von 3% deckt normale Motorreaktionen ab (z. B. eine Beschattung, die sich auf 98% einstellt, wenn sie auf 100% eingestellt wird). Erhöhen Sie ihn für Antriebe, die konsistent unter- oder überschießen — stellen Sie beispielsweise 6% ein, wenn eine Beschattung, die auf 100% angefordert wird, 95% meldet und sonst jede Minute klicken und erneut versuchen würde."
         }
       },
       "manual_override": {
@@ -222,7 +224,11 @@
           "custom_position_tilt_3": "Neigung für Slot 3",
           "custom_position_tilt_4": "Neigung für Slot 4",
           "default_tilt": "Standard-Neigung",
-          "sunset_tilt": "Sonnenuntergang-Neigung"
+          "sunset_tilt": "Sonnenuntergang-Neigung",
+          "custom_position_tilt_only_1": "Slot 1: nur Neigung",
+          "custom_position_tilt_only_2": "Slot 2: nur Neigung",
+          "custom_position_tilt_only_3": "Slot 3: nur Neigung",
+          "custom_position_tilt_only_4": "Slot 4: nur Neigung"
         },
         "data_description": {
           "custom_position_sensor_1": "Binärer Sensor, der bei „ein“ die Beschattung in ihre konfigurierte Position bewegt. Lassen Sie leer, um diesen Slot zu überspringen.",
@@ -250,7 +256,11 @@
           "custom_position_tilt_3": "Neigungswinkel (0–100 %), der gesetzt wird, wenn der Sensor von Slot 3 aktiv ist. Nur für Jalousien. Nicht setzen, damit die Engine die Neigung automatisch berechnet.",
           "custom_position_tilt_4": "Neigungswinkel (0–100 %), der gesetzt wird, wenn der Sensor von Slot 4 aktiv ist. Nur für Jalousien. Nicht setzen, damit die Engine die Neigung automatisch berechnet.",
           "default_tilt": "Standard-Neigungswinkel (0–100 %) für Jalousien, wenn kein anderer Handler die Neigung überschreibt. Wird immer dann angewendet, wenn der Standard-Positionshandler aktiv ist. Nicht setzen, damit die Engine die Neigung aus der Sonnengeometrie berechnet.",
-          "sunset_tilt": "Neigungswinkel (0–100 %) für Jalousien während des Sonnenuntergangsfensters. Überschreibt die Standard-Neigung, wenn das Sonnenuntergangs-Zeitfenster aktiv ist. Nicht setzen, um auf die Standard-Neigung zurückzufallen."
+          "sunset_tilt": "Neigungswinkel (0–100 %) für Jalousien während des Sonnenuntergangsfensters. Überschreibt die Standard-Neigung, wenn das Sonnenuntergangs-Zeitfenster aktiv ist. Nicht setzen, um auf die Standard-Neigung zurückzufallen.",
+          "custom_position_tilt_only_1": "Wenn aktiviert, wird bei Slot 1 nur der Lamellen-Winkel (Neigung) festgelegt — die Position der Jalousie wird weiterhin durch die Sonnenstand-Nachführung gesteuert. Nur für Jalousien. Setzt „Minimaler Modus\" und „Meine Position verwenden\" für diesen Slot außer Kraft.",
+          "custom_position_tilt_only_2": "Wenn aktiviert, wird bei Slot 2 nur der Lamellen-Winkel (Neigung) festgelegt — die Position der Jalousie wird weiterhin durch die Sonnenstand-Nachführung gesteuert. Nur für Jalousien. Setzt „Minimaler Modus\" und „Meine Position verwenden\" für diesen Slot außer Kraft.",
+          "custom_position_tilt_only_3": "Wenn aktiviert, wird bei Slot 3 nur der Lamellen-Winkel (Neigung) festgelegt — die Position der Jalousie wird weiterhin durch die Sonnenstand-Nachführung gesteuert. Nur für Jalousien. Setzt „Minimaler Modus\" und „Meine Position verwenden\" für diesen Slot außer Kraft.",
+          "custom_position_tilt_only_4": "Wenn aktiviert, wird bei Slot 4 nur der Lamellen-Winkel (Neigung) festgelegt — die Position der Jalousie wird weiterhin durch die Sonnenstand-Nachführung gesteuert. Nur für Jalousien. Setzt „Minimaler Modus\" und „Meine Position verwenden\" für diesen Slot außer Kraft."
         }
       },
       "motion_override": {
@@ -506,7 +516,7 @@
           "light_cloud": "☁️ Lichtsensoren und Wolken",
           "temperature_climate": "🌡️ Temperatur und Klima"
         },
-        "description": "Konfiguration: **{instance_name}**"
+        "description": "Konfiguration: **{instance_name}**\n\nWenn Adaptive Cover Pro hilfreich für dich war, kannst du [☕ Buy Me a Coffee]({coffee_url}) unterstützen."
       },
       "automation": {
         "title": "Zeitplan und Timing",
@@ -517,7 +527,8 @@
           "start_time": "Startzeit",
           "start_entity": "Entität, die die Startzeit angibt",
           "end_time": "Endzeit",
-          "end_entity": "Entität, die die Endzeit angibt"
+          "end_entity": "Entität, die die Endzeit angibt",
+          "position_tolerance": "Positionsabweichungs-Toleranz"
         },
         "data_description": {
           "delta_position": "Minimale Positionsänderung (%) erforderlich, bevor die Beschattung angepasst wird. Verhindert kleine Anpassungen, während sich die Sonne langsam bewegt. Typische Werte: 1-2 % (sehr reaktiv, kann häufig anpassen), 5 % (ausgewogen, empfohlen für die meisten), 10 % (weniger häufig, größere Bewegungen). Beispiel: Wenn die Beschattung bei 30 % ist und die Sonne sich leicht bewegt, passen Sie nur an, wenn die neue Position 35 % oder höher ist (mit 5 % Schwelle). Reduziert Motorverschleiß und Lärm von konstanten kleinen Anpassungen.",
@@ -525,7 +536,8 @@
           "start_time": "Starten Sie nicht die automatische Kontrolle vor dieser Zeit (24-Stunden-Format). Verwenden Sie dies, um länger zu schlafen ohne Morgenblindheit (auf 08:00 oder später setzen), Ihrer Routine zu entsprechen (auf Aufwachzeit setzen), oder leer lassen, um bei Sonnenaufgang zu starten. Beispiel: ‚07:30' bedeutet, dass die automatische Kontrolle um 07:30 Uhr beginnt. Manuelle Kontrolle funktioniert vor dieser Zeit immer noch.",
           "start_entity": "Entität, die den Startzeitstatus darstellt und die oben festgelegte feste Startzeit überschreibt. Nützlich zur Automatisierung der Startzeit mit einer Entität (z. B. Sensor, der Aufwachzeit basierend auf Kalender oder Schlafverfolgung bereitstellt).",
           "end_time": "Beenden Sie die automatische Kontrolle nach dieser Zeit (24-Stunden-Format). Verwenden Sie dies, um Abendprivatsphäre zu behalten (auf 18:00 oder 19:00 setzen), zur Standardposition vor dem Schlafengehen zurückzukehren, oder leer lassen, um bis zum Sonnenuntergang zu fahren. Beispiel: ‚20:00' bedeutet, dass die automatische Kontrolle um 20:00 Uhr endet. Manuelle Kontrolle funktioniert nach dieser Zeit immer noch.",
-          "end_entity": "Entität, die den Endzeitstatus darstellt und die oben festgelegte feste Endzeit überschreibt. Nützlich zur Automatisierung der Endzeit mit einer Entität (z. B. Sensor, der Schlafenszeit basierend auf Kalender oder täglicher Routine bereitstellt)."
+          "end_entity": "Entität, die den Endzeitstatus darstellt und die oben festgelegte feste Endzeit überschreibt. Nützlich zur Automatisierung der Endzeit mit einer Entität (z. B. Sensor, der Schlafenszeit basierend auf Kalender oder täglicher Routine bereitstellt).",
+          "position_tolerance": "Erlaubter Toleranzbereich (%) zwischen der angeforderten Position und der von der Beschattung gemeldeten Position, bevor die Integration sie als \"nicht angekommen\" behandelt und den Befehl erneut sendet. Dies unterscheidet sich von der Minimalen Positionsanpassung oben: Die Anpassung entscheidet, ob ein neuer Befehl gesendet wird, während diese Toleranz entscheidet, ob ein bereits gesendeter Befehl akzeptiert wurde. Der Standard von 3% deckt normale Motorreaktionen ab (z. B. eine Beschattung, die sich auf 98% einstellt, wenn sie auf 100% eingestellt wird). Erhöhen Sie ihn für Antriebe, die konsistent unter- oder überschießen — stellen Sie beispielsweise 6% ein, wenn eine Beschattung, die auf 100% angefordert wird, 95% meldet und sonst jede Minute klicken und erneut versuchen würde."
         }
       },
       "cover_entities": {
@@ -715,7 +727,11 @@
           "custom_position_tilt_3": "Neigung für Slot 3",
           "custom_position_tilt_4": "Neigung für Slot 4",
           "default_tilt": "Standard-Neigung",
-          "sunset_tilt": "Sonnenuntergang-Neigung"
+          "sunset_tilt": "Sonnenuntergang-Neigung",
+          "custom_position_tilt_only_1": "Slot 1: nur Neigung",
+          "custom_position_tilt_only_2": "Slot 2: nur Neigung",
+          "custom_position_tilt_only_3": "Slot 3: nur Neigung",
+          "custom_position_tilt_only_4": "Slot 4: nur Neigung"
         },
         "data_description": {
           "custom_position_sensor_1": "Binärsensor, der die Abdeckung bei Aktivierung (An) zu ihrer konfigurierten Position verschiebt. Lassen Sie leer, um diesen Slot zu überspringen.",
@@ -743,7 +759,11 @@
           "custom_position_tilt_3": "Neigungswinkel (0–100 %), der gesetzt wird, wenn der Sensor von Slot 3 aktiv ist. Nur für Jalousien. Nicht setzen, damit die Engine die Neigung automatisch berechnet.",
           "custom_position_tilt_4": "Neigungswinkel (0–100 %), der gesetzt wird, wenn der Sensor von Slot 4 aktiv ist. Nur für Jalousien. Nicht setzen, damit die Engine die Neigung automatisch berechnet.",
           "default_tilt": "Standard-Neigungswinkel (0–100 %) für Jalousien, wenn kein anderer Handler die Neigung überschreibt. Wird immer dann angewendet, wenn der Standard-Positionshandler aktiv ist. Nicht setzen, damit die Engine die Neigung aus der Sonnengeometrie berechnet.",
-          "sunset_tilt": "Neigungswinkel (0–100 %) für Jalousien während des Sonnenuntergangsfensters. Überschreibt die Standard-Neigung, wenn das Sonnenuntergangs-Zeitfenster aktiv ist. Nicht setzen, um auf die Standard-Neigung zurückzufallen."
+          "sunset_tilt": "Neigungswinkel (0–100 %) für Jalousien während des Sonnenuntergangsfensters. Überschreibt die Standard-Neigung, wenn das Sonnenuntergangs-Zeitfenster aktiv ist. Nicht setzen, um auf die Standard-Neigung zurückzufallen.",
+          "custom_position_tilt_only_1": "Wenn aktiviert, wird bei Slot 1 nur der Lamellen-Winkel (Neigung) festgelegt — die Position der Jalousie wird weiterhin durch die Sonnenstand-Nachführung gesteuert. Nur für Jalousien. Setzt „Minimaler Modus\" und „Meine Position verwenden\" für diesen Slot außer Kraft.",
+          "custom_position_tilt_only_2": "Wenn aktiviert, wird bei Slot 2 nur der Lamellen-Winkel (Neigung) festgelegt — die Position der Jalousie wird weiterhin durch die Sonnenstand-Nachführung gesteuert. Nur für Jalousien. Setzt „Minimaler Modus\" und „Meine Position verwenden\" für diesen Slot außer Kraft.",
+          "custom_position_tilt_only_3": "Wenn aktiviert, wird bei Slot 3 nur der Lamellen-Winkel (Neigung) festgelegt — die Position der Jalousie wird weiterhin durch die Sonnenstand-Nachführung gesteuert. Nur für Jalousien. Setzt „Minimaler Modus\" und „Meine Position verwenden\" für diesen Slot außer Kraft.",
+          "custom_position_tilt_only_4": "Wenn aktiviert, wird bei Slot 4 nur der Lamellen-Winkel (Neigung) festgelegt — die Position der Jalousie wird weiterhin durch die Sonnenstand-Nachführung gesteuert. Nur für Jalousien. Setzt „Minimaler Modus\" und „Meine Position verwenden\" für diesen Slot außer Kraft."
         }
       },
       "motion_override": {

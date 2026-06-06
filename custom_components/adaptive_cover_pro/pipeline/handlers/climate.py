@@ -12,12 +12,7 @@ from typing import Any, cast
 
 import numpy as np
 
-from ...const import (
-    CLIMATE_DEFAULT_TILT_ANGLE,
-    CLIMATE_SUMMER_TILT_ANGLE,
-    POSITION_CLOSED,
-)
-from ...cover_types import TiltPolicy, get_policy
+from ...cover_types import get_policy
 from ...cover_types.base import AXIS_NAME_TILT, CoverTypePolicy
 from ...engine.covers import AdaptiveTiltCover
 from ...const import ClimateStrategy, ControlMethod
@@ -28,6 +23,15 @@ from ..helpers import (
     compute_solar_position,
 )
 from ..types import PipelineResult, PipelineSnapshot
+from .climate_modes import (
+    NORMAL_WITH_PRESENCE,
+    NORMAL_WITHOUT_PRESENCE,
+    TILT_WITH_PRESENCE,
+    TILT_WITHOUT_PRESENCE,
+    ClimateContext,
+    ClimateRule,
+    evaluate_rules,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -162,142 +166,55 @@ class ClimateCoverState:
             return self.normal_with_presence()
         return self.normal_without_presence()
 
+    def _build_context(self, *, tilt: bool) -> ClimateContext:
+        """Bundle data + (for tilt covers) precomputed slat geometry for the rules.
+
+        ``gamma_deg``/``beta_deg`` are computed once here for tilt covers — the
+        same ``float(tilt_cover.gamma)`` / ``np.rad2deg(tilt_cover.beta)`` the
+        original routers used, evaluated regardless of validity to match the
+        prior behavior.
+        """
+        gamma_deg = 0.0
+        beta_deg = 0.0
+        if tilt:
+            tilt_cover = cast(AdaptiveTiltCover, self.cover)
+            # SunGeometry.gamma is already in degrees; pass it through unconverted.
+            gamma_deg = float(tilt_cover.gamma)
+            beta_deg = float(np.rad2deg(tilt_cover.beta))
+        return ClimateContext(
+            data=self.climate_data,
+            cover=self.cover,
+            default_position=self.default_position,
+            solar_position=self._solar_position,
+            gamma_deg=gamma_deg,
+            beta_deg=beta_deg,
+        )
+
+    def _run(self, rules: tuple[ClimateRule, ...], *, tilt: bool) -> int | None:
+        """Evaluate a rule table, record the chosen strategy, return its position."""
+        strategy, position = evaluate_rules(rules, self._build_context(tilt=tilt))
+        self.climate_strategy = strategy
+        return position
+
     def normal_with_presence(self) -> int | None:
         """Climate strategy for normal covers with occupants present.
 
         Returns None for the GLARE_CONTROL case — the pipeline falls through
         to GlareZoneHandler (priority 45) then SolarHandler (priority 40).
         """
-        is_summer = self.climate_data.is_summer
-        if self.climate_data.is_winter and self.cover.valid:
-            self.climate_strategy = ClimateStrategy.WINTER_HEATING
-            return self.climate_data.policy.position_for_intent(sun_through=True)
-        # Close for insulation when in winter and sun not hitting window.
-        if self.climate_data.is_winter and self.climate_data.winter_close_insulation:
-            self.climate_strategy = ClimateStrategy.WINTER_INSULATION
-            # 0 is correct for both blinds (lowered) and awnings (retracted).
-            return POSITION_CLOSED
-        # Low-light check applies in ALL seasons — if irradiance/lux indicates
-        # no real sun (even in summer), use default position rather than closing.
-        if (
-            self.climate_data.lux
-            or self.climate_data.irradiance
-            or not self.climate_data.is_sunny
-        ):
-            self.climate_strategy = ClimateStrategy.LOW_LIGHT
-            return self.default_position
-        if is_summer and self.climate_data.transparent_blind and self.cover.valid:
-            self.climate_strategy = ClimateStrategy.SUMMER_COOLING
-            return self.climate_data.policy.position_for_intent(sun_through=False)
-        self.climate_strategy = ClimateStrategy.GLARE_CONTROL
-        return None
+        return self._run(NORMAL_WITH_PRESENCE, tilt=False)
 
     def normal_without_presence(self) -> int:
         """Climate strategy for normal covers without occupants."""
-        if self.cover.valid:
-            # Low-light check overrides season logic — if irradiance/lux indicates
-            # no real sun (even in summer), use default position rather than closing.
-            if (
-                self.climate_data.lux
-                or self.climate_data.irradiance
-                or not self.climate_data.is_sunny
-            ):
-                self.climate_strategy = ClimateStrategy.LOW_LIGHT
-                return self.default_position
-            if self.climate_data.is_summer:
-                self.climate_strategy = ClimateStrategy.SUMMER_COOLING
-                return self.climate_data.policy.position_for_intent(sun_through=False)
-            if self.climate_data.is_winter:
-                self.climate_strategy = ClimateStrategy.WINTER_HEATING
-                return self.climate_data.policy.position_for_intent(sun_through=True)
-        # Close for insulation when in winter and sun not hitting window.
-        if self.climate_data.is_winter and self.climate_data.winter_close_insulation:
-            self.climate_strategy = ClimateStrategy.WINTER_INSULATION
-            # 0 is correct for both blinds (lowered) and awnings (retracted).
-            return POSITION_CLOSED
-        self.climate_strategy = ClimateStrategy.LOW_LIGHT
-        return self.default_position
+        return cast(int, self._run(NORMAL_WITHOUT_PRESENCE, tilt=False))
 
     def tilt_with_presence(self) -> int:
         """Climate strategy for tilt covers with occupants present."""
-        tilt_cover = cast(AdaptiveTiltCover, self.cover)
-        # SunGeometry.gamma is already in degrees; pass it through unconverted.
-        gamma_deg = float(tilt_cover.gamma)
-        if self.cover.valid:
-            if self.climate_data.is_summer and self.climate_data.is_winter:
-                # Conflicting season signals — fall through to glare control
-                pass
-            elif self.climate_data.is_winter:
-                self.climate_strategy = ClimateStrategy.WINTER_HEATING
-                return self._solar_position()
-            elif (
-                self.climate_data.lux
-                or self.climate_data.irradiance
-                or not self.climate_data.is_sunny
-            ):
-                # Low-light check applies in ALL seasons for tilt covers too
-                self.climate_strategy = ClimateStrategy.LOW_LIGHT
-                return self._solar_position()
-            elif self.climate_data.is_summer:
-                self.climate_strategy = ClimateStrategy.SUMMER_COOLING
-                return TiltPolicy.climate_tilt_percentage(
-                    angle_deg=CLIMATE_SUMMER_TILT_ANGLE,
-                    mode=tilt_cover.mode,
-                    gamma_deg=gamma_deg,
-                )
-        # Close for insulation when in winter and sun not hitting window.
-        if self.climate_data.is_winter and self.climate_data.winter_close_insulation:
-            self.climate_strategy = ClimateStrategy.WINTER_INSULATION
-            return POSITION_CLOSED
-        self.climate_strategy = ClimateStrategy.GLARE_CONTROL
-        return TiltPolicy.climate_tilt_percentage(
-            angle_deg=CLIMATE_DEFAULT_TILT_ANGLE,
-            mode=tilt_cover.mode,
-            gamma_deg=gamma_deg,
-        )
+        return cast(int, self._run(TILT_WITH_PRESENCE, tilt=True))
 
     def tilt_without_presence(self) -> int:
         """Climate strategy for tilt covers without occupants."""
-        tilt_cover = cast(AdaptiveTiltCover, self.cover)
-        # SunGeometry.gamma is already in degrees; pass it through unconverted.
-        gamma_deg = float(tilt_cover.gamma)
-        beta = float(np.rad2deg(tilt_cover.beta))
-        if tilt_cover.valid:
-            # Low-light check applies before summer cooling
-            if (
-                self.climate_data.lux
-                or self.climate_data.irradiance
-                or not self.climate_data.is_sunny
-            ):
-                self.climate_strategy = ClimateStrategy.LOW_LIGHT
-                return self._solar_position()
-            if self.climate_data.is_summer:
-                self.climate_strategy = ClimateStrategy.SUMMER_COOLING
-                return POSITION_CLOSED
-            if self.climate_data.is_winter and TiltPolicy.is_mode2(tilt_cover.mode):
-                self.climate_strategy = ClimateStrategy.WINTER_HEATING
-                # MODE2 winter heating opens the slat toward the sun.  Pre-fix
-                # this used a bespoke `(beta + 90) / 180 * 100` formula that
-                # ignored gamma; the helper preserves the positive-hemisphere
-                # answer (passing gamma_deg=0) and centralises the conversion.
-                return TiltPolicy.climate_tilt_percentage(
-                    angle_deg=beta,
-                    mode=tilt_cover.mode,
-                    gamma_deg=0.0,
-                    sun_through=True,
-                )
-            self.climate_strategy = ClimateStrategy.GLARE_CONTROL
-            return TiltPolicy.climate_tilt_percentage(
-                angle_deg=CLIMATE_DEFAULT_TILT_ANGLE,
-                mode=tilt_cover.mode,
-                gamma_deg=gamma_deg,
-            )
-        # Close for insulation when in winter and sun not hitting window.
-        if self.climate_data.is_winter and self.climate_data.winter_close_insulation:
-            self.climate_strategy = ClimateStrategy.WINTER_INSULATION
-            return POSITION_CLOSED
-        self.climate_strategy = ClimateStrategy.GLARE_CONTROL
-        return self._solar_position()
+        return cast(int, self._run(TILT_WITHOUT_PRESENCE, tilt=True))
 
     def tilt_state(self) -> int:
         """Route tilt cover based on presence.

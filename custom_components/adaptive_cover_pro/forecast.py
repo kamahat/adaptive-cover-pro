@@ -94,6 +94,12 @@ def build_forecast(
     ``cover_factory`` is a closure that builds a cover engine for an
     arbitrary (sol_azi, sol_elev) pair; the caller is responsible for
     passing the same configuration / sun_data the live cover uses.
+    Decoupling the factory from this helper keeps the function pure and
+    trivially testable with a stub cover.
+
+    ``now`` is retained on the signature for caller context (e.g. tests
+    anchoring time, scripts passing wall-clock time) and for future
+    use — the samples deliberately cover the full day regardless of ``now``.
     """
     samples = _build_samples(
         sun_data=sun_data,
@@ -114,7 +120,13 @@ def _build_samples(
     default_position: int,
     step_minutes: int,
 ) -> list[ForecastSample]:
-    """Walk the sun_data table at *step_minutes* cadence over the full calendar day."""
+    """Walk the sun_data table at *step_minutes* cadence over the full calendar day.
+
+    Uses ``times[0]`` (local midnight 00:00) as the loop start and
+    ``times[-1]`` (next midnight 24:00) as the loop end, so the sample
+    strip always covers the same 24-hour window as the companion card's
+    elevation chart regardless of what time ``build_forecast`` is called.
+    """
     times = list(sun_data.times)
     azis = list(sun_data.solar_azimuth)
     eles = list(sun_data.solar_elevation)

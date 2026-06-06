@@ -146,7 +146,12 @@ async def test_full_repro_user_recovery_observed():
 
     await AdaptiveDataUpdateCoordinator.async_handle_cover_state_change(coord, 50)
 
-    # Manual override must register, and discard_target must clear the latched
-    # target so reconciliation cannot resurrect it.
+    # Manual override observation must register even with auto_control=False.
+    # The latched-target discard now fires from the manager's on_engaged edge
+    # callback (wired to cmd_svc.discard_target) rather than this loop — see
+    # test_issue_293_state_change_observed_when_auto_off and the #215 test for
+    # the engine-level discard verification.
     coord.manager.handle_state_change.assert_called_once()
-    coord._cmd_svc.discard_target.assert_called_once_with("cover.awning")
+    assert (
+        coord.manager.handle_state_change.call_args.args[0].entity_id == "cover.awning"
+    )

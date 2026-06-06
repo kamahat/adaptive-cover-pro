@@ -164,12 +164,23 @@ def compute_effective_default(
         sun_data:   ``SunData`` instance providing today's sunset/sunrise times.
         sunset_off: Minutes *added* to astronomical sunset before the window opens.
         sunrise_off: Minutes *added* to astronomical sunrise before the window closes.
-        sunset_time: Optional override for the sunset boundary.
-        sunrise_time: Optional override for the sunrise boundary.
+        sunset_time: Optional override for the sunset boundary (naive-local datetime).
+            When provided, replaces the astral-computed sunset. ``sunset_off`` still
+            applies on top. Falls back to astral when ``None``.
+        sunrise_time: Optional override for the sunrise boundary (naive-local datetime).
+            When provided, replaces the astral-computed sunrise. ``sunrise_off`` still
+            applies on top. Falls back to astral when ``None``.
         window_explicitly_started: When ``True``, a *real* (non-blank) start_time
-            or start entity is configured and has already passed. Suppresses the
-            ``before_sunrise`` branch so a start_time earlier than astronomical sunrise
-            does not incorrectly apply the sunset/night position (issue #492).
+            or start entity is configured and has already passed. In that case the
+            ``before_sunrise`` branch is suppressed so that a start_time earlier than
+            astronomical sunrise (a valid config on short winter days, issue #438)
+            does not incorrectly apply the sunset/night position once the user's
+            window opens. This is distinct from a window that is merely "open"
+            because no start time is set: the blank sentinel ``BLANK_TIME``
+            ("00:00:00") must NOT suppress the night position (issue #492), so it
+            maps to ``False`` here even though the active-window check treats blank
+            as "no start restriction". Defaults to ``False`` for call sites without
+            start_time context.
 
     Returns:
         A ``(effective_default, is_sunset_active)`` tuple.
@@ -191,6 +202,11 @@ def compute_effective_default(
 
     after_sunset = now_naive > (sunset + timedelta(minutes=sunset_off))
     before_sunrise = now_naive < (sunrise + timedelta(minutes=sunrise_off))
+    # Suppress before_sunrise only when the operational window has *explicitly*
+    # started: a real start_time < astronomical_sunrise is a valid user config
+    # (e.g. start at 08:00, sunrise at 08:15 in winter, issue #438) and once that
+    # window opens nighttime rules end. A blank start_time (issue #492) does NOT
+    # count as explicitly started, so the night position holds after midnight.
     is_sunset_active = after_sunset or (
         before_sunrise and not window_explicitly_started
     )

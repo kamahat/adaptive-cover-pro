@@ -72,18 +72,48 @@ async def test_discard_target_called_when_observation_flips_to_manual():
     """When observation registers a manual override, latched target must be cleared.
 
     Without this, the unwanted force=True command's target_call would persist
-    and reconciliation could resurrect it.
+    and reconciliation could resurrect it. The discard now fires from the
+    manager's ``on_engaged`` edge callback (wired to ``cmd_svc.discard_target``),
+    so this drives a real engine and asserts the relocated seam.
     """
-    coord = _make_coord_auto_off()
-    coord.manager = MagicMock()
-    # is_cover_manual returns False (was_manual) before handle_state_change,
-    # then True (became manual) after — simulate via side_effect.
-    coord.manager.is_cover_manual.side_effect = [False, True]
-    coord._pending_cover_events = [_event("cover.a", 30)]
+    from custom_components.adaptive_cover_pro.managers.manual_override import (
+        AdaptiveCoverManager,
+    )
 
-    await AdaptiveDataUpdateCoordinator.async_handle_cover_state_change(coord, 50)
+    cmd_svc = MagicMock()
+    entity_id = "cover.a"
+    manager = AdaptiveCoverManager(
+        hass=MagicMock(),
+        reset_duration={"hours": 2},
+        logger=MagicMock(),
+        on_engaged=cmd_svc.discard_target,
+    )
+    manager.add_covers([entity_id])
 
-    coord._cmd_svc.discard_target.assert_called_once_with("cover.a")
+    # User moved the cover to 30 against the latched target of 100.
+    policy = MagicMock()
+    policy.read_axis_value.return_value = 30
+    policy.primary_axis_suppression.return_value = False
+
+    event = _event(entity_id, 30)
+    event.old_state = MagicMock()
+    event.new_state.state = "open"
+    event.new_state.context = None
+    event.new_state.last_updated = "2026-05-10T20:42:00+00:00"
+
+    manager.handle_state_change(
+        event,
+        100,  # latched target
+        policy,
+        False,  # allow_reset
+        lambda _e: False,  # is_waiting
+        5,  # manual_threshold
+        is_in_command_grace=lambda _e: False,
+        is_in_transit=lambda _e: False,
+    )
+
+    assert manager.is_cover_manual(entity_id)
+    cmd_svc.discard_target.assert_called_once_with(entity_id)
 
 
 @pytest.mark.asyncio

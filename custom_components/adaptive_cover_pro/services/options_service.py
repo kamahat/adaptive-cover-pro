@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 from ..const import (
+    BLANK_TIME,
     CONF_AWNING_ANGLE,
     CONF_AZIMUTH,
     CONF_BLIND_SPOT_ELEVATION,
@@ -75,6 +76,7 @@ from ..const import (
     CONF_OPEN_CLOSE_THRESHOLD,
     CONF_OUTSIDE_THRESHOLD,
     CONF_OUTSIDETEMP_ENTITY,
+    CONF_POSITION_TOLERANCE,
     CONF_PRESENCE_ENTITY,
     CONF_RETURN_SUNSET,
     CONF_SILL_HEIGHT,
@@ -247,6 +249,7 @@ FIELD_VALIDATORS: dict[str, Any] = {
     # Automation timing
     CONF_DELTA_POSITION: _range(CONF_DELTA_POSITION),
     CONF_DELTA_TIME: _range(CONF_DELTA_TIME),
+    CONF_POSITION_TOLERANCE: _range(CONF_POSITION_TOLERANCE),
     CONF_START_TIME: _time_v(),
     CONF_START_ENTITY: _entity_v(),
     CONF_END_TIME: _time_v(),
@@ -279,6 +282,10 @@ FIELD_VALIDATORS: dict[str, Any] = {
         slot_keys["min_mode"]: _bool_v() for slot_keys in CUSTOM_POSITION_SLOTS.values()
     },
     **{slot_keys["use_my"]: _bool_v() for slot_keys in CUSTOM_POSITION_SLOTS.values()},
+    **{
+        slot_keys["tilt_only"]: _bool_v()
+        for slot_keys in CUSTOM_POSITION_SLOTS.values()
+    },
     **{
         slot_keys["tilt"]: _range(slot_keys["tilt"])
         for slot_keys in CUSTOM_POSITION_SLOTS.values()
@@ -599,7 +606,7 @@ def _cross_field_validate(patch: dict, current: dict) -> None:
     if CONF_START_TIME in patch or CONF_START_ENTITY in patch:
         st = merged_active.get(CONF_START_TIME)
         se = merged_active.get(CONF_START_ENTITY)
-        if st and st != "00:00:00" and se:
+        if st and st != BLANK_TIME and se:
             raise ServiceValidationError(
                 f"start_time ('{st}') and start_entity ('{se}') are mutually exclusive. "
                 "Set one or the other, not both."
@@ -608,7 +615,7 @@ def _cross_field_validate(patch: dict, current: dict) -> None:
     if CONF_END_TIME in patch or CONF_END_ENTITY in patch:
         et = merged_active.get(CONF_END_TIME)
         ee = merged_active.get(CONF_END_ENTITY)
-        if et and et != "00:00:00" and ee:
+        if et and et != BLANK_TIME and ee:
             raise ServiceValidationError(
                 f"end_time ('{et}') and end_entity ('{ee}') are mutually exclusive. "
                 "Set one or the other, not both."

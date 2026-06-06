@@ -88,6 +88,7 @@ class CoverCommandService:
         *,
         event_buffer=None,
         debug_log=None,
+        on_command_sent=None,
     ) -> None:
         """Initialize the CoverCommandService.
 
@@ -113,6 +114,11 @@ class CoverCommandService:
                 by the manual-override classifier so its diagnostic lines respect
                 the coordinator's debug-categories gate.  Defaults to plain
                 ``logger.debug`` when omitted.
+            on_command_sent: Optional ``(entity_id) -> None`` callable invoked
+                whenever an outbound position command is dispatched (alongside
+                the command grace period start).  The coordinator wires this to
+                ``AdaptiveCoverManager.note_command_sent`` so time-based
+                manual-override detectors can clock the post-command window.
 
         """
         # Local import: ``cover_types.venetian.sequencer`` imports
@@ -139,6 +145,7 @@ class CoverCommandService:
         self._max_retries = max_retries
         self._wait_for_target_timeout_seconds = transit_timeout_seconds
         self._on_tick = on_tick
+        self._on_command_sent = on_command_sent
 
         # Per-entity positioning state — single source of truth.
         # All previously-parallel dicts/sets (target_call, _sent_at,
@@ -722,6 +729,15 @@ class CoverCommandService:
         """
         self._open_close_threshold = threshold
 
+    def update_position_tolerance(self, value: int) -> None:
+        """Update the position-match (reconciliation) tolerance.
+
+        Args:
+            value: Allowed deviation between target and reported position (%).
+
+        """
+        self._position_tolerance = value
+
     # ------------------------------------------------------------------ #
     # State classification (manual-override detection)
     # ------------------------------------------------------------------ #
@@ -931,16 +947,23 @@ class CoverCommandService:
                 current_position=_current,
             )
 
-        # Same-position short-circuit — applies to ALL callers, including force=True.
-        # Issuing set_cover_position with the current position is always a no-op
-        # physically but causes audible relay clicks on many motors (issue #290).
+        # Same-position band — applies to ALL callers, including force=True and
+        # is_safety=True.  Issuing set_cover_position when the cover is already
+        # at (or within user-configured tolerance of) the target is a physical
+        # no-op that causes audible relay clicks on many motors (issue #290).
+        # The band is governed by _position_tolerance (CONF_POSITION_TOLERANCE,
+        # default POSITION_TOLERANCE_PERCENT = 3) so the user controls the
+        # dead-band width; raising it suppresses repeated commands when a motor
+        # physically cannot reach the commanded special-position target (issue
+        # #507).  At the default of 3 this also gives the main command gate the
+        # same tolerance the reconciliation path already used.
         # sun_just_appeared is the one exception: the sun transitioning in/out of
         # validity is a sentinel that we must re-confirm the cover position even
         # if it hasn't changed numerically.
         if (
             not context.sun_just_appeared
             and _current is not None
-            and _current == position
+            and abs(_current - position) <= self._position_tolerance
         ):
             if context.policy is not None and context.tilt is not None:
                 await context.policy.maybe_update_tilt_only(
@@ -1596,6 +1619,8 @@ class CoverCommandService:
         # reconciliation knows whether to resend it when auto_control is off.
         s.is_safety = is_safety
         self._grace_mgr.start_command_grace_period(entity)
+        if self._on_command_sent is not None:
+            self._on_command_sent(entity)
 
         return plan.service, plan.service_data, plan.supports_position
 
