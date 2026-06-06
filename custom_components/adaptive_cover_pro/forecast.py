@@ -29,7 +29,6 @@ from .const import (
     EVENT_SUNRISE,
     EVENT_SUNSET,
     FORECAST_STEP_MINUTES,
-    FORECAST_WINDOW_HOURS,
     SUN_DATA_STEP_SECONDS,
 )
 
@@ -65,11 +64,7 @@ class Forecast:
     events: tuple[ForecastEvent, ...]
 
     def to_attrs(self) -> dict[str, list[dict]]:
-        """Serialize to the wire format the diagnostic sensor exposes.
-
-        Times become ISO 8601 strings so the Lovelace card can parse them
-        without a special date type.
-        """
+        """Serialize to the wire format the diagnostic sensor exposes."""
         return {
             "forecast": [
                 {"t": s.t.isoformat(), "position": s.position, "handler": s.handler}
@@ -89,23 +84,22 @@ def build_forecast(
     default_position: int,
     now: datetime,
     step_minutes: int = FORECAST_STEP_MINUTES,
-    window_hours: int = FORECAST_WINDOW_HOURS,
 ) -> Forecast:
     """Compute the forecast for one cover.
+
+    Walks the full local calendar day (00:00 → 24:00) using the solar position
+    table already stored in *sun_data*, so the companion card's elevation chart
+    and sample strip share the same time axis.
 
     ``cover_factory`` is a closure that builds a cover engine for an
     arbitrary (sol_azi, sol_elev) pair; the caller is responsible for
     passing the same configuration / sun_data the live cover uses.
-    Decoupling the factory from this helper keeps the function pure and
-    trivially testable with a stub cover.
     """
     samples = _build_samples(
         sun_data=sun_data,
         cover_factory=cover_factory,
         default_position=default_position,
-        now=now,
         step_minutes=step_minutes,
-        window_hours=window_hours,
     )
     events = _build_events(
         sun_data=sun_data, cover_factory=cover_factory, samples=samples
@@ -118,21 +112,20 @@ def _build_samples(
     sun_data: SunData,
     cover_factory: Callable[[float, float], AdaptiveGeneralCover],
     default_position: int,
-    now: datetime,
     step_minutes: int,
-    window_hours: int,
 ) -> list[ForecastSample]:
-    """Walk the sun_data table at *step_minutes* cadence for *window_hours*."""
+    """Walk the sun_data table at *step_minutes* cadence over the full calendar day."""
     times = list(sun_data.times)
     azis = list(sun_data.solar_azimuth)
     eles = list(sun_data.solar_elevation)
     if not times:
         return []
-    horizon = now + timedelta(hours=window_hours)
+    day_start = times[0]
+    horizon = times[-1]
     step = timedelta(minutes=step_minutes)
 
     samples: list[ForecastSample] = []
-    t = now
+    t = day_start
     while t <= horizon:
         idx = _nearest_index(times, t)
         if idx is None:
@@ -141,6 +134,11 @@ def _build_samples(
         azi = float(azis[idx])
         ele = float(eles[idx])
         cover = cover_factory(azi, ele)
+        # Evaluate the cover's time-dependent gates (sunset/sunrise offset) at
+        # *this sample's* time, not wall-clock now — otherwise a forecast
+        # recomputed after sunset marks the whole projected day as suppressed
+        # and every sample collapses to the default position (issue #516).
+        cover.eval_time = t
         if cover.direct_sun_valid:
             samples.append(
                 ForecastSample(
@@ -161,14 +159,7 @@ def _build_events(
     cover_factory: Callable[[float, float], AdaptiveGeneralCover],
     samples: list[ForecastSample],
 ) -> list[ForecastEvent]:
-    """Sunrise/sunset come from SunData; FOV transitions come from the samples.
-
-    FOV-enter/exit timestamps are refined from the coarse forecast cadence
-    (default 15 min) down to SunData's native 5-min grid by scanning the
-    grid points between the two samples that bracket the handler change —
-    otherwise the marker can lag the visible cover-position drop by up to
-    one full sample step.
-    """
+    """Sunrise/sunset come from SunData; FOV transitions come from the samples."""
     events: list[ForecastEvent] = []
     sunrise = sun_data.sunrise()
     sunset = sun_data.sunset()
@@ -176,6 +167,14 @@ def _build_events(
         events.append(ForecastEvent(t=sunrise, kind=EVENT_SUNRISE, label="Sunrise"))
     if sunset is not None:
         events.append(ForecastEvent(t=sunset, kind=EVENT_SUNSET, label="Sunset"))
+    # Forward-looking event so the sensor's "next event" state stays a real
+    # timestamp late in the evening once today's events are all in the past,
+    # instead of resolving to None / Unknown (issue #516).
+    next_sunrise = sun_data.next_sunrise()
+    if next_sunrise is not None:
+        events.append(
+            ForecastEvent(t=next_sunrise, kind=EVENT_SUNRISE, label="Sunrise")
+        )
 
     prev_sample: ForecastSample | None = None
     for sample in samples:
@@ -215,12 +214,7 @@ def _refine_fov_crossing(
     t_after: datetime,
     target_valid: bool,
 ) -> datetime | None:
-    """First grid time in [t_before, t_after] where direct_sun_valid matches target_valid.
-
-    Used to refine FOV-enter/exit event timestamps from the 15-min sample
-    cadence down to SunData's native 5-min grid; returns None when no
-    match is found.
-    """
+    """First grid time in [t_before, t_after] where direct_sun_valid matches target_valid."""
     times = list(sun_data.times)
     if not times:
         return None
@@ -232,6 +226,7 @@ def _refine_fov_crossing(
         return None
     for i in range(start_idx, min(end_idx, len(times) - 1) + 1):
         cover = cover_factory(float(azis[i]), float(eles[i]))
+        cover.eval_time = times[i]
         if bool(cover.direct_sun_valid) == target_valid:
             return times[i]
     return None
@@ -240,12 +235,7 @@ def _refine_fov_crossing(
 def _nearest_index(
     times: list[datetime], target: datetime, step_seconds: int = SUN_DATA_STEP_SECONDS
 ) -> int | None:
-    """Index of the time in *times* closest to *target* (O(1) arithmetic lookup).
-
-    ``times`` is expected to be the fixed 5-minute grid from ``SunData.times``.
-    ``step_seconds`` is parameterised so this stays correct if the cadence changes.
-    Returns None when *times* is empty.
-    """
+    """Index of the time in *times* closest to *target* (O(1) arithmetic lookup)."""
     if not times:
         return None
     if target.tzinfo is None and times[0].tzinfo is not None:
@@ -255,17 +245,7 @@ def _nearest_index(
 
 
 def build_forecast_for_coord(coord: AdaptiveDataUpdateCoordinator) -> Forecast:
-    """Coordinator shim around :func:`build_forecast`.
-
-    Reads the coordinator's policy, sun provider, config service, and options
-    to drive the pure helper. Kept thin so unit tests can exercise the pure
-    function directly with stubs.
-
-    Executor-safe: always invoked from
-    :meth:`AdaptiveDataUpdateCoordinator.async_recompute_forecast` via
-    :func:`hass.async_add_executor_job` so the ~289-call astral walk × 49-step
-    sampling loop never blocks the event loop (issue #437).
-    """
+    """Coordinator shim around :func:`build_forecast`."""
     from homeassistant.util import dt as dt_util
 
     options = coord.config_entry.options
