@@ -68,6 +68,11 @@ from ..const import (
     DEFAULT_CUSTOM_POSITION_PRIORITY,
     DEFAULT_CUSTOM_POSITION_TILT_ONLY,
     DEFAULT_MOTION_TIMEOUT_MODE,
+
+    CONF_PRESENCE_ENTITY,
+    CONF_SECURITY_CLOSE_POSITION,
+    CONF_SECURITY_ENABLED,
+    DEFAULT_SECURITY_CLOSE_POSITION,
 )
 from ..helpers import compute_effective_default
 from .types import (
@@ -227,6 +232,20 @@ class PipelineSnapshotBuilder:
 
     # ---- Pure assembly ----------------------------------------------------
 
+    def _build_security_active(self, options):
+        if not options.get(CONF_SECURITY_ENABLED, False):
+            return False
+        return bool(options.get(CONF_PRESENCE_ENTITY))
+
+    def _read_presence(self, options):
+        entity_id = options.get(CONF_PRESENCE_ENTITY)
+        if not entity_id:
+            return True
+        state = self._hass.states.get(entity_id)
+        if state is None or state.state in ("unavailable", "unknown"):
+            return True
+        return state.state == "on"
+
     def build_climate_options(self, options: dict) -> ClimateOptions:
         """Build a :class:`ClimateOptions` from config entry options."""
         return ClimateOptions(
@@ -338,4 +357,7 @@ class PipelineSnapshotBuilder:
             policy=self._policy,
             default_tilt=options.get(CONF_DEFAULT_TILT),
             sunset_tilt=options.get(CONF_SUNSET_TILT),
+            security_mode_active=self._build_security_active(options),
+            security_presence_detected=self._read_presence(options),
+            security_close_position=int(options.get(CONF_SECURITY_CLOSE_POSITION, DEFAULT_SECURITY_CLOSE_POSITION)),
         )
