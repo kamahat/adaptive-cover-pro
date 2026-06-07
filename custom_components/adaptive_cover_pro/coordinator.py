@@ -1697,58 +1697,6 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             ]
         )
 
-    def _compute_current_effective_default(self) -> int:
-        """Compute the effective default position from current sun/config state."""
-        options = self.config_entry.options
-        cover_data = self._cover_data
-        if cover_data is None:
-            return int(options.get(CONF_DEFAULT_HEIGHT, 0))
-
-        Reads every option once into a typed ``RuntimeConfig`` snapshot and
-        propagates each slice to the appropriate manager. Called on every
-        coordinator update so option changes take effect on the next cycle.
-
-        Args:
-            options: Configuration options dictionary from config_entry.options
-
-        """
-        rc = RuntimeConfig.from_options(options)
-
-        self.entities = rc.entities
-        self.min_change = rc.tracking.min_change
-        self.time_threshold = rc.tracking.time_threshold
-        self.manual_reset = rc.manual_override.reset
-        self.manual_duration = rc.manual_override.duration
-        self.manual_ignore_external = rc.manual_override.ignore_external
-        self.manual_threshold = rc.tracking.manual_threshold
-        # Apply manual-override config to the engine + active detector at
-        # runtime (auto-reset duration, threshold, command window) so changes
-        # take effect without a reload. The detection *strategy* itself is
-        # selected at construction; switching it requires a config-entry reload.
-        self.manager.update_config(self._make_detector_config(options))
-        self.start_value = rc.tracking.interp_start
-        self.end_value = rc.tracking.interp_end
-        self.normal_list = rc.tracking.interp_list
-        self.new_list = rc.tracking.interp_list_new
-
-        self._cmd_svc.update_threshold(rc.open_close_threshold)
-        self._cmd_svc.update_position_tolerance(rc.tracking.position_tolerance)
-        self._time_mgr.update_config(
-            start_time=rc.time_window.start_time,
-            start_time_entity=rc.time_window.start_time_entity,
-            end_time=rc.time_window.end_time,
-            end_time_entity=rc.time_window.end_time_entity,
-        )
-        effective_default, _ = compute_effective_default(
-            h_def=h_def,
-            sunset_pos=sunset_pos_cfg,
-            sun_data=cover_data.sun_data,
-            sunset_off=sunset_off,
-            sunrise_off=sunrise_off,
-            after_start_time=self.after_start_time,
-        )
-        return effective_default
-
     def get_blind_data(self, options):
         """Instantiate the appropriate cover calculation class for the current type."""
         sun_data = self._sun_provider.create_sun_data(self.hass.config.time_zone)

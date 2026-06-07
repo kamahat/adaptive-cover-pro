@@ -619,6 +619,8 @@ def test_state_property_force_override_precedence():
 
     coordinator = MagicMock()
     coordinator.logger = MagicMock()
+    coordinator._use_interpolation = False
+    coordinator._inverse_state = False
 
     def get_option(key, default=None):
         if key == CONF_FORCE_OVERRIDE_POSITION:
