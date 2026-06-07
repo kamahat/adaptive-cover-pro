@@ -29,7 +29,6 @@ from .const import (
     CONF_IRRADIANCE_ENTITY,
     CONF_IS_SUNNY_SENSOR,
     CONF_LUX_ENTITY,
-    CONF_MOTION_SENSORS,
     CONF_SENSOR_TYPE,
     CONF_WEATHER_ENTITY,
     CONF_WEATHER_IS_RAINING_SENSOR,
@@ -46,6 +45,7 @@ from .const import (
 from .coordinator import AdaptiveDataUpdateCoordinator
 from .entity_base import AdaptiveCoverDiagnosticSensorBase, AdaptiveCoverSensorBase
 from .const import ControlMethod
+from .helpers import motion_entities
 from .unit_system import length_display_unit, to_display_length
 
 
@@ -470,6 +470,15 @@ def _control_status_value(s: _ACPDiagnosticSensor) -> str | None:
     return s.data.diagnostics.get("control_status")
 
 
+def _iso_or_none(value: dt.datetime | None) -> str | None:
+    """Return a tz-aware ISO-8601 string for a naive-local datetime, or None."""
+    if value is None:
+        return None
+    if value.tzinfo is None:
+        value = dt_util.as_local(value)
+    return value.isoformat()
+
+
 def _control_status_attrs(s: _ACPDiagnosticSensor) -> Mapping[str, Any] | None:
     if s.data.diagnostics is None:
         return None
@@ -486,6 +495,8 @@ def _control_status_attrs(s: _ACPDiagnosticSensor) -> Mapping[str, Any] | None:
     )
     attrs["after_start_time"] = time_window.get("after_start_time")
     attrs["before_end_time"] = time_window.get("before_end_time")
+    attrs["schedule_start"] = _iso_or_none(time_window.get("start_time"))
+    attrs["schedule_end"] = _iso_or_none(time_window.get("end_time"))
 
     sun_validity = diagnostics.get("sun_validity", {})
     if sun_validity:
@@ -618,7 +629,7 @@ def _position_verification_attrs(s: _ACPDiagnosticSensor) -> Mapping[str, Any] |
 
 
 def _motion_status_value(s: _ACPDiagnosticSensor) -> str:
-    if not s.config_entry.options.get(CONF_MOTION_SENSORS):
+    if not motion_entities(s.config_entry.options):
         return "not_configured"
     mgr = s.coordinator._motion_mgr  # noqa: SLF001
     if mgr.is_motion_timeout_active:
@@ -636,7 +647,7 @@ def _motion_status_value(s: _ACPDiagnosticSensor) -> str:
 
 
 def _motion_status_attrs(s: _ACPDiagnosticSensor) -> Mapping[str, Any] | None:
-    if not s.config_entry.options.get(CONF_MOTION_SENSORS):
+    if not motion_entities(s.config_entry.options):
         return None
     mgr = s.coordinator._motion_mgr  # noqa: SLF001
     attrs: dict[str, Any] = {
@@ -760,7 +771,7 @@ def _configured_handlers(opts: Mapping[str, Any]) -> list[str]:
         for slot_keys in CUSTOM_POSITION_SLOTS.values()
     ):
         enabled.append("custom_position")
-    if opts.get(CONF_MOTION_SENSORS):
+    if motion_entities(opts):
         enabled.append("motion")
     if opts.get(CONF_CLOUD_SUPPRESSION) and any(
         opts.get(k)

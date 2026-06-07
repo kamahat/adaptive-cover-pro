@@ -70,7 +70,7 @@ def geometry_horizontal_schema(hass: HomeAssistant | None = None) -> vol.Schema:
 GEOMETRY_HORIZONTAL_SCHEMA = geometry_horizontal_schema()
 
 
-class AwningPolicy(CoverTypePolicy):
+class AwningPolicy(CoverTypePolicy, register=True):
     """Cover that extends horizontally (in/out)."""
 
     cover_type = "cover_awning"

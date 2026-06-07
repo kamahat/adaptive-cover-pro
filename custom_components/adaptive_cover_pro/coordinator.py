@@ -31,12 +31,15 @@ except ImportError:
     # Fallback for older Home Assistant versions
     EventStateChangedData = dict  # type: ignore[misc,assignment]
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
+from homeassistant.util import dt as dt_util
 
 from .config_types import RuntimeConfig
 from .helpers import (
     compute_effective_default,
     get_datetime_from_str,
     get_safe_state,
+    is_entity_active,
+    motion_entities,
     state_attr,
 )
 from .config_context_adapter import ConfigContextAdapter
@@ -68,7 +71,6 @@ from .const import (
     CONF_MANUAL_OVERRIDE_RESET,
     CONF_MANUAL_OVERRIDE_STRATEGY,
     CONF_MANUAL_THRESHOLD,
-    CONF_MOTION_SENSORS,
     CONF_MY_POSITION_VALUE,
     CONF_OPEN_CLOSE_THRESHOLD,
     CONF_RETURN_SUNSET,
@@ -130,6 +132,14 @@ def _read_time_entity(hass: HomeAssistant, entity_id: str | None) -> dt.datetime
 
     Returns naive-local datetime on success; None if entity_id is None,
     the entity is unavailable, or the state cannot be parsed.
+
+    The entity's *time-of-day* is re-anchored onto today's local date and the
+    original date component is discarded. This makes a "next-event" sensor
+    (e.g. ``sensor.sun_next_setting``, which rolls over to *tomorrow's*
+    setting the instant today's sun sets) behave like a fixed daily wall-clock
+    time. ``compute_effective_default`` already compares the boundary against
+    *today's* clock, so a future-dated boundary would otherwise make the
+    ``after_sunset`` comparison structurally unreachable (issue #531 follow-up).
     """
     if entity_id is None:
         return None
@@ -137,7 +147,13 @@ def _read_time_entity(hass: HomeAssistant, entity_id: str | None) -> dt.datetime
     if raw is None:
         return None
     try:
-        return get_datetime_from_str(raw)
+        parsed = get_datetime_from_str(raw)
+        today_local = dt_util.now().date()
+        return parsed.replace(
+            year=today_local.year,
+            month=today_local.month,
+            day=today_local.day,
+        )
     except Exception:  # noqa: BLE001
         _LOGGER.debug(
             "Could not parse time entity %s state %r as datetime",
@@ -799,7 +815,13 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
     async def async_check_motion_state_change(
         self, event: Event[EventStateChangedData]
     ) -> None:
-        """Handle motion sensor changes: immediate on detection, debounced on stop."""
+        """Handle occupancy-source changes: immediate on detection, debounced on stop.
+
+        Evaluates the changed entity through the same domain-aware
+        ``is_entity_active`` predicate the manager uses, so motion sensors
+        (state "on") and media players (any non-off state) are handled
+        uniformly without branching on literal state strings here.
+        """
         data = event.data
         entity_id = data["entity_id"]
         new_state = data["new_state"]
@@ -808,13 +830,13 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             return
 
         self.logger.debug(
-            "Motion sensor %s state changed to %s",
+            "Occupancy source %s state changed to %s",
             entity_id,
             new_state.state,
         )
 
-        if new_state.state == "on":
-            # Motion detected - immediate response
+        if is_entity_active(self.hass, entity_id):
+            # Occupancy detected - immediate response.
             # Returns True if timeout was active (expired) or pending (task
             # still running), so we refresh in both cases, not just when the
             # timeout had already fully expired.
@@ -825,15 +847,14 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                 self.state_change = True
                 await self.async_refresh()
 
-        elif new_state.state == "off":
-            # Motion stopped - check if any other sensors still active
-            if not self.is_motion_detected:
-                self._start_motion_timeout()
-            else:
-                self.logger.debug(
-                    "Motion stopped on %s but another sensor still active — timeout not started",
-                    entity_id,
-                )
+        elif not self.is_motion_detected:
+            # This source cleared and no other source is active - start timeout.
+            self._start_motion_timeout()
+        else:
+            self.logger.debug(
+                "Occupancy cleared on %s but another source still active — timeout not started",
+                entity_id,
+            )
 
     def process_entity_state_change(self):
         """Check if cover position change was user-initiated (manual override detection).
@@ -913,16 +934,17 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
     def _check_initial_motion_state(self) -> None:
         """Initialize motion state from current sensor readings at startup/reload.
 
-        Reads each configured motion sensor and sets the appropriate state so
-        the Motion Status sensor reflects reality immediately instead of showing
-        ``waiting_for_data`` until the first sensor state change event arrives.
+        Reads each configured motion entity (sensors and/or media players) and
+        sets the appropriate state so the Motion Status sensor reflects reality
+        immediately instead of showing ``waiting_for_data`` until the first
+        state change event arrives.
 
-        - Any sensor **on**  → record_motion_detected() sets last_motion_time
-          so the sensor shows ``motion_detected``.
-        - All sensors **off** → set_no_motion() marks the timeout active so
+        - Any entity **on/active** → record_motion_detected() sets
+          last_motion_time so the sensor shows ``motion_detected``.
+        - All entities **off** → set_no_motion() marks the timeout active so
           the sensor shows ``no_motion``.
         """
-        if not self.config_entry.options.get(CONF_MOTION_SENSORS):
+        if not motion_entities(self.config_entry.options):
             return
         if self.is_motion_detected:
             self._motion_mgr.record_motion_detected()
@@ -1501,9 +1523,18 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         # gate would otherwise drop the return-to-calculated command.  Short-
         # circuit when the set is empty so callers that bypass __init__ (e.g.
         # gate-matrix fixtures) don't need to wire _last_state_change_entity.
+        # When the manual-override hold is the winner, a floor sensor releasing
+        # must NOT take the release force-path — otherwise the override's
+        # theoretical default (e.g. 90%) would be force-driven onto the cover.
+        # The cover stays where the floor left it; the override keeps holding
+        # the (now recomputed) physical position (#534).
+        override_holding = (
+            self._pipeline_result is not None
+            and self._pipeline_result.control_method is ControlMethod.MANUAL
+        )
         trigger_entity: str | None = None
         custom_position_released = False
-        if custom_position_released_entities:
+        if custom_position_released_entities and not override_holding:
             trigger_entity = self._last_state_change_entity
             custom_position_released = (
                 trigger_entity is not None
@@ -1527,11 +1558,20 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             self.logger.debug("Outside time window — skipping position update")
             return
 
+        # A floor-clamp raised the winner this cycle (#534).  When manual
+        # override holds the cover below an active floor, the clamped value is
+        # already in cover-position space and must bypass the time/position
+        # delta gates so the raise reaches the cover.
+        floor_clamp = bool(
+            self._pipeline_result is not None
+            and self._pipeline_result.floor_clamp_applied
+        )
         use_force = (
             is_safety
             or force_override_released
             or custom_position_sensor_triggered
             or custom_position_released
+            or floor_clamp
         )
         if force_override_released:
             reason = "force_override_cleared"
@@ -1546,6 +1586,13 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                 "Custom-position sensor %s released — bypassing time/position "
                 "delta gates to return to calculated position %s",
                 trigger_entity,
+                state,
+            )
+        elif floor_clamp:
+            reason = "floor_clamp"
+            self.logger.debug(
+                "Floor clamp active — bypassing time/position delta gates to "
+                "raise cover to floor position %s",
                 state,
             )
         else:
@@ -1800,6 +1847,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         self._motion_mgr.update_config(
             sensors=rc.motion.sensors,
             timeout_seconds=rc.motion.timeout_seconds,
+            media_players=rc.motion.media_players,
         )
         self._weather_mgr.update_config(
             wind_speed_sensor=rc.weather.wind_speed_sensor,
@@ -1913,16 +1961,23 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         trigger: str,
         options: dict | None = None,
         force: bool = False,
-        bypass_auto_control: bool = False,
         use_my_position: bool = False,
     ) -> tuple[str, str]:
         """Apply a user-initiated position to a single cover.
 
         Single delegation point for any user-facing command (the
-        ``set_position`` service, the opt-in proxy cover entity, future
-        external triggers). Owns the min-mode floor clamp, the pipeline
-        preemption check, manual-override engagement, and dispatch to
-        ``CoverCommandService.apply_position``.
+        ``set_position`` service, the opt-in proxy cover entity, the My
+        Position button, future external triggers). Owns the min-mode floor
+        clamp, the pipeline preemption check, manual-override engagement, and
+        dispatch to ``CoverCommandService.apply_position``.
+
+        Because every caller is an explicit user action, the dispatch always
+        bypasses the ``auto_control_off`` gate (``bypass_auto_control=True``):
+        "automatic control off" suppresses the integration's own sun tracking,
+        not the user directly commanding a cover. This is distinct from the
+        internal ``force=True`` callers (solar update, override-clear) that go
+        through ``apply_position`` directly and stay blocked when auto control
+        is off (issue #293).
 
         Default behavior (``force=False``): engages manual override and
         consults the pipeline. When a handler with priority strictly greater
@@ -2003,7 +2058,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             entity_id,
             opts,
             force=True,
-            bypass_auto_control=bypass_auto_control,
+            bypass_auto_control=True,
             use_my_position=use_my_position,
         )
         return await self._cmd_svc.apply_position(entity_id, clamped, trigger, ctx)

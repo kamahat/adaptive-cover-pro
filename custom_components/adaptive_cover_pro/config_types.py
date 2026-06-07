@@ -143,6 +143,44 @@ class HorizontalConfig:
 
 
 @dataclass
+class OscillatingConfig:
+    """Configuration specific to oscillating (drop-arm) awnings (#412).
+
+    The arm of length ``arm_length`` sweeps from ``min_angle`` (closed) to
+    ``max_angle`` (fully open); the fabric angle is therefore a function of the
+    open percentage rather than a fixed value. ``housing_offset`` is the pivot
+    height above the window top.
+    """
+
+    arm_length: float = 0.8
+    min_angle: float = 0.0
+    max_angle: float = 175.0
+    housing_offset: float = 0.0
+
+    @classmethod
+    def from_options(cls, options: dict) -> OscillatingConfig:
+        """Build from a config-entry options dict, applying defaults."""
+        from .const import (
+            CONF_ARM_LENGTH,
+            CONF_AWNING_HOUSING_OFFSET,
+            CONF_AWNING_MAX_ANGLE,
+            CONF_AWNING_MIN_ANGLE,
+            DEFAULT_ARM_LENGTH,
+            DEFAULT_AWNING_HOUSING_OFFSET,
+            DEFAULT_AWNING_MAX_ANGLE,
+            DEFAULT_AWNING_MIN_ANGLE,
+        )
+
+        return cls(
+            arm_length=options.get(CONF_ARM_LENGTH) or DEFAULT_ARM_LENGTH,
+            min_angle=options.get(CONF_AWNING_MIN_ANGLE, DEFAULT_AWNING_MIN_ANGLE),
+            max_angle=options.get(CONF_AWNING_MAX_ANGLE, DEFAULT_AWNING_MAX_ANGLE),
+            housing_offset=options.get(CONF_AWNING_HOUSING_OFFSET)
+            or DEFAULT_AWNING_HOUSING_OFFSET,
+        )
+
+
+@dataclass
 class TiltConfig:
     """Configuration specific to tilt/venetian blinds."""
 
@@ -198,6 +236,7 @@ class MotionSlice:
 
     sensors: list[str]
     timeout_seconds: int
+    media_players: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -284,6 +323,7 @@ class RuntimeConfig:
             CONF_MANUAL_OVERRIDE_DURATION,
             CONF_MANUAL_OVERRIDE_RESET,
             CONF_MANUAL_THRESHOLD,
+            CONF_MOTION_MEDIA_PLAYERS,
             CONF_MOTION_SENSORS,
             CONF_MOTION_TIMEOUT,
             CONF_OPEN_CLOSE_THRESHOLD,
@@ -350,6 +390,7 @@ class RuntimeConfig:
                 timeout_seconds=options.get(
                     CONF_MOTION_TIMEOUT, DEFAULT_MOTION_TIMEOUT
                 ),
+                media_players=options.get(CONF_MOTION_MEDIA_PLAYERS, []),
             ),
             weather=WeatherSlice(
                 wind_speed_sensor=options.get(CONF_WEATHER_WIND_SPEED_SENSOR),

@@ -49,7 +49,6 @@ from .const import (
     DEFAULT_CUSTOM_POSITION_PRIORITY,
     DEFAULT_ENABLE_MY_POSITION_ENTITIES,
     DEFAULT_ENABLE_PROXY_COVER,
-    DEFAULT_GLARE_ZONE_Z,
     CONF_FORCE_OVERRIDE_MIN_MODE,
     CONF_FORCE_OVERRIDE_POSITION,
     CONF_FORCE_OVERRIDE_SENSORS,
@@ -81,6 +80,7 @@ from .const import (
     CONF_MIN_POSITION,
     CONF_MIN_POSITION_SUN_TRACKING,
     CONF_MODE,
+    CONF_MOTION_MEDIA_PLAYERS,
     CONF_MOTION_SENSORS,
     CONF_MOTION_TIMEOUT,
     CONF_MOTION_TIMEOUT_MODE,
@@ -128,13 +128,7 @@ from .const import (
     CONF_WEATHER_BYPASS_AUTO_CONTROL,
     CONF_WINDOW_DEPTH,
     CONF_WINDOW_WIDTH,
-    DEFAULT_CLOUD_COVERAGE_THRESHOLD,
     DEFAULT_MOTION_TIMEOUT,
-    DEFAULT_WEATHER_RAIN_THRESHOLD,
-    DEFAULT_WEATHER_TIMEOUT,
-    DEFAULT_WEATHER_WIND_DIRECTION_TOLERANCE,
-    DEFAULT_WEATHER_WIND_SPEED_THRESHOLD,
-    DEFAULT_WINDOW_AZIMUTH,
     CONF_DEBUG_CATEGORIES,
     CONF_DEBUG_EVENT_BUFFER_SIZE,
     CONF_DEBUG_MODE,
@@ -147,19 +141,18 @@ from .const import (
     MAX_TRANSIT_TIMEOUT,
     MIN_TRANSIT_TIMEOUT,
     MODE2_OPEN_HORIZONTAL_PERCENT,
-    OPTION_RANGES,
     DOMAIN,
     CoverType,
 )
 
 _LOGGER = logging.getLogger(__name__)
 
-SENSOR_TYPE_MENU = [
-    CoverType.BLIND,
-    CoverType.AWNING,
-    CoverType.TILT,
-    CoverType.VENETIAN,
-]
+# Cover-type picker options, derived from the policy registry so a new cover
+# type appears in the create flow automatically (no edit here). Order follows
+# registration order (blind, awning, tilt, venetian, …).
+from .cover_types import POLICY_REGISTRY as _POLICY_REGISTRY  # noqa: E402
+
+SENSOR_TYPE_MENU = list(_POLICY_REGISTRY)
 
 _STANDALONE_SENTINEL = "__standalone__"
 
@@ -209,90 +202,27 @@ from .cover_types.blind import GEOMETRY_VERTICAL_SCHEMA  # noqa: E402, F401
 from .cover_types.tilt import GEOMETRY_TILT_SCHEMA  # noqa: E402, F401
 from .cover_types.venetian import GEOMETRY_VENETIAN_SCHEMA  # noqa: E402, F401
 from .unit_system import (  # noqa: E402
-    length_selector,
     options_to_display,
-    sensor_unit_label,
     user_input_to_canonical,
 )
 
-
-def sun_tracking_schema(hass: HomeAssistant | None = None) -> vol.Schema:
-    """Sun-tracking schema. ``hass=None`` → metric labels.
-
-    Only ``CONF_DISTANCE`` is unit-dependent; every other field is angles or
-    booleans.
-    """
-    from .unit_system import length_default
-
-    return vol.Schema(
-        {
-            vol.Required(
-                CONF_ENABLE_SUN_TRACKING, default=True
-            ): selector.BooleanSelector(),
-            vol.Required(
-                CONF_AZIMUTH, default=DEFAULT_WINDOW_AZIMUTH
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=359,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                    unit_of_measurement="°",
-                )
-            ),
-            vol.Required(CONF_FOV_LEFT, default=90): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=180,
-                    step=1,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                    unit_of_measurement="°",
-                )
-            ),
-            vol.Required(CONF_FOV_RIGHT, default=90): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=180,
-                    step=1,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                    unit_of_measurement="°",
-                )
-            ),
-            vol.Optional(CONF_MIN_ELEVATION): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=90,
-                    step=1,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                    unit_of_measurement="°",
-                )
-            ),
-            vol.Optional(CONF_MAX_ELEVATION): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=90,
-                    step=1,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                    unit_of_measurement="°",
-                )
-            ),
-            vol.Required(
-                CONF_DISTANCE, default=length_default(0.5, hass)
-            ): length_selector(
-                # min_m must match _RANGE_DISTANCE[0] in const.py
-                hass,
-                min_m=0.0,
-                max_m=50,
-                metric_step=0.1,
-            ),
-            vol.Optional(
-                CONF_ENABLE_BLIND_SPOT, default=False
-            ): selector.BooleanSelector(),
-        }
-    )
+# Dynamic (sensor-unit / locale aware) section builders live in config_dynamic;
+# re-exported here so the step handlers and the existing test imports keep their
+# call sites. config_flow is a consumer of these — not their owner.
+from . import config_fields  # noqa: E402
+from .config_dynamic import (  # noqa: E402
+    blind_spot_schema,
+    glare_zones_schema as _glare_zones_schema,
+    light_cloud_schema,
+    sun_tracking_schema,
+    temperature_climate_schema,
+    weather_override_schema,
+)
 
 
 # Module-level constant for tests / imports. Identical to the legacy
-# vol.Schema(...) shape — metric labels, no hass needed.
+# vol.Schema(...) shape — metric labels, no hass needed. ``sun_tracking_schema``
+# is re-exported from ``config_dynamic`` above.
 SUN_TRACKING_SCHEMA = sun_tracking_schema()
 
 
@@ -513,34 +443,6 @@ def _presence_like_selector(*, multiple: bool = False) -> selector.EntitySelecto
     )
 
 
-def _numeric_selector(
-    *, device_class: str | None = None, multiple: bool = False
-) -> selector.EntitySelector:
-    """Return a selector for numeric-state entities, optionally filtered by device_class."""
-    if device_class is not None:
-        return selector.EntitySelector(
-            selector.EntityFilterSelectorConfig(
-                domain=_NUMERIC_DOMAINS, device_class=device_class
-            )
-        )
-    return selector.EntitySelector(
-        selector.EntitySelectorConfig(domain=_NUMERIC_DOMAINS, multiple=multiple)
-    )
-
-
-def _position_slider() -> selector.NumberSelector:
-    """Return a reusable 0-100% position slider selector."""
-    return selector.NumberSelector(
-        selector.NumberSelectorConfig(
-            min=0,
-            max=100,
-            step=1,
-            mode=selector.NumberSelectorMode.SLIDER,
-            unit_of_measurement="%",
-        )
-    )
-
-
 FORCE_OVERRIDE_SCHEMA = vol.Schema(
     {
         vol.Optional(CONF_FORCE_OVERRIDE_SENSORS, default=[]): _binary_on_selector(
@@ -562,51 +464,18 @@ FORCE_OVERRIDE_SCHEMA = vol.Schema(
 )
 
 
-def _priority_slider() -> selector.NumberSelector:
-    """Return a number selector for pipeline priority (1-99)."""
-    return selector.NumberSelector(
-        selector.NumberSelectorConfig(
-            min=1,
-            max=99,
-            step=1,
-            mode=selector.NumberSelectorMode.SLIDER,
-        )
-    )
-
-
 def _build_custom_position_schema_dict(sensor_type: str | None = None) -> dict:
-    """Compose the full custom-position schema by iterating CUSTOM_POSITION_SLOTS.
+    """Compose the custom-position schema dict for the given cover type.
 
-    Per-slot tilt sliders and global default/sunset tilt sliders are added
-    for cover types whose policy declares ``custom_position_includes_tilt``
-    (venetian today). All other cover types omit them since tilt is not
-    applicable. A fifth cover type opts in by flipping that ClassVar — not by
-    editing this function.
+    Delegates to ``config_fields.custom_position_schema``; per-slot and global
+    tilt fields are included for cover types whose policy advertises
+    custom-position tilt extras (venetian today). A new cover type opts in by
+    returning those keys from ``extra_field_keys`` — no edit here.
     """
-    include_tilt = (
-        sensor_type in POLICY_REGISTRY
-        and get_policy(sensor_type).custom_position_includes_tilt
+    include_tilt = sensor_type in POLICY_REGISTRY and bool(
+        get_policy(sensor_type).extra_field_keys(config_fields.SECTION_CUSTOM_POSITION)
     )
-    schema: dict = {}
-    for slot_keys in CUSTOM_POSITION_SLOTS.values():
-        schema[vol.Optional(slot_keys["sensor"])] = _binary_on_selector()
-        schema[vol.Optional(slot_keys["position"])] = _position_slider()
-        schema[vol.Optional(slot_keys["priority"])] = _priority_slider()
-        schema[vol.Optional(slot_keys["min_mode"], default=False)] = (
-            selector.BooleanSelector()
-        )
-        schema[vol.Optional(slot_keys["use_my"], default=False)] = (
-            selector.BooleanSelector()
-        )
-        if include_tilt:
-            schema[vol.Optional(slot_keys["tilt"])] = _position_slider()
-            schema[vol.Optional(slot_keys["tilt_only"], default=False)] = (
-                selector.BooleanSelector()
-            )
-    if include_tilt:
-        schema[vol.Optional(CONF_DEFAULT_TILT)] = _position_slider()
-        schema[vol.Optional(CONF_SUNSET_TILT)] = _position_slider()
-    return schema
+    return dict(config_fields.custom_position_schema(include_tilt=include_tilt).schema)
 
 
 CUSTOM_POSITION_SCHEMA = vol.Schema(_build_custom_position_schema_dict())
@@ -626,6 +495,9 @@ MOTION_OVERRIDE_SCHEMA = vol.Schema(
         vol.Optional(CONF_MOTION_SENSORS, default=[]): _presence_like_selector(
             multiple=True
         ),
+        vol.Optional(
+            CONF_MOTION_MEDIA_PLAYERS, default=[]
+        ): config_fields.media_player_selector(multiple=True),
         vol.Optional(
             CONF_MOTION_TIMEOUT, default=DEFAULT_MOTION_TIMEOUT
         ): selector.NumberSelector(
@@ -679,116 +551,8 @@ DEBUG_SCHEMA = vol.Schema(
 )
 
 
-def weather_override_schema(
-    hass: HomeAssistant | None = None, options: dict | None = None
-) -> vol.Schema:
-    """Weather-override schema with sensor-unit-aware threshold labels.
-
-    The wind-speed and rain thresholds are interpreted in the configured
-    **sensor's** unit, so the selector label reflects that sensor's
-    ``unit_of_measurement`` when set. Fallback uses HA's locale units.
-    """
-    opts = options or {}
-    wind_fallback = str(hass.config.units.wind_speed_unit) if hass is not None else ""
-    rain_fallback = (
-        str(hass.config.units.accumulated_precipitation_unit)
-        if hass is not None
-        else ""
-    )
-    wind_unit = sensor_unit_label(
-        hass, opts.get(CONF_WEATHER_WIND_SPEED_SENSOR), wind_fallback
-    )
-    rain_unit = sensor_unit_label(
-        hass, opts.get(CONF_WEATHER_RAIN_SENSOR), rain_fallback
-    )
-    return vol.Schema(
-        {
-            vol.Optional(
-                CONF_WEATHER_BYPASS_AUTO_CONTROL, default=True
-            ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_WEATHER_WIND_SPEED_SENSOR, default=vol.UNDEFINED
-            ): _numeric_selector(),
-            vol.Optional(
-                CONF_WEATHER_WIND_DIRECTION_SENSOR, default=vol.UNDEFINED
-            ): _numeric_selector(),
-            vol.Optional(
-                CONF_WEATHER_RAIN_SENSOR, default=vol.UNDEFINED
-            ): _numeric_selector(),
-            vol.Optional(
-                CONF_WEATHER_IS_RAINING_SENSOR, default=vol.UNDEFINED
-            ): _binary_on_selector(),
-            vol.Optional(
-                CONF_WEATHER_IS_WINDY_SENSOR, default=vol.UNDEFINED
-            ): _binary_on_selector(),
-            vol.Optional(CONF_WEATHER_SEVERE_SENSORS, default=[]): _binary_on_selector(
-                multiple=True
-            ),
-            vol.Optional(
-                CONF_WEATHER_WIND_SPEED_THRESHOLD,
-                default=DEFAULT_WEATHER_WIND_SPEED_THRESHOLD,
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=200,
-                    step=1,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                    unit_of_measurement=wind_unit,
-                )
-            ),
-            vol.Optional(
-                CONF_WEATHER_WIND_DIRECTION_TOLERANCE,
-                default=DEFAULT_WEATHER_WIND_DIRECTION_TOLERANCE,
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=5,
-                    max=180,
-                    step=5,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                    unit_of_measurement="°",
-                )
-            ),
-            vol.Optional(
-                CONF_WEATHER_RAIN_THRESHOLD, default=DEFAULT_WEATHER_RAIN_THRESHOLD
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=100,
-                    step=0.5,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                    unit_of_measurement=rain_unit,
-                )
-            ),
-            vol.Optional(
-                CONF_WEATHER_OVERRIDE_POSITION, default=0
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=100,
-                    step=1,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                    unit_of_measurement="%",
-                )
-            ),
-            vol.Optional(
-                CONF_WEATHER_OVERRIDE_MIN_MODE, default=False
-            ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_WEATHER_TIMEOUT, default=DEFAULT_WEATHER_TIMEOUT
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=3600,
-                    step=30,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                    unit_of_measurement="seconds",
-                )
-            ),
-        }
-    )
-
-
 # Module-level constant for tests / imports. Uses empty/fallback labels.
+# ``weather_override_schema`` is re-exported from ``config_dynamic`` above.
 WEATHER_OVERRIDE_SCHEMA = weather_override_schema()
 
 # Keys in WEATHER_OVERRIDE_SCHEMA with default=vol.UNDEFINED. Voluptuous omits
@@ -805,98 +569,7 @@ _WEATHER_OVERRIDE_OPTIONAL_KEYS: list[str] = [
 
 
 # --- Light & Cloud (works without climate mode) ---
-def light_cloud_schema(
-    hass: HomeAssistant | None = None, options: dict | None = None
-) -> vol.Schema:
-    """Light/cloud schema with sensor-unit-aware lux/irradiance labels.
-
-    The lux and irradiance thresholds are interpreted in the configured
-    sensor's unit. The label reflects that sensor's ``unit_of_measurement``
-    when set, falling back to the conventional ``lux`` / ``W/m²``.
-    """
-    opts = options or {}
-    lux_unit = sensor_unit_label(hass, opts.get(CONF_LUX_ENTITY), "lux")
-    irr_unit = sensor_unit_label(hass, opts.get(CONF_IRRADIANCE_ENTITY), "W/m²")
-    return vol.Schema(
-        {
-            vol.Optional(
-                CONF_CLOUD_SUPPRESSION, default=False
-            ): selector.BooleanSelector(),
-            vol.Optional(CONF_CLOUDY_POSITION): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=0,
-                    max=100,
-                    step=1,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                    unit_of_measurement="%",
-                )
-            ),
-            vol.Optional(
-                CONF_WEATHER_ENTITY, default=vol.UNDEFINED
-            ): selector.EntitySelector(
-                selector.EntityFilterSelectorConfig(domain="weather")
-            ),
-            vol.Optional(
-                CONF_IS_SUNNY_SENSOR, default=vol.UNDEFINED
-            ): _binary_on_selector(),
-            vol.Optional(CONF_LUX_ENTITY, default=vol.UNDEFINED): _numeric_selector(
-                device_class="illuminance"
-            ),
-            vol.Optional(
-                CONF_IRRADIANCE_ENTITY, default=vol.UNDEFINED
-            ): _numeric_selector(device_class="irradiance"),
-            vol.Optional(
-                CONF_CLOUD_COVERAGE_ENTITY, default=vol.UNDEFINED
-            ): _numeric_selector(),
-            vol.Optional(
-                CONF_WEATHER_STATE, default=["sunny", "partlycloudy", "cloudy", "clear"]
-            ): selector.SelectSelector(
-                selector.SelectSelectorConfig(
-                    multiple=True,
-                    sort=False,
-                    options=[
-                        "clear-night",
-                        "clear",
-                        "cloudy",
-                        "fog",
-                        "hail",
-                        "lightning",
-                        "lightning-rainy",
-                        "partlycloudy",
-                        "pouring",
-                        "rainy",
-                        "snowy",
-                        "snowy-rainy",
-                        "sunny",
-                        "windy",
-                        "windy-variant",
-                        "exceptional",
-                    ],
-                )
-            ),
-            vol.Optional(CONF_LUX_THRESHOLD, default=1000): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    mode=selector.NumberSelectorMode.BOX, unit_of_measurement=lux_unit
-                )
-            ),
-            vol.Optional(
-                CONF_IRRADIANCE_THRESHOLD, default=300
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    mode=selector.NumberSelectorMode.BOX, unit_of_measurement=irr_unit
-                )
-            ),
-            vol.Optional(
-                CONF_CLOUD_COVERAGE_THRESHOLD, default=DEFAULT_CLOUD_COVERAGE_THRESHOLD
-            ): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    mode=selector.NumberSelectorMode.BOX, unit_of_measurement="%"
-                )
-            ),
-        }
-    )
-
-
+# ``light_cloud_schema`` is re-exported from ``config_dynamic`` above.
 # Module-level constant for tests / imports.
 LIGHT_CLOUD_SCHEMA = light_cloud_schema()
 
@@ -921,69 +594,7 @@ _LIGHT_CLOUD_OPTIONAL_KEYS: list[str] = [
 # ``temperature_unit`` otherwise. Ranges are kept wide enough for either
 # Celsius or Fahrenheit users to enter sensible values.
 
-# Inside / outside temperature ranges are the canonical entries from
-# ``OPTION_RANGES`` (single source of truth for the FIELD_VALIDATORS) — kept
-# wide enough for °C or °F sensors. See ``const._RANGE_TEMPERATURE``.
-_TEMP_RANGE_MIN, _TEMP_RANGE_MAX = OPTION_RANGES[CONF_TEMP_LOW]
-_, _OUTSIDE_TEMP_RANGE_MAX = OPTION_RANGES[CONF_OUTSIDE_THRESHOLD]
-
-
-def temperature_climate_schema(
-    hass: HomeAssistant | None = None, options: dict | None = None
-) -> vol.Schema:
-    """Climate-temperature schema with sensor-unit-aware labels."""
-    opts = options or {}
-    fallback = hass.config.units.temperature_unit if hass is not None else "°"
-    inside_unit = sensor_unit_label(hass, opts.get(CONF_TEMP_ENTITY), fallback)
-    outside_unit = sensor_unit_label(hass, opts.get(CONF_OUTSIDETEMP_ENTITY), fallback)
-    return vol.Schema(
-        {
-            vol.Optional(CONF_CLIMATE_MODE, default=False): selector.BooleanSelector(),
-            vol.Optional(CONF_TEMP_ENTITY): selector.EntitySelector(
-                selector.EntityFilterSelectorConfig(domain=["climate", "sensor"])
-            ),
-            vol.Optional(
-                CONF_OUTSIDETEMP_ENTITY, default=vol.UNDEFINED
-            ): _numeric_selector(),
-            vol.Optional(
-                CONF_PRESENCE_ENTITY, default=vol.UNDEFINED
-            ): _presence_like_selector(),
-            vol.Optional(CONF_TEMP_LOW, default=21): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=_TEMP_RANGE_MIN,
-                    max=_TEMP_RANGE_MAX,
-                    step=1,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                    unit_of_measurement=inside_unit,
-                )
-            ),
-            vol.Optional(CONF_TEMP_HIGH, default=25): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=_TEMP_RANGE_MIN,
-                    max=_TEMP_RANGE_MAX,
-                    step=1,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                    unit_of_measurement=inside_unit,
-                )
-            ),
-            vol.Optional(CONF_OUTSIDE_THRESHOLD, default=25): selector.NumberSelector(
-                selector.NumberSelectorConfig(
-                    min=_TEMP_RANGE_MIN,
-                    max=_OUTSIDE_TEMP_RANGE_MAX,
-                    mode=selector.NumberSelectorMode.SLIDER,
-                    unit_of_measurement=outside_unit,
-                )
-            ),
-            vol.Optional(
-                CONF_TRANSPARENT_BLIND, default=False
-            ): selector.BooleanSelector(),
-            vol.Optional(
-                CONF_WINTER_CLOSE_INSULATION, default=False
-            ): selector.BooleanSelector(),
-        }
-    )
-
-
+# ``temperature_climate_schema`` is re-exported from ``config_dynamic`` above.
 # Module-level constant for tests / imports. Uses literal "°" label (legacy).
 TEMPERATURE_CLIMATE_SCHEMA = temperature_climate_schema()
 
@@ -1062,7 +673,7 @@ INTERPOLATION_OPTIONS = vol.Schema(
 
 
 def _get_azimuth_edges(data) -> int:
-    """Calculate azimuth edges."""
+    """Return the total azimuth field-of-view span (fov_left + fov_right)."""
     return data[CONF_FOV_LEFT] + data[CONF_FOV_RIGHT]
 
 
@@ -1292,6 +903,13 @@ async def _compute_todays_sun_times(hass: HomeAssistant, config: dict) -> dict |
     return await hass.async_add_executor_job(_compute)
 
 
+def _cover_type_label(sensor_type: str | None) -> str:
+    """Return the human-readable label for a cover type, falling back to 'Cover'."""
+    if sensor_type is not None and sensor_type in POLICY_REGISTRY:
+        return get_policy(sensor_type).display_label()
+    return "Cover"
+
+
 def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
     config: dict,
     sensor_type: str | None,
@@ -1308,11 +926,7 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
       4. Decision Priority — compact chain showing active/inactive handlers
     """
     # ---- Gather all values up front ----------------------------------------
-    type_label = (
-        get_policy(sensor_type).display_label()
-        if sensor_type in POLICY_REGISTRY
-        else "Cover"
-    )
+    type_label = _cover_type_label(sensor_type)
 
     entities: list[str] = config.get(CONF_ENTITIES) or []
     default_pos = config.get(CONF_DEFAULT_HEIGHT, 0)
@@ -1331,7 +945,10 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
             bool(config.get(CONF_WEATHER_SEVERE_SENSORS)),
         ]
     )
-    has_motion = bool(config.get(CONF_MOTION_SENSORS))
+    from .helpers import motion_entities
+
+    _motion_sources = motion_entities(config)
+    has_motion = bool(_motion_sources)
     # Build per-slot custom position data:
     # list of (slot, entity_id, position, priority, use_my, tilt, tilt_only)
     _custom_slots: list[tuple[int, str, int, int, bool, int | None, bool]] = []
@@ -1393,6 +1010,17 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
     _sunrise_eff = sun_times.get("sunrise_eff") if sun_times else None
 
     lines: list[str] = []
+
+    # Dry-run banner — surfaced first because it overrides everything below: when
+    # on, the full decision chain is still computed and logged but no commands are
+    # sent, so covers never move. Without this the summary reads as if it drives
+    # covers regardless of the dry-run toggle on the Debug screen.
+    if config.get(CONF_DRY_RUN):
+        lines.append(
+            "⚠️ **Dry-run mode is ON** — positions are computed and logged, but "
+            "no commands are sent and covers will NOT move."
+        )
+        lines.append("")
 
     # =========================================================================
     # Section 1: Your Cover
@@ -1547,8 +1175,8 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
     # Motion timeout (75)
     timeout_mode = config.get(CONF_MOTION_TIMEOUT_MODE, DEFAULT_MOTION_TIMEOUT_MODE)
     if has_motion:
-        n = len(config.get(CONF_MOTION_SENSORS) or [])
-        sensor_word = "sensor" if n == 1 else "sensors"
+        n = len(_motion_sources)
+        sensor_word = "source" if n == 1 else "sources"
         if timeout_mode == MOTION_TIMEOUT_MODE_HOLD:
             action = (
                 "covers hold current position (return to default when sun leaves FOV)"
@@ -1562,8 +1190,9 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
         )
     elif timeout_mode == MOTION_TIMEOUT_MODE_HOLD:
         lines.append(
-            "⚠️ hold_position mode is set but no motion sensors are configured "
-            "— the setting has no effect until sensors are added"
+            "⚠️ hold_position mode is set but no motion sensors or media "
+            "players are configured — the setting has no effect until a "
+            "motion source is added"
         )
 
     # Cloud suppression (60)
@@ -1849,6 +1478,9 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
         limit_parts.append(f"Min change: {delta_pos}%")
     if delta_time is not None:
         limit_parts.append(f"Min interval: {delta_time} min")
+    pos_tol = config.get(CONF_POSITION_TOLERANCE)
+    if pos_tol is not None:
+        limit_parts.append(f"Position tolerance: {pos_tol}%")
     if config.get(CONF_INVERSE_STATE):
         limit_parts.append("Inverse state")
     oc_thresh = config.get(CONF_OPEN_CLOSE_THRESHOLD)
@@ -1938,7 +1570,7 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
     # =========================================================================
     # Section 4: Decision Priority (compact reference)
     # =========================================================================
-    def _ch(active: bool, short: str, pri: int) -> str:
+    def _ch(active: bool, short: str) -> str:
         mark = "✅" if active else "❌"
         return f"{mark}{short}"
 
@@ -1961,7 +1593,7 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
         _chain_entries.append((_pri, f"Custom#{_slot}({_pri})", True))
     # Sort highest priority first
     _chain_entries.sort(key=lambda e: e[0], reverse=True)
-    chain = [_ch(active, short, pri) for pri, short, active in _chain_entries]
+    chain = [_ch(active, short) for _pri, short, active in _chain_entries]
 
     lines.append("")
     lines.append("**Decision Priority** (highest wins, ✅ active ❌ not configured)")
@@ -2137,12 +1769,14 @@ SYNC_CATEGORIES: dict[str, frozenset[str]] = {
     "motion_override_sensors": frozenset(
         {
             CONF_MOTION_SENSORS,
+            CONF_MOTION_MEDIA_PLAYERS,
         }
     ),
     # Legacy alias: full union of motion_override_values + motion_override_sensors
     "motion_override": frozenset(
         {
             CONF_MOTION_SENSORS,
+            CONF_MOTION_MEDIA_PLAYERS,
             CONF_MOTION_TIMEOUT,
             CONF_MOTION_TIMEOUT_MODE,
         }
@@ -2440,75 +2074,9 @@ def _glare_zone_length_keys() -> tuple[str, ...]:
     )
 
 
-def _build_glare_zones_schema(
-    options: dict | None = None,
-    hass: HomeAssistant | None = None,
-) -> vol.Schema:
-    """Build the glare zones schema: name + x/y/radius for 4 zone slots.
-
-    When *hass* is supplied the x/y/radius selectors follow HA's configured
-    unit system (metric vs. US-customary). The stored values stay canonical
-    metres in either case — the step handler converts user input to
-    canonical via :func:`user_input_to_canonical` and pre-fills via
-    :func:`options_to_display`.
-    """
-    from .unit_system import length_default
-
-    opts = options or {}
-
-    def _default(key: str, canonical_fallback: float) -> float:
-        """Return the per-slot default in display units (m or in)."""
-        canonical = float(opts.get(key, canonical_fallback))
-        return length_default(canonical, hass)
-
-    schema_dict: dict = {}
-    for i in range(1, 5):
-        prefix = f"glare_zone_{i}"
-        schema_dict[
-            vol.Optional(f"{prefix}_name", default=opts.get(f"{prefix}_name", ""))
-        ] = selector.TextSelector()
-        schema_dict[
-            vol.Optional(f"{prefix}_x", default=_default(f"{prefix}_x", 0.0))
-        ] = length_selector(
-            hass,
-            min_m=-5.0,
-            max_m=5.0,
-            metric_step=0.05,
-            mode=selector.NumberSelectorMode.SLIDER,
-        )
-        schema_dict[
-            vol.Optional(f"{prefix}_y", default=_default(f"{prefix}_y", 1.0))
-        ] = length_selector(
-            hass,
-            min_m=0.0,
-            max_m=10.0,
-            metric_step=0.05,
-            mode=selector.NumberSelectorMode.SLIDER,
-        )
-        schema_dict[
-            vol.Optional(f"{prefix}_radius", default=_default(f"{prefix}_radius", 0.3))
-        ] = length_selector(
-            hass,
-            min_m=0.1,
-            max_m=2.0,
-            metric_step=0.05,
-            mode=selector.NumberSelectorMode.SLIDER,
-        )
-        # Optional Z = target height above floor (0 = floor disk, current behaviour).
-        # Selector bounds mirror _RANGE_GLARE_ZONE_Z in const.py.
-        schema_dict[
-            vol.Optional(
-                f"{prefix}_z",
-                default=_default(f"{prefix}_z", DEFAULT_GLARE_ZONE_Z),
-            )
-        ] = length_selector(
-            hass,
-            min_m=0.0,
-            max_m=3.0,
-            metric_step=0.05,
-            mode=selector.NumberSelectorMode.SLIDER,
-        )
-    return vol.Schema(schema_dict)
+# Glare-zones schema is built in ``config_dynamic`` (locale-aware). Thin alias
+# preserves the existing call sites / signature ``(options, hass)``.
+_build_glare_zones_schema = _glare_zones_schema
 
 
 class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
@@ -2743,36 +2311,7 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
 
     async def async_step_blind_spot(self, user_input: dict[str, Any] | None = None):
         """Add blindspot to data."""
-        edges = _get_azimuth_edges(self.config)
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_BLIND_SPOT_LEFT, default=0): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        mode=selector.NumberSelectorMode.SLIDER,
-                        unit_of_measurement="°",
-                        min=0,
-                        max=edges - 1,
-                    )
-                ),
-                vol.Required(CONF_BLIND_SPOT_RIGHT, default=1): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        mode=selector.NumberSelectorMode.SLIDER,
-                        unit_of_measurement="°",
-                        min=1,
-                        max=edges,
-                    )
-                ),
-                vol.Optional(CONF_BLIND_SPOT_ELEVATION): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0,
-                        max=90,
-                        step=1,
-                        mode=selector.NumberSelectorMode.SLIDER,
-                        unit_of_measurement="°",
-                    )
-                ),
-            }
-        )
+        schema = blind_spot_schema(self.config)
         if user_input is not None:
             if user_input[CONF_BLIND_SPOT_RIGHT] <= user_input[CONF_BLIND_SPOT_LEFT]:
                 return self.async_show_form(
@@ -2995,16 +2534,10 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
             msg = "type_blind must be set before calling async_step_update"
             raise ValueError(msg)
 
-        type_mapping = {
-            "cover_blind": "Vertical",
-            "cover_awning": "Horizontal",
-            "cover_tilt": "Tilt",
-            "cover_venetian": "Venetian",
-        }
         if self.config.pop("_title_is_device_name", False):
             title = self.config["name"]
         else:
-            title = f"{type_mapping[self.type_blind]} {self.config['name']}"
+            title = f"{_cover_type_label(self.type_blind)} {self.config['name']}"
         return self.async_create_entry(
             title=title,
             data={
@@ -3161,15 +2694,8 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
             sensor_type = source_entry.data.get(CONF_SENSOR_TYPE)
             new_name = await self._ensure_unique_name(user_input["name"], suffix="Copy")
 
-            type_mapping = {
-                "cover_blind": "Vertical",
-                "cover_awning": "Horizontal",
-                "cover_tilt": "Tilt",
-                "cover_venetian": "Venetian",
-            }
-
             return self.async_create_entry(  # type: ignore[return-value]
-                title=f"{type_mapping.get(sensor_type, 'Cover')} {new_name}",
+                title=f"{_cover_type_label(sensor_type)} {new_name}",
                 data={"name": new_name, CONF_SENSOR_TYPE: sensor_type},
                 options={
                     **shared_options,
@@ -3717,36 +3243,7 @@ class OptionsFlowHandler(OptionsFlow):
 
     async def async_step_blind_spot(self, user_input: dict[str, Any] | None = None):
         """Add blindspot to data."""
-        edges = _get_azimuth_edges(self.options)
-        schema = vol.Schema(
-            {
-                vol.Required(CONF_BLIND_SPOT_LEFT, default=0): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        mode=selector.NumberSelectorMode.SLIDER,
-                        unit_of_measurement="°",
-                        min=0,
-                        max=edges - 1,
-                    )
-                ),
-                vol.Required(CONF_BLIND_SPOT_RIGHT, default=1): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        mode=selector.NumberSelectorMode.SLIDER,
-                        unit_of_measurement="°",
-                        min=1,
-                        max=edges,
-                    )
-                ),
-                vol.Optional(CONF_BLIND_SPOT_ELEVATION): selector.NumberSelector(
-                    selector.NumberSelectorConfig(
-                        min=0,
-                        max=90,
-                        step=1,
-                        mode=selector.NumberSelectorMode.SLIDER,
-                        unit_of_measurement="°",
-                    )
-                ),
-            }
-        )
+        schema = blind_spot_schema(self.options)
         if user_input is not None:
             if user_input[CONF_BLIND_SPOT_RIGHT] <= user_input[CONF_BLIND_SPOT_LEFT]:
                 return self.async_show_form(

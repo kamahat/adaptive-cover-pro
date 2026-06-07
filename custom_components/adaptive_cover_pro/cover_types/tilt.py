@@ -76,7 +76,7 @@ TILT_CAPABLE_ENTITY_FILTER = selector.EntityFilterSelectorConfig(
 )
 
 
-class TiltPolicy(CoverTypePolicy):
+class TiltPolicy(CoverTypePolicy, register=True):
     """Cover that rotates slats only (no vertical movement)."""
 
     cover_type = "cover_tilt"

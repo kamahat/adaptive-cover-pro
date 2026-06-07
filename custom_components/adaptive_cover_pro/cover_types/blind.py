@@ -77,13 +77,30 @@ def geometry_vertical_schema(hass: HomeAssistant | None = None) -> vol.Schema:
 GEOMETRY_VERTICAL_SCHEMA = geometry_vertical_schema()
 
 
-class BlindPolicy(CoverTypePolicy):
+class BlindPolicy(CoverTypePolicy, register=True):
     """Cover that moves vertically (raise/lower)."""
 
     cover_type = "cover_blind"
     axes: ClassVar[tuple[CoverAxis, ...]] = (POSITION_AXIS,)
     supports_glare_zones = True
     supports_return_to_default_switch = True
+
+    def section_order(self, options: dict | None = None) -> tuple[str, ...]:
+        """Vertical blinds add the glare-zones section after the blind spot."""
+        from .. import config_fields as cf
+
+        order: list[str] = list(super().section_order(options))
+        order.insert(order.index(cf.SECTION_BLIND_SPOT) + 1, cf.SECTION_GLARE_ZONES)
+        return tuple(order)
+
+    def extra_field_keys(self, section: str) -> tuple[str, ...]:
+        """Add the glare-zones enable toggle to the sun-tracking section."""
+        from .. import config_fields as cf
+        from ..const import CONF_ENABLE_GLARE_ZONES
+
+        if section == cf.SECTION_SUN_TRACKING:
+            return (CONF_ENABLE_GLARE_ZONES,)
+        return ()
 
     def wiki_anchor(self) -> str:
         """Vertical-blind geometry page."""

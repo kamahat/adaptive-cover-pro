@@ -130,10 +130,27 @@ def caps_get(caps: Any, key: str, default: bool = False) -> bool:
 _caps_get = caps_get
 
 
+# Registry of concrete cover-type policies, keyed by ``cover_type``. Populated
+# automatically by ``CoverTypePolicy.__init_subclass__`` for subclasses that
+# opt in with ``register=True`` (the four shipped types + future ones). Test
+# stub policies omit the flag so they don't pollute the global registry.
+POLICY_REGISTRY: dict[str, type[CoverTypePolicy]] = {}
+
+
 class CoverTypePolicy(ABC):
     """Per-cover-type policy."""
 
     cover_type: ClassVar[str]
+
+    def __init_subclass__(cls, *, register: bool = False, **kwargs: Any) -> None:
+        """Auto-register a concrete policy by its ``cover_type``.
+
+        A new cover type becomes available simply by defining its policy
+        subclass with ``register=True`` — no edit to a central registry dict.
+        """
+        super().__init_subclass__(**kwargs)
+        if register:
+            POLICY_REGISTRY[cls.cover_type] = cls
 
     # Ordered tuple: the primary axis comes first. ``select_default_axis``
     # consults this when picking which HA service to call. Single-axis covers
@@ -370,6 +387,110 @@ class CoverTypePolicy(ABC):
                 return state_obj.attributes.get(axis.state_attr)
             return state_attr(hass, entity, axis.state_attr)
         return get_open_close_state(hass, entity, state_obj=state_obj)
+
+    # ---- Declarative section configuration ----------------------------- #
+
+    # Base CONF_* keys this cover type drops even though the common section
+    # would otherwise include them (e.g. an oscillating awning disables the
+    # fixed ``angle`` field because its angle is position-derived). Default
+    # empty → inherit every common field.
+    disabled_config_keys: ClassVar[frozenset[str]] = frozenset()
+
+    def section_order(self, options: dict | None = None) -> tuple[str, ...]:
+        """Ordered config sections this cover type supports.
+
+        The base prepends the geometry section to the common order (every real
+        cover type has geometry). Concrete policies override to insert extra
+        sections — ``BlindPolicy`` adds glare zones. Used both for the options
+        menu and to compute ``live_option_keys``.
+        """
+        from .. import config_fields
+
+        return (config_fields.SECTION_GEOMETRY, *config_fields.COMMON_SECTION_ORDER)
+
+    def extra_field_keys(self, section: str) -> tuple[str, ...]:  # noqa: ARG002
+        """Type-specific CONF_* keys this policy adds to *section*.
+
+        Beyond the common fields — e.g. the glare-zones enable toggle that
+        ``BlindPolicy`` adds to sun tracking, or venetian's per-slot tilt
+        fields. Default: none.
+        """
+        return ()
+
+    def build_section_schema(
+        self,
+        name: str,
+        hass: HomeAssistant | None = None,
+        options: dict | None = None,
+    ) -> vol.Schema:
+        """Build the config-flow schema for one section, for this cover type.
+
+        The single seam ``config_flow`` consumes: it dispatches to the right
+        builder (static FieldSpec generation, the per-type geometry hook, or a
+        dynamic sensor-unit/locale builder), appends this policy's extra fields,
+        and removes any disabled keys.
+        """
+        from .. import config_dynamic as cd
+        from .. import config_fields as cf
+
+        opts = options or {}
+        if name == cf.SECTION_GEOMETRY:
+            base = self.geometry_schema(hass, opts)
+        elif name == cf.SECTION_SUN_TRACKING:
+            base = cd.sun_tracking_schema(hass)
+        elif name == cf.SECTION_BLIND_SPOT:
+            base = cd.blind_spot_schema(opts)
+        elif name == cf.SECTION_GLARE_ZONES:
+            base = cd.glare_zones_schema(opts, hass)
+        elif name == cf.SECTION_WEATHER_OVERRIDE:
+            base = cd.weather_override_schema(hass, opts)
+        elif name == cf.SECTION_LIGHT_CLOUD:
+            base = cd.light_cloud_schema(hass, opts)
+        elif name == cf.SECTION_TEMPERATURE_CLIMATE:
+            base = cd.temperature_climate_schema(hass, opts)
+        elif name == cf.SECTION_CUSTOM_POSITION:
+            include_tilt = bool(self.extra_field_keys(name))
+            base = cf.custom_position_schema(include_tilt=include_tilt)
+        else:
+            # Static section — generate markers straight from the registry.
+            markers: dict = {}
+            for key in cf.section_keys(name):
+                spec = cf.FIELD_SPECS[key]
+                if spec.make_selector is None:
+                    continue
+                marker, sel = spec.to_marker(hass, opts)
+                markers[marker] = sel
+            base = vol.Schema(markers)
+
+        schema_dict: dict = dict(base.schema)
+        present = {str(m) for m in schema_dict}
+        for key in self.extra_field_keys(name):
+            if key in present:
+                continue
+            spec = cf.FIELD_SPECS.get(key)
+            if spec is None or spec.make_selector is None:
+                continue
+            marker, sel = spec.to_marker(hass, opts)
+            schema_dict[marker] = sel
+        if self.disabled_config_keys:
+            schema_dict = {
+                m: s
+                for m, s in schema_dict.items()
+                if str(m) not in self.disabled_config_keys
+            }
+        return vol.Schema(schema_dict)
+
+    def live_option_keys(self) -> frozenset[str]:
+        """Every CONF_* key valid for this cover type across its sections.
+
+        The single seam ``options_service`` consumes to reject keys that don't
+        belong to this cover type. Computed by rendering each supported section
+        (``hass=None`` → keys only) and unioning the markers.
+        """
+        keys: set[str] = set()
+        for section in self.section_order():
+            keys.update(str(m) for m in self.build_section_schema(section).schema)
+        return frozenset(keys - self.disabled_config_keys)
 
     # ---- Config-flow / options-service helpers ------------------------- #
 

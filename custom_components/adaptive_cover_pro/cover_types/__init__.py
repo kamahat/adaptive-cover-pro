@@ -8,18 +8,17 @@ override detection, config flow) never branch on cover type.
 
 from __future__ import annotations
 
-from .awning import AwningPolicy
-from .base import CoverTypePolicy
+from .base import POLICY_REGISTRY, CoverTypePolicy
+
+# Importing each policy module triggers its ``register=True`` auto-registration
+# in ``POLICY_REGISTRY`` (see ``CoverTypePolicy.__init_subclass__``). Import
+# order sets the cover-type picker order (blind first, as before). A new cover
+# type is added simply by creating its module and importing it here.
 from .blind import BlindPolicy
+from .awning import AwningPolicy
+from .oscillating_awning import OscillatingAwningPolicy
 from .tilt import TiltPolicy
 from .venetian import VenetianPolicy
-
-POLICY_REGISTRY: dict[str, type[CoverTypePolicy]] = {
-    BlindPolicy.cover_type: BlindPolicy,
-    AwningPolicy.cover_type: AwningPolicy,
-    TiltPolicy.cover_type: TiltPolicy,
-    VenetianPolicy.cover_type: VenetianPolicy,
-}
 
 
 def get_policy(cover_type) -> CoverTypePolicy:
@@ -49,6 +48,7 @@ __all__ = [
     "AwningPolicy",
     "BlindPolicy",
     "CoverTypePolicy",
+    "OscillatingAwningPolicy",
     "TiltPolicy",
     "VenetianPolicy",
     "get_policy",

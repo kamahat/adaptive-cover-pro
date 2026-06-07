@@ -48,7 +48,11 @@
           "max_tilt": "Inclinaison Maximale des Lamelles (%)",
           "min_tilt": "Inclinaison Minimale des Lamelles (%)",
           "venetian_post_settle_hold": "Délai post-arrêt (s)",
-          "venetian_backrotate_publish_lag": "Fenêtre de latence de publication (s)"
+          "venetian_backrotate_publish_lag": "Fenêtre de latence de publication (s)",
+          "arm_length": "Longueur du bras",
+          "awning_min_angle": "Angle du bras fermé",
+          "awning_max_angle": "Angle du bras complètement ouvert",
+          "awning_housing_offset": "Décalage du boîtier au-dessus de la fenêtre"
         },
         "data_description": {
           "window_height": "Hauteur de votre fenêtre (de bas en haut de la zone vitrée). Affiché dans l'unité configurée dans Home Assistant. Exemples : Porte standard = 2,0 m / 79 in, Petite fenêtre = 1,5 m / 59 in, Du sol au plafond = 2,5 m / 98 in. Mesurez d'où la protection commence à d'où elle finit lorsqu'elle est complètement étendue.",
@@ -66,7 +70,11 @@
           "max_tilt": "Limite de l'angle d'inclinaison maximal des lamelles (0–100 %). Les valeurs plus basses empêchent les lamelles d'atteindre des angles qui réfléchissent la lumière directe du soleil dans la pièce. Défaut : 100 (pas de limite). Exemple : réglez à 70 si les lamelles complètement ouvertes causent des reflets à des angles de soleil maximum.",
           "min_tilt": "Limite inférieure de l'angle d'inclinaison des lamelles (0–100 %). Les valeurs plus élevées empêchent les lamelles de se fermer complètement — utile pour les stores qui bloquent toute la lumière à 0 %. Défaut : 0 (pas de limite). Exemple : réglez à 10 si vos stores deviennent complètement opaques à 0 % et vous voulez toujours un peu de lumière.",
           "venetian_post_settle_hold": "Durée d'attente (en secondes) après l'arrêt du mécanisme avant l'envoi de la commande d'inclinaison. La valeur par défaut de 2,0 s convient à la plupart des actionneurs. Augmentez à 4–6 s pour le KNX FGR223 ou tout autre firmware qui réenclenche une inclinaison-vers-ouvert peu après l'arrêt du mécanisme — sans ce délai supplémentaire, la commande d'inclinaison entre en conflit avec ce réenclenchement et perd. Plage : 0,0–10,0 s.",
-          "venetian_backrotate_publish_lag": "Durée (en secondes) pendant laquelle l'intégration tolère une publication tardive de l'état de position de votre actionneur avant de la traiter comme un geste utilisateur réel. 45 s par défaut convient à Somfy IO via Tahoma. Augmentez à 60–120 s si votre matériel (bus KNX lent, Fibaro/Shelly republish) publie la position actuelle après l'arrêt physique du store – le symptôme est des événements « manual_override_set » parasites déclenchés ~30–90 s après un mouvement commandé. Diminuez uniquement si vous avez un actionneur inhabituellement rapide et souhaitez une détection de faux contact plus stricte. Plage 15–180 s."
+          "venetian_backrotate_publish_lag": "Durée (en secondes) pendant laquelle l'intégration tolère une publication tardive de l'état de position de votre actionneur avant de la traiter comme un geste utilisateur réel. 45 s par défaut convient à Somfy IO via Tahoma. Augmentez à 60–120 s si votre matériel (bus KNX lent, Fibaro/Shelly republish) publie la position actuelle après l'arrêt physique du store – le symptôme est des événements « manual_override_set » parasites déclenchés ~30–90 s après un mouvement commandé. Diminuez uniquement si vous avez un actionneur inhabituellement rapide et souhaitez une détection de faux contact plus stricte. Plage 15–180 s.",
+          "arm_length": "Longueur du bras articulé d'une store banne à bras articulé, du pivot mural au bord du tissu. Affichée dans l'unité configurée pour Home Assistant. Utilisée avec l'angle de balayage du bras pour calculer la distance d'extension du tissu à chaque pourcentage d'ouverture. Exemple : 0,8 m / 31 po.",
+          "awning_min_angle": "Angle du bras lorsque la store banne est complètement fermée/rétractée (0–180°). En règle générale, 0° = bras vertical contre le mur. Définit le début de l'arc de balayage.",
+          "awning_max_angle": "Angle du bras lorsque la store banne est complètement ouverte (0–180°). Le bras pivote linéairement de l'angle fermé à cette valeur sur 0–100% d'ouverture. Exemple : un balayage total de 175° ≈ 1,75° par 1%.",
+          "awning_housing_offset": "Décalage vertical du pivot du bras au-dessus du haut de la fenêtre (0–1 m). Combiné avec la hauteur de la fenêtre et la longueur du bras pour localiser le pivot. Définir à 0 lorsque le boîtier s'aligne avec le haut de la fenêtre."
         }
       },
       "sun_tracking": {
@@ -265,16 +273,18 @@
       },
       "motion_override": {
         "title": "Dérogation mouvement",
-        "description": "Activez le contrôle basé sur l'occupance. Lorsque tous les capteurs configurés signalent l'absence de mouvement, l'intégration arrête le suivi du soleil et déplace les protections à leur position par défaut après l'expiration du délai d'attente. Lorsqu'un capteur détecte un mouvement, le positionnement automatique reprend.\n\nN'importe quel mélange de capteurs de mouvement, d'occupance ou de présence binaire peut être utilisé. La logique est OU — n'importe quel capteur actif compte comme occupé. Ceci est utile pour les pièces où vous ne voulez pas que les protections s'ajustent lorsque personne n'est présent.\n\n[Learn more]({learn_more})",
+        "description": "Activez le contrôle basé sur la présence. Quand toutes les sources configurées ne signalent aucun mouvement, l'intégration arrête le suivi du soleil et déplace les protections vers leur position par défaut après l'expiration du délai d'attente. Quand une source détecte une présence, le positionnement automatique reprend.\n\nVous pouvez combiner des détecteurs de mouvement, détecteurs de présence ou capteurs binaires de présence avec des lecteurs multimédias (un lecteur allumé indique une occupation). La logique est OU — toute source active unique indique une occupation. Ceci est utile dans les pièces où vous ne souhaitez pas que les protections se règlent quand personne n'est présent.\n\n[En savoir plus]({learn_more})",
         "data": {
           "motion_sensors": "Capteurs de mouvement/occupation pour le contrôle basé sur l'occupation",
           "motion_timeout": "Durée du délai d'inactivité du mouvement",
-          "motion_timeout_mode": "Lors de l'expiration du délai de mouvement"
+          "motion_timeout_mode": "Lors de l'expiration du délai de mouvement",
+          "motion_media_players": "Lecteurs multimédias pour le contrôle basé sur la présence"
         },
         "data_description": {
           "motion_sensors": "Capteurs binaires qui activent/désactivent le positionnement solaire automatique en fonction de l'occupation. Quand N'IMPORTE QUEL capteur détecte le mouvement, les stores utilisent le positionnement automatique basé sur le soleil. Quand TOUS les capteurs n'indiquent aucun mouvement pendant la durée du délai, les stores retournent à la position par défaut. Laissez vide pour désactiver cette fonction.",
           "motion_timeout": "Durée (en secondes) à attendre après le dernier mouvement avant de retourner les stores à la position par défaut. Empêche les changements rapides de position quand les capteurs de mouvement basculent fréquemment. Plage : 30-3600 secondes (0,5-60 minutes). Par défaut : 300 secondes (5 minutes).",
-          "motion_timeout_mode": "Action à effectuer lorsqu'aucun mouvement n'a été détecté pendant la durée du délai. « Retourner à la position par défaut » déplace les stores à la position par défaut. « Maintenir la position » laisse les stores où ils sont tandis que le soleil est dans le champ de vision (de sorte qu'un occupant qui revient les trouve comme il les a laissés) ; les stores retournent néanmoins à la position par défaut une fois que le soleil quitte le champ de vision ou que la fenêtre de temps se ferme."
+          "motion_timeout_mode": "Action à effectuer lorsqu'aucun mouvement n'a été détecté pendant la durée du délai. « Retourner à la position par défaut » déplace les stores à la position par défaut. « Maintenir la position » laisse les stores où ils sont tandis que le soleil est dans le champ de vision (de sorte qu'un occupant qui revient les trouve comme il les a laissés) ; les stores retournent néanmoins à la position par défaut une fois que le soleil quitte le champ de vision ou que la fenêtre de temps se ferme.",
+          "motion_media_players": "Lecteurs multimédias traités comme présence. TOUT lecteur dont l'état est différent de éteint (en lecture, en pause, inactif, allumé, ...) est considéré comme occupé et maintient le positionnement automatique actif. Les lecteurs éteints, indisponibles ou inconnus ne comptent pas. Combiné avec les détecteurs de mouvement ci-dessus sous la même logique OU. Laissez vide pour désactiver."
         }
       },
       "weather_override": {
@@ -573,7 +583,11 @@
           "max_tilt": "Inclinaison Maximale des Lamelles (%)",
           "min_tilt": "Inclinaison Minimale des Lamelles (%)",
           "venetian_post_settle_hold": "Délai post-arrêt (s)",
-          "venetian_backrotate_publish_lag": "Fenêtre de latence de publication (s)"
+          "venetian_backrotate_publish_lag": "Fenêtre de latence de publication (s)",
+          "arm_length": "Longueur du bras",
+          "awning_min_angle": "Angle du bras fermé",
+          "awning_max_angle": "Angle du bras complètement ouvert",
+          "awning_housing_offset": "Décalage du boîtier au-dessus de la fenêtre"
         },
         "data_description": {
           "window_height": "Hauteur de votre fenêtre (de bas en haut de la zone vitrée). Affiché dans l'unité configurée dans Home Assistant. Exemples : Porte standard = 2,0 m / 79 in, Petite fenêtre = 1,5 m / 59 in, Du sol au plafond = 2,5 m / 98 in. Mesurez d'où la protection commence à d'où elle finit lorsqu'elle est complètement étendue.",
@@ -591,7 +605,11 @@
           "max_tilt": "Limite de l'angle d'inclinaison maximal des lamelles (0–100 %). Les valeurs plus basses empêchent les lamelles d'atteindre des angles qui réfléchissent la lumière directe du soleil dans la pièce. Défaut : 100 (pas de limite). Exemple : réglez à 70 si les lamelles complètement ouvertes causent des reflets à des angles de soleil maximum.",
           "min_tilt": "Limite inférieure de l'angle d'inclinaison des lamelles (0–100 %). Les valeurs plus élevées empêchent les lamelles de se fermer complètement — utile pour les stores qui bloquent toute la lumière à 0 %. Défaut : 0 (pas de limite). Exemple : réglez à 10 si vos stores deviennent complètement opaques à 0 % et vous voulez toujours un peu de lumière.",
           "venetian_post_settle_hold": "Durée d'attente (en secondes) après l'arrêt du mécanisme avant l'envoi de la commande d'inclinaison. La valeur par défaut de 2,0 s convient à la plupart des actionneurs. Augmentez à 4–6 s pour le KNX FGR223 ou tout autre firmware qui réenclenche une inclinaison-vers-ouvert peu après l'arrêt du mécanisme — sans ce délai supplémentaire, la commande d'inclinaison entre en conflit avec ce réenclenchement et perd. Plage : 0,0–10,0 s.",
-          "venetian_backrotate_publish_lag": "Durée (en secondes) pendant laquelle l'intégration tolère une publication tardive de l'état de position de votre actionneur avant de la traiter comme un geste utilisateur réel. 45 s par défaut convient à Somfy IO via Tahoma. Augmentez à 60–120 s si votre matériel (bus KNX lent, Fibaro/Shelly republish) publie la position actuelle après l'arrêt physique du store – le symptôme est des événements « manual_override_set » parasites déclenchés ~30–90 s après un mouvement commandé. Diminuez uniquement si vous avez un actionneur inhabituellement rapide et souhaitez une détection de faux contact plus stricte. Plage 15–180 s."
+          "venetian_backrotate_publish_lag": "Durée (en secondes) pendant laquelle l'intégration tolère une publication tardive de l'état de position de votre actionneur avant de la traiter comme un geste utilisateur réel. 45 s par défaut convient à Somfy IO via Tahoma. Augmentez à 60–120 s si votre matériel (bus KNX lent, Fibaro/Shelly republish) publie la position actuelle après l'arrêt physique du store – le symptôme est des événements « manual_override_set » parasites déclenchés ~30–90 s après un mouvement commandé. Diminuez uniquement si vous avez un actionneur inhabituellement rapide et souhaitez une détection de faux contact plus stricte. Plage 15–180 s.",
+          "arm_length": "Longueur du bras articulé d'une store banne à bras articulé, du pivot mural au bord du tissu. Affichée dans l'unité configurée pour Home Assistant. Utilisée avec l'angle de balayage du bras pour calculer la distance d'extension du tissu à chaque pourcentage d'ouverture. Exemple : 0,8 m / 31 po.",
+          "awning_min_angle": "Angle du bras lorsque la store banne est complètement fermée/rétractée (0–180°). En règle générale, 0° = bras vertical contre le mur. Définit le début de l'arc de balayage.",
+          "awning_max_angle": "Angle du bras lorsque la store banne est complètement ouverte (0–180°). Le bras pivote linéairement de l'angle fermé à cette valeur sur 0–100% d'ouverture. Exemple : un balayage total de 175° ≈ 1,75° par 1%.",
+          "awning_housing_offset": "Décalage vertical du pivot du bras au-dessus du haut de la fenêtre (0–1 m). Combiné avec la hauteur de la fenêtre et la longueur du bras pour localiser le pivot. Définir à 0 lorsque le boîtier s'aligne avec le haut de la fenêtre."
         }
       },
       "sun_tracking": {
@@ -768,16 +786,18 @@
       },
       "motion_override": {
         "title": "Dérogation mouvement",
-        "description": "Activez le contrôle basé sur l'occupance. Lorsque tous les capteurs configurés signalent l'absence de mouvement, l'intégration arrête le suivi du soleil et déplace les protections à leur position par défaut après l'expiration du délai d'attente. Lorsqu'un capteur détecte un mouvement, le positionnement automatique reprend.\n\nN'importe quel mélange de capteurs de mouvement, d'occupance ou de présence binaire peut être utilisé. La logique est OU — n'importe quel capteur actif compte comme occupé. Ceci est utile pour les pièces où vous ne voulez pas que les protections s'ajustent lorsque personne n'est présent.\n\n[Learn more]({learn_more})",
+        "description": "Activez le contrôle basé sur la présence. Quand toutes les sources configurées ne signalent aucun mouvement, l'intégration arrête le suivi du soleil et déplace les protections vers leur position par défaut après l'expiration du délai d'attente. Quand une source détecte une présence, le positionnement automatique reprend.\n\nVous pouvez combiner des détecteurs de mouvement, détecteurs de présence ou capteurs binaires de présence avec des lecteurs multimédias (un lecteur allumé indique une occupation). La logique est OU — toute source active unique indique une occupation. Ceci est utile dans les pièces où vous ne souhaitez pas que les protections se règlent quand personne n'est présent.\n\n[En savoir plus]({learn_more})",
         "data": {
           "motion_sensors": "Capteurs de mouvement/occupation pour le contrôle basé sur l'occupation",
           "motion_timeout": "Durée du délai d'inactivité du mouvement",
-          "motion_timeout_mode": "Lors de l'expiration du délai de mouvement"
+          "motion_timeout_mode": "Lors de l'expiration du délai de mouvement",
+          "motion_media_players": "Lecteurs multimédias pour le contrôle basé sur la présence"
         },
         "data_description": {
           "motion_sensors": "Capteurs binaires qui activent/désactivent le positionnement solaire automatique en fonction de l'occupation. Quand N'IMPORTE QUEL capteur détecte le mouvement, les stores utilisent le positionnement automatique basé sur le soleil. Quand TOUS les capteurs n'indiquent aucun mouvement pendant la durée du délai, les stores retournent à la position par défaut. Laissez vide pour désactiver cette fonction.",
           "motion_timeout": "Durée (en secondes) à attendre après le dernier mouvement avant de retourner les stores à la position par défaut. Empêche les changements rapides de position quand les capteurs de mouvement basculent fréquemment. Plage : 30-3600 secondes (0,5-60 minutes). Par défaut : 300 secondes (5 minutes).",
-          "motion_timeout_mode": "Action à effectuer lorsqu'aucun mouvement n'a été détecté pendant la durée du délai. « Retourner à la position par défaut » déplace les stores à la position par défaut. « Maintenir la position » laisse les stores où ils sont tandis que le soleil est dans le champ de vision (de sorte qu'un occupant qui revient les trouve comme il les a laissés) ; les stores retournent néanmoins à la position par défaut une fois que le soleil quitte le champ de vision ou que la fenêtre de temps se ferme."
+          "motion_timeout_mode": "Action à effectuer lorsqu'aucun mouvement n'a été détecté pendant la durée du délai. « Retourner à la position par défaut » déplace les stores à la position par défaut. « Maintenir la position » laisse les stores où ils sont tandis que le soleil est dans le champ de vision (de sorte qu'un occupant qui revient les trouve comme il les a laissés) ; les stores retournent néanmoins à la position par défaut une fois que le soleil quitte le champ de vision ou que la fenêtre de temps se ferme.",
+          "motion_media_players": "Lecteurs multimédias traités comme présence. TOUT lecteur dont l'état est différent de éteint (en lecture, en pause, inactif, allumé, ...) est considéré comme occupé et maintient le positionnement automatique actif. Les lecteurs éteints, indisponibles ou inconnus ne comptent pas. Combiné avec les détecteurs de mouvement ci-dessus sous la même logique OU. Laissez vide pour désactiver."
         }
       },
       "weather_override": {
@@ -1108,7 +1128,8 @@
         "cover_blind": "Store vertical",
         "cover_awning": "Store banne horizontal",
         "cover_tilt": "Store à inclinaison",
-        "cover_venetian": "Store vénitien (double axe)"
+        "cover_venetian": "Store vénitien (double axe)",
+        "cover_oscillating_awning": "Store banne à bras articulé"
       }
     },
     "tilt_mode": {

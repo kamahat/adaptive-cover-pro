@@ -48,7 +48,11 @@
           "max_tilt": "Maximale Lamellennneigung (%)",
           "min_tilt": "Minimale Lamellenneigung (%)",
           "venetian_post_settle_hold": "Wartezeit nach Fahrt (s)",
-          "venetian_backrotate_publish_lag": "Verzögerungsfenster für Statusmeldung (s)"
+          "venetian_backrotate_publish_lag": "Verzögerungsfenster für Statusmeldung (s)",
+          "arm_length": "Armlänge",
+          "awning_min_angle": "Armwinkel beim Schließen",
+          "awning_max_angle": "Armwinkel vollständig offen",
+          "awning_housing_offset": "Gehäuseversatz über Fenster"
         },
         "data_description": {
           "window_height": "Höhe Ihres Fensters (von unten bis oben des Glasbereichs). In der von Home Assistant konfigurierten Einheit angezeigt. Beispiele: Standard-Tür = 2,0 m / 79 in, Kleines Fenster = 1,5 m / 59 in, Vom Boden bis zur Decke = 2,5 m / 98 in. Messen Sie von dort, wo die Beschattung beginnt, bis dort, wo sie endet, wenn sie vollständig ausgefahren ist.",
@@ -66,7 +70,11 @@
           "max_tilt": "Obergrenze für den maximalen Neigungswinkel der Lamellen (0–100). Niedrigere Werte verhindern, dass Lamellen Winkelpositionen erreichen, die direktes Sonnenlicht ins Zimmer reflektieren. Standard: 100 (keine Obergrenze). Beispiel: Stellen Sie 70 ein, wenn vollständig geöffnete Lamellen zu Spitzensonnenzeiten Blendungen verursachen.",
           "min_tilt": "Untergrenze für die minimale Neigungswinkel der Lamellen (0–100). Höhere Werte verhindern, dass Lamellen vollständig schließen – nützlich für Jalousien, die bei 0% das gesamte Licht blockieren. Standard: 0 (keine Untergrenze). Beispiel: Stellen Sie 10 ein, wenn Ihre Jalousien bei 0% vollständig dunkel werden und Sie immer etwas Licht durchlassen möchten.",
           "venetian_post_settle_hold": "Wie lange (in Sekunden) nach dem Anhalten des Antriebs gewartet wird, bevor der Neigungsbefehl gesendet wird. Standardmäßig 2,0 s, was für die meisten Aktoren geeignet ist. Erhöhen Sie den Wert auf 4–6 s für KNX FGR223 oder andere Firmware, die kurz nach dem Anhalten des Antriebs eine Neigung-zu-Offen-Bewegung erneut auslöst — ohne die zusätzliche Wartezeit konkurriert der Neigungsbefehl mit dieser Auslösung und verliert. Bereich 0,0–10,0 s.",
-          "venetian_backrotate_publish_lag": "Wie lange (in Sekunden) die Integration eine verspätete Statusmeldung der Position von Ihrem Aktor toleriert, bevor sie als echte Benutzerberührung behandelt wird. Standard 45 s eignet sich für Somfy IO über Tahoma. Erhöhen Sie auf 60–120 s, wenn Ihre Hardware (langsamer KNX-Bus, Fibaro/Shelly-Neuveröffentlichung) die aktuelle_Position lange nach dem physischen Stopp der Beschattung meldet – Symptom sind fehlerhafte 'manual_override_set'-Ereignisse, die etwa 30–90 s nach einem befohlenen Bewegungsbefehl ausgelöst werden. Verringern Sie nur, wenn Sie einen ungewöhnlich schnellen Aktor haben und eine straffere Erkennungsfehlertoleranz möchten. Bereich 15–180 s."
+          "venetian_backrotate_publish_lag": "Wie lange (in Sekunden) die Integration eine verspätete Statusmeldung der Position von Ihrem Aktor toleriert, bevor sie als echte Benutzerberührung behandelt wird. Standard 45 s eignet sich für Somfy IO über Tahoma. Erhöhen Sie auf 60–120 s, wenn Ihre Hardware (langsamer KNX-Bus, Fibaro/Shelly-Neuveröffentlichung) die aktuelle_Position lange nach dem physischen Stopp der Beschattung meldet – Symptom sind fehlerhafte 'manual_override_set'-Ereignisse, die etwa 30–90 s nach einem befohlenen Bewegungsbefehl ausgelöst werden. Verringern Sie nur, wenn Sie einen ungewöhnlich schnellen Aktor haben und eine straffere Erkennungsfehlertoleranz möchten. Bereich 15–180 s.",
+          "arm_length": "Länge des Schwenkarmes einer Gelenkarmmarkise, vom Wandpivot bis zur Stoffkante. In der für Home Assistant konfigurierten Einheit dargestellt. Wird zusammen mit dem Schwenkwinkel verwendet, um zu berechnen, wie weit der Stoff bei jeder Öffnungsposition reicht. Beispiel: 0,8 m / 31 in.",
+          "awning_min_angle": "Armwinkel, wenn die Markise vollständig geschlossen/eingezogen ist (0–180°). Normalerweise 0° = Arm vertikal an der Wand. Definiert den Anfang des Schwenkbereichs.",
+          "awning_max_angle": "Armwinkel, wenn die Markise vollständig offen ist (0–180°). Der Arm schwenkt linear vom geschlossenen Winkel zu diesem Wert über 0–100% Öffnung. Beispiel: ein Schwenkbereich von 175° ≈ 1,75° pro 1%.",
+          "awning_housing_offset": "Vertikaler Versatz des Armpivots über die Oberkante des Fensters (0–1 m). Zusammen mit Fensterhöhe und Armlänge zur Lokalisierung des Pivots verwendet. Setzen Sie auf 0, wenn das Gehäuse bündig mit der Fensteroberkante sitzt."
         }
       },
       "sun_tracking": {
@@ -265,16 +273,18 @@
       },
       "motion_override": {
         "title": "Bewegungsübersteuerung",
-        "description": "Aktivieren Sie anwesenheitsbasierte Steuerung. Wenn alle konfigurierten Sensoren keine Bewegung melden, stoppt die Integration die Sonnenverfolgung und bewegt Beschattungselemente nach Ablauf des Timeouts in ihre Standardposition. Wenn ein Sensor Bewegung erkennt, wird die automatische Positionierung fortgesetzt.\n\nJede Mischung aus Bewegungs-, Anwesenheits- oder Binär-Präsenzsensoren kann verwendet werden. Die Logik ist ODER — jeder einzelne aktive Sensor zählt als anwesend. Dies ist nützlich für Räume, in denen Sie nicht möchten, dass sich Beschattungselemente anpassen, wenn niemand anwesend ist.\n\n[Weitere Informationen]({learn_more})",
+        "description": "Aktivieren Sie die Anwesenheitskontrolle. Wenn alle konfigurierten Quellen keine Bewegung melden, stoppt die Integration die Sonnennachverfolgung und bewegt die Beschattung nach Ablauf des Timeouts auf ihre Standardposition. Wenn eine Quelle Anwesenheit erkennt, wird die automatische Positionierung fortgesetzt.\n\nEine beliebige Mischung aus Bewegungsmeldern, Anwesenheits- oder Binärpräsenzsensoren kann verwendet werden, plus Medienplayer (ein aktiver Player zählt als Anwesenheit). Die Logik ist ODER – jede einzelne aktive Quelle zählt als besetzt. Dies ist nützlich für Räume, in denen Sie nicht möchten, dass sich die Beschattung bewegt, wenn niemand anwesend ist.\n\n[Weitere Informationen]({learn_more})",
         "data": {
           "motion_sensors": "Bewegungs-/Belegungssensoren für belegungsbasierte Steuerung",
           "motion_timeout": "Bewegungs-Timeout-Dauer",
-          "motion_timeout_mode": "Wenn die Bewegung zeitlich abläuft"
+          "motion_timeout_mode": "Wenn die Bewegung zeitlich abläuft",
+          "motion_media_players": "Medienplayer für Anwesenheitskontrolle"
         },
         "data_description": {
           "motion_sensors": "Binärsensoren, die die automatische Sonnenposititionierung aktivieren/deaktivieren, basierend auf Belegung. Wenn EIN Sensor Bewegung erkennt, verwenden Beschattungen automatische sonnenbasierte Positionierung. Wenn ALLE Sensoren für die Timeout-Dauer keine Bewegung anzeigen, kehren Beschattungen zur Standardposition zurück. Leer lassen, um diese Funktion zu deaktivieren.",
           "motion_timeout": "Dauer (in Sekunden), die gewartet werden soll, nachdem die letzte Bewegung erkannt wurde, bevor Beschattungen zur Standardposition zurückkehren. Verhindert schnelle Positionsänderungen, wenn Bewegungssensoren häufig wechseln. Bereich: 30-3600 Sekunden (0,5-60 Minuten). Standardwert: 300 Sekunden (5 Minuten).",
-          "motion_timeout_mode": "Aktion, wenn keine Bewegung für die eingestellte Dauer erkannt wird. „Standardposition zurückkehren\" fährt die Jalousien in die Standardposition. „Position halten\" behält die aktuelle Position bei, während die Sonne im Sichtfeld ist (damit eine zurückkehrende Person die Jalousien so findet, wie sie sie hinterlassen hat). Die Jalousien kehren trotzdem zur Standardposition zurück, wenn die Sonne das Sichtfeld verlässt oder das Zeitfenster endet."
+          "motion_timeout_mode": "Aktion, wenn keine Bewegung für die eingestellte Dauer erkannt wird. „Standardposition zurückkehren\" fährt die Jalousien in die Standardposition. „Position halten\" behält die aktuelle Position bei, während die Sonne im Sichtfeld ist (damit eine zurückkehrende Person die Jalousien so findet, wie sie sie hinterlassen hat). Die Jalousien kehren trotzdem zur Standardposition zurück, wenn die Sonne das Sichtfeld verlässt oder das Zeitfenster endet.",
+          "motion_media_players": "Medienplayer als Anwesenheit behandelt. JEDER Player, dessen Status etwas anderes ist als aus (wird wiedergegeben, unterbrochen, untätig, an, …), zählt als besetzt und hält die automatische Sonnennachverfolgung aktiv. Player, die aus, nicht verfügbar oder unbekannt sind, zählen nicht. Mit den Bewegungsmeldern oben unter der gleichen ODER-Logik kombiniert. Zum Deaktivieren leer lassen."
         }
       },
       "weather_override": {
@@ -573,7 +583,11 @@
           "max_tilt": "Maximale Lamellennneigung (%)",
           "min_tilt": "Minimale Lamellenneigung (%)",
           "venetian_post_settle_hold": "Wartezeit nach Fahrt (s)",
-          "venetian_backrotate_publish_lag": "Verzögerungsfenster für Statusmeldung (s)"
+          "venetian_backrotate_publish_lag": "Verzögerungsfenster für Statusmeldung (s)",
+          "arm_length": "Armlänge",
+          "awning_min_angle": "Armwinkel beim Schließen",
+          "awning_max_angle": "Armwinkel vollständig offen",
+          "awning_housing_offset": "Gehäuseversatz über Fenster"
         },
         "data_description": {
           "window_height": "Höhe Ihres Fensters (von unten bis oben des Glasbereichs). In der von Home Assistant konfigurierten Einheit angezeigt. Beispiele: Standard-Tür = 2,0 m / 79 in, Kleines Fenster = 1,5 m / 59 in, Vom Boden bis zur Decke = 2,5 m / 98 in. Messen Sie von dort, wo die Beschattung beginnt, bis dort, wo sie endet, wenn sie vollständig ausgefahren ist.",
@@ -591,7 +605,11 @@
           "max_tilt": "Obergrenze für den maximalen Neigungswinkel der Lamellen (0–100). Niedrigere Werte verhindern, dass Lamellen Winkelpositionen erreichen, die direktes Sonnenlicht ins Zimmer reflektieren. Standard: 100 (keine Obergrenze). Beispiel: Stellen Sie 70 ein, wenn vollständig geöffnete Lamellen zu Spitzensonnenzeiten Blendungen verursachen.",
           "min_tilt": "Untergrenze für die minimale Neigungswinkel der Lamellen (0–100). Höhere Werte verhindern, dass Lamellen vollständig schließen – nützlich für Jalousien, die bei 0% das gesamte Licht blockieren. Standard: 0 (keine Untergrenze). Beispiel: Stellen Sie 10 ein, wenn Ihre Jalousien bei 0% vollständig dunkel werden und Sie immer etwas Licht durchlassen möchten.",
           "venetian_post_settle_hold": "Wie lange (in Sekunden) nach dem Anhalten des Antriebs gewartet wird, bevor der Neigungsbefehl gesendet wird. Standardmäßig 2,0 s, was für die meisten Aktoren geeignet ist. Erhöhen Sie den Wert auf 4–6 s für KNX FGR223 oder andere Firmware, die kurz nach dem Anhalten des Antriebs eine Neigung-zu-Offen-Bewegung erneut auslöst — ohne die zusätzliche Wartezeit konkurriert der Neigungsbefehl mit dieser Auslösung und verliert. Bereich 0,0–10,0 s.",
-          "venetian_backrotate_publish_lag": "Wie lange (in Sekunden) die Integration eine verspätete Statusmeldung der Position von Ihrem Aktor toleriert, bevor sie als echte Benutzerberührung behandelt wird. Standard 45 s eignet sich für Somfy IO über Tahoma. Erhöhen Sie auf 60–120 s, wenn Ihre Hardware (langsamer KNX-Bus, Fibaro/Shelly-Neuveröffentlichung) die aktuelle_Position lange nach dem physischen Stopp der Beschattung meldet – Symptom sind fehlerhafte 'manual_override_set'-Ereignisse, die etwa 30–90 s nach einem befohlenen Bewegungsbefehl ausgelöst werden. Verringern Sie nur, wenn Sie einen ungewöhnlich schnellen Aktor haben und eine straffere Erkennungsfehlertoleranz möchten. Bereich 15–180 s."
+          "venetian_backrotate_publish_lag": "Wie lange (in Sekunden) die Integration eine verspätete Statusmeldung der Position von Ihrem Aktor toleriert, bevor sie als echte Benutzerberührung behandelt wird. Standard 45 s eignet sich für Somfy IO über Tahoma. Erhöhen Sie auf 60–120 s, wenn Ihre Hardware (langsamer KNX-Bus, Fibaro/Shelly-Neuveröffentlichung) die aktuelle_Position lange nach dem physischen Stopp der Beschattung meldet – Symptom sind fehlerhafte 'manual_override_set'-Ereignisse, die etwa 30–90 s nach einem befohlenen Bewegungsbefehl ausgelöst werden. Verringern Sie nur, wenn Sie einen ungewöhnlich schnellen Aktor haben und eine straffere Erkennungsfehlertoleranz möchten. Bereich 15–180 s.",
+          "arm_length": "Länge des Schwenkarmes einer Gelenkarmmarkise, vom Wandpivot bis zur Stoffkante. In der für Home Assistant konfigurierten Einheit dargestellt. Wird zusammen mit dem Schwenkwinkel verwendet, um zu berechnen, wie weit der Stoff bei jeder Öffnungsposition reicht. Beispiel: 0,8 m / 31 in.",
+          "awning_min_angle": "Armwinkel, wenn die Markise vollständig geschlossen/eingezogen ist (0–180°). Normalerweise 0° = Arm vertikal an der Wand. Definiert den Anfang des Schwenkbereichs.",
+          "awning_max_angle": "Armwinkel, wenn die Markise vollständig offen ist (0–180°). Der Arm schwenkt linear vom geschlossenen Winkel zu diesem Wert über 0–100% Öffnung. Beispiel: ein Schwenkbereich von 175° ≈ 1,75° pro 1%.",
+          "awning_housing_offset": "Vertikaler Versatz des Armpivots über die Oberkante des Fensters (0–1 m). Zusammen mit Fensterhöhe und Armlänge zur Lokalisierung des Pivots verwendet. Setzen Sie auf 0, wenn das Gehäuse bündig mit der Fensteroberkante sitzt."
         }
       },
       "sun_tracking": {
@@ -768,16 +786,18 @@
       },
       "motion_override": {
         "title": "Bewegungsübersteuerung",
-        "description": "Aktivieren Sie anwesenheitsbasierte Steuerung. Wenn alle konfigurierten Sensoren keine Bewegung melden, stoppt die Integration die Sonnenverfolgung und bewegt Beschattungselemente nach Ablauf des Timeouts in ihre Standardposition. Wenn ein Sensor Bewegung erkennt, wird die automatische Positionierung fortgesetzt.\n\nJede Mischung aus Bewegungs-, Anwesenheits- oder Binär-Präsenzsensoren kann verwendet werden. Die Logik ist ODER — jeder einzelne aktive Sensor zählt als anwesend. Dies ist nützlich für Räume, in denen Sie nicht möchten, dass sich Beschattungselemente anpassen, wenn niemand anwesend ist.\n\n[Weitere Informationen]({learn_more})",
+        "description": "Aktivieren Sie die Anwesenheitskontrolle. Wenn alle konfigurierten Quellen keine Bewegung melden, stoppt die Integration die Sonnennachverfolgung und bewegt die Beschattung nach Ablauf des Timeouts auf ihre Standardposition. Wenn eine Quelle Anwesenheit erkennt, wird die automatische Positionierung fortgesetzt.\n\nEine beliebige Mischung aus Bewegungsmeldern, Anwesenheits- oder Binärpräsenzsensoren kann verwendet werden, plus Medienplayer (ein aktiver Player zählt als Anwesenheit). Die Logik ist ODER – jede einzelne aktive Quelle zählt als besetzt. Dies ist nützlich für Räume, in denen Sie nicht möchten, dass sich die Beschattung bewegt, wenn niemand anwesend ist.\n\n[Weitere Informationen]({learn_more})",
         "data": {
           "motion_sensors": "Bewegungs-/Belegungssensoren für belegungsbasierte Steuerung",
           "motion_timeout": "Bewegungs-Timeout-Dauer",
-          "motion_timeout_mode": "Wenn die Bewegung zeitlich abläuft"
+          "motion_timeout_mode": "Wenn die Bewegung zeitlich abläuft",
+          "motion_media_players": "Medienplayer für Anwesenheitskontrolle"
         },
         "data_description": {
           "motion_sensors": "Binärsensoren, die die automatische Sonnenverfolgung basierend auf Anwesenheit aktivieren/deaktivieren. Wenn EIN Sensor Bewegung erkennt, verwenden Behänge automatische sonnengesteuerte Positionierung. Wenn ALLE Sensoren zeigen, dass keine Bewegung für die Timeout-Dauer vorhanden ist, kehren Behänge zu Standardposition zurück. Leer lassen, um diese Funktion zu deaktivieren.",
           "motion_timeout": "Dauer (in Sekunden), um nach der letzten Bewegung zu warten, bevor Behänge zur Standardposition zurückkehren. Verhindert schnelle Positionsänderungen, wenn Bewegungssensoren häufig umschalten. Bereich: 30–3600 Sekunden (0,5–60 Minuten). Standard: 300 Sekunden (5 Minuten).",
-          "motion_timeout_mode": "Aktion, wenn keine Bewegung für die eingestellte Dauer erkannt wird. „Standardposition zurückkehren\" fährt die Jalousien in die Standardposition. „Position halten\" behält die aktuelle Position bei, während die Sonne im Sichtfeld ist (damit eine zurückkehrende Person die Jalousien so findet, wie sie sie hinterlassen hat). Die Jalousien kehren trotzdem zur Standardposition zurück, wenn die Sonne das Sichtfeld verlässt oder das Zeitfenster endet."
+          "motion_timeout_mode": "Aktion, wenn keine Bewegung für die eingestellte Dauer erkannt wird. „Standardposition zurückkehren\" fährt die Jalousien in die Standardposition. „Position halten\" behält die aktuelle Position bei, während die Sonne im Sichtfeld ist (damit eine zurückkehrende Person die Jalousien so findet, wie sie sie hinterlassen hat). Die Jalousien kehren trotzdem zur Standardposition zurück, wenn die Sonne das Sichtfeld verlässt oder das Zeitfenster endet.",
+          "motion_media_players": "Medienplayer als Anwesenheit behandelt. JEDER Player, dessen Status etwas anderes ist als aus (wird wiedergegeben, unterbrochen, untätig, an, …), zählt als besetzt und hält die automatische Sonnennachverfolgung aktiv. Player, die aus, nicht verfügbar oder unbekannt sind, zählen nicht. Mit den Bewegungsmeldern oben unter der gleichen ODER-Logik kombiniert. Zum Deaktivieren leer lassen."
         }
       },
       "weather_override": {
@@ -1108,7 +1128,8 @@
         "cover_blind": "Vertikale Jalousie",
         "cover_awning": "Horizontale Markise",
         "cover_tilt": "Dreh-Jalousie",
-        "cover_venetian": "Jalousette (zweiachsig)"
+        "cover_venetian": "Jalousette (zweiachsig)",
+        "cover_oscillating_awning": "Gelenkarmmarkise (drop-arm)"
       }
     },
     "tilt_mode": {
