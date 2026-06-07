@@ -69,3 +69,125 @@ Full steps: **[Installation](https://github.com/jrhubott/adaptive-cover-pro/wiki
 If Adaptive Cover Pro has been useful, you can support the project:
 
 [![Buy Me A Coffee](https://img.shields.io/badge/Buy%20me%20a%20coffee-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/jrhubott)
+
+---
+
+## kamahat patches (this fork — `kamahat:main` and `kamahat:personal/main`)
+
+This fork tracks **jrhubott/adaptive-cover-pro** `main`. The `personal/main` branch adds two extra features on top of the 12 upstream-targeted patches.
+
+### Patches common to both `main` and `personal/main`
+
+| # | Commit | What |
+|---|--------|------|
+| 1 | `7e1ca8a` | fix(migrations): write idempotency flag before entity removal |
+| 2 | `f1c8efe` | fix(sun): replace assert type guards with explicit RuntimeError |
+| 3 | `3b29a01` | perf(cover): change-gate proxy cover `async_write_ha_state` calls |
+| 4 | `9b44e8e` | fix(coordinator): guard `sun.sun` unavailability in `get_blind_data` |
+| 5 | `859fb14` | perf(geometry): add `lru_cache` to pure safety-margin functions |
+| 6 | `17425f3` | perf: add `UpdateFingerprint` for coordinator pipeline short-circuit |
+| 7 | `0aa8afa` | perf(3.4): extend `UpdateFingerprint` to cover ALL pipeline inputs via MD5 |
+| 8 | `c6e7609` | fix(3.4): correct `ClimateReadings` field name in fingerprint |
+| 9 | `52ef390` | feat(3.4): add `any_command_grace_active` to `GracePeriodManager` |
+| 10 | `9caa3a6` | perf(3.3): add `SunGeometryCache` with per-minute TTL for coordinator batching |
+| 11 | `125c709` | perf(3.4): wire `UpdateFingerprint` short-circuit into `coordinator._async_update_data` |
+| 12 | `da4a6d3` | fix: remove `zip_release` to fix HACS double-nested install path |
+
+### Extra features on `personal/main` only
+
+| Commit | What |
+|--------|------|
+| `78c75c9` | feat: add `SecurityHandler` (priority 95) and `hub/` subpackage |
+
+#### SecurityHandler
+
+`pipeline/handlers/security.py` — a new pipeline handler at **priority 95** (between `ForceOverrideHandler` at 100 and `WeatherOverrideHandler` at 90).
+
+When a presence/occupancy sensor is configured and reports `off` (no one home), closes all covers to the configured security position (default 0%). **Fail-safe**: unavailable or unknown sensor state is treated as "present" — covers are never accidentally closed by a flapping sensor.
+
+#### hub/ subpackage
+
+`custom_components/adaptive_cover_pro/hub/` — a subpackage for hub/group cover management:
+
+```
+hub/
+  __init__.py
+  config.py    # hub configuration helpers
+  cover.py     # hub cover entity
+  scene.py     # scene support
+  select.py    # select entity for hub
+  switch.py    # switch entity for hub
+```
+
+### Installation (HACS — `personal/main` is the HACS branch)
+
+1. In HACS, add this repository as a custom repository: `kamahat/adaptive-cover-pro`
+2. Select **Integration**, install, restart Home Assistant
+3. Add the integration from Settings > Integrations
+
+### Code structure
+
+```
+custom_components/adaptive_cover_pro/
+  coordinator.py          # orchestrator; _async_update_data uses UpdateFingerprint
+  pipeline/
+    handlers/             # 10 upstream handlers + SecurityHandler (priority 95)
+    fingerprint.py        # UpdateFingerprint -- MD5 hash of all pipeline inputs
+  managers/
+    grace_period.py       # any_command_grace_active property
+    cover_command/
+  engine/
+    sun_geometry.py       # SunGeometryCache -- per-minute TTL memoisation
+  hub/                    # hub/group cover subpackage (personal/main only)
+```
+
+### Release runbook
+
+1. `git fetch upstream && git checkout personal/main && git rebase main` — keep personal/main on top of latest main
+2. Update version in `manifest.json`
+3. `git tag v<VERSION>-personal && git push origin personal/main --tags`
+
+### Syncing upstream
+
+```bash
+git fetch upstream
+git checkout main
+git rebase upstream/main
+git push origin main --force-with-lease
+git checkout personal/main
+git rebase main
+git push origin personal/main --force-with-lease
+```
+
+---
+
+<details>
+<summary>Francais / French</summary>
+
+## Patches kamahat
+
+La branche `personal/main` est la branche HACS. Elle contient les 12 correctifs de `main` plus :
+
+### SecurityHandler
+
+`pipeline/handlers/security.py` — handler de pipeline a **priorite 95** (entre `ForceOverrideHandler` a 100 et `WeatherOverrideHandler` a 90).
+
+Quand un capteur de presence est configure et signale `off` (personne a la maison), ferme tous les volets a la position de securite configuree (defaut 0%). **Fail-safe** : un etat indisponible ou inconnu du capteur est traite comme "present" — les volets ne se ferment jamais a cause d'un capteur defaillant.
+
+### Sous-paquet hub/
+
+`custom_components/adaptive_cover_pro/hub/` — gestion des volets en groupe (hub).
+
+### Installation HACS
+
+1. Dans HACS, ajouter le depot personnalise : `kamahat/adaptive-cover-pro`
+2. Selectionner Integration, installer, redemarrer Home Assistant
+3. Ajouter l'integration depuis Parametres > Integrations
+
+### Runbook release
+
+1. `git fetch upstream && git checkout personal/main && git rebase main`
+2. Mettre a jour la version dans `manifest.json`
+3. `git tag v<VERSION>-personal && git push origin personal/main --tags`
+
+</details>
