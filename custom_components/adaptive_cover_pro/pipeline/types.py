@@ -192,6 +192,15 @@ class PipelineSnapshot:
     # Defaults to ``None`` so test fixtures that build snapshots directly keep
     # working; runtime always populates it via ``coordinator._build_snapshot``.
     policy: CoverTypePolicy | None = None
+    # Security mode -- populated by coordinator from CONF_PRESENCE_ENTITY.
+    # security_mode_active: True when a presence entity is configured and the
+    #   security switch is on.
+    # security_presence_detected: True when presence sensor is "on" (someone home)
+    #   or unavailable/unknown (fail-safe: never close on sensor glitch).
+    # security_close_position: position to command when security fires (default 0).
+    security_mode_active: bool = False
+    security_presence_detected: bool = True
+    security_close_position: int = 0
 
     # Sun-tracking movement minimization (opt-in). When True, the solar branch
     # quantizes the calculated position into ``max_coverage_steps`` evenly-spaced

@@ -1059,6 +1059,8 @@ class ControlMethod(StrEnum):
     GLARE_ZONE = "glare_zone"
     """Glare zone protection active; cover extends to shield a floor zone."""
 
+    SECURITY = "security"
+    """Security mode active; cover closes because no presence is detected."""
 
 class SunState(StrEnum):
     """Authoritative sun classification for the companion Lovelace card.
