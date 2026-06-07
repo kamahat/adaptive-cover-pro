@@ -27,6 +27,7 @@ from .glare_zone import GlareZoneHandler
 from .manual_override import ManualOverrideHandler
 from .motion_timeout import MotionTimeoutHandler
 from .solar import SolarHandler
+from .security import SecurityHandler
 from .weather import WeatherOverrideHandler
 
 # A factory turns the live options into zero or more handler instances. Most
@@ -83,6 +84,7 @@ def _solar_handler(options: Mapping[str, Any]) -> list[OverrideHandler]:
 # each handler's declared priority. Add a new handler with one entry.
 HANDLER_FACTORIES: tuple[HandlerFactory, ...] = (
     _single(ForceOverrideHandler),
+    _single(SecurityHandler),
     _single(WeatherOverrideHandler),
     _single(ManualOverrideHandler),
     _custom_position_handlers,
