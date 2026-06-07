@@ -1049,5 +1049,5 @@ class ControlMethod(StrEnum):
     GLARE_ZONE = "glare_zone"
     """Glare zone protection active; cover extends to shield a floor zone."""
 
-    SECURITY = security
+    SECURITY = "security"
     """Security mode active; cover closes because no presence is detected."""
