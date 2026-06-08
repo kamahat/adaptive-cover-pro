@@ -48,7 +48,6 @@ from .const import ControlMethod
 from .helpers import motion_entities
 from .unit_system import length_display_unit, to_display_length
 
-
 # ---------------------------------------------------------------------------
 # Description dataclass
 # ---------------------------------------------------------------------------
