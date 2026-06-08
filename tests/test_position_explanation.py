@@ -842,6 +842,7 @@ class TestPositionExplanationChangeDetection:
         coord.manager.reset_duration = __import__("datetime").timedelta(hours=2)
         coord._cmd_svc = MagicMock()
         coord._cmd_svc.get_all_entity_state_snapshots.return_value = {}
+        coord._weather_readings = None
         coord.entities = []
         coord._cover_provider = MagicMock()
         coord._cover_provider.read_positions.return_value = {}

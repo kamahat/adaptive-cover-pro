@@ -39,6 +39,13 @@ from .const import (
 from .coordinator import AdaptiveDataUpdateCoordinator
 from .migrations import async_prune_legacy_entities, async_prune_legacy_sensor_entities
 from .services import async_setup_services, async_unload_services
+from .hub import is_hub_entry
+from .hub.cover import async_setup_hub_cover
+from .hub.scene import async_setup_hub_scene
+from .hub.select import async_setup_hub_select
+from .hub.switch import async_setup_hub_switch
+
+HUB_PLATFORMS = [Platform.COVER, Platform.SELECT, Platform.SWITCH, Platform.SCENE]
 
 PLATFORMS = [
     Platform.SENSOR,
@@ -65,6 +72,13 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     hass.data.setdefault(DOMAIN, {})
     await async_setup_services(hass)
+
+    # Hub entry -- set up aggregate entities only, no coordinator.
+    if is_hub_entry(entry):
+        hass.data[DOMAIN][entry.entry_id] = {'hub': True}
+        await hass.config_entries.async_forward_entry_setups(entry, HUB_PLATFORMS)
+        entry.async_on_unload(entry.add_update_listener(_async_update_listener))
+        return True
 
     coordinator = AdaptiveDataUpdateCoordinator(hass)
     # Detect reload vs. cold HA boot so first-refresh can suppress non-safety
@@ -235,9 +249,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
-    if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+    platforms = HUB_PLATFORMS if is_hub_entry(entry) else PLATFORMS
+    if unload_ok := await hass.config_entries.async_unload_platforms(entry, platforms):
         hass.data[DOMAIN].pop(entry.entry_id)
-        await async_unload_services(hass)
+        if not is_hub_entry(entry):
+            await async_unload_services(hass)
 
     return unload_ok
 
