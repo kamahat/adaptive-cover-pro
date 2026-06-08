@@ -127,6 +127,10 @@ class AdaptiveCoverManager:
         # ACP-origin predicate over a context id; the coordinator wires the
         # real one. Default treats nothing as ACP-originated.
         self._is_acp_context_fn: Callable[[str | None], bool] = lambda _cid: False
+        # Snapshot-derived capabilities per entity, updated each cycle via
+        # update_cover_capabilities(). Used to surface cover features without
+        # a live HA state lookup.
+        self._cover_capabilities: dict[str, dict] = {}
 
     # --- wiring -----------------------------------------------------------
 
@@ -153,6 +157,25 @@ class AdaptiveCoverManager:
         """
         self.reset_duration = dt.timedelta(**config.duration)
         self._detector.update_config(config)
+
+    def update_cover_capabilities(
+        self, entity_id: str, caps_dict: dict
+    ) -> None:
+        """Cache snapshot-derived cover capabilities for *entity_id*.
+
+        Called by the coordinator on every update cycle to push the
+        pre-read CoverCapabilities data (already converted to a plain dict
+        via dataclasses.asdict) into the manager. Storing it here avoids a
+        redundant HA state lookup when the information is needed during
+        manual-override detection.
+
+        Args:
+            entity_id: The cover entity to update.
+            caps_dict: Dict representation of a CoverCapabilities instance
+                (keys: has_set_position, has_set_tilt_position, has_open,
+                has_close).
+        """
+        self._cover_capabilities[entity_id] = caps_dict
 
     @property
     def detector(self) -> OverrideDetector:
