@@ -1776,19 +1776,119 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             self.manager.update_cover_capabilities(entity_id, dataclasses.asdict(caps))
 
     def build_diagnostic_data(self) -> dict | None:
-        """Build diagnostic data for the current cycle."""
-        if self._cover_data is None or self._pipeline_result is None:
+        """Build diagnostic data from current coordinator state."""
+        result = self._pipeline_result
+        if result is None or self._cover_data is None:
             return None
 
+        # Live cover positions and capabilities
+        cover_entities = self.entities or []
+        _positions = self._cover_provider.read_positions(cover_entities, self._policy)
+        _caps = self._cover_provider.read_all_capabilities(cover_entities)
+        _covers = {
+            eid: {
+                "current_position": _positions.get(eid),
+                "available": _positions.get(eid) is not None,
+                "capabilities": (
+                    dataclasses.asdict(_caps[eid]) if eid in _caps else None
+                ),
+            }
+            for eid in cover_entities
+        }
+
+        # Per-entity manual override live state
+        _now = dt.datetime.now(dt.UTC)
+        _reset_secs = self.manager.reset_duration.total_seconds()
+        _mo_entries = {}
+        for eid in self.manager.covers:
+            active = self.manager.manual_control.get(eid, False)
+            started_at = self.manager.manual_control_time.get(eid)
+            if started_at is not None:
+                if started_at.tzinfo is None:
+                    started_at = started_at.replace(tzinfo=dt.UTC)
+                elapsed = (_now - started_at).total_seconds()
+                remaining = max(0, _reset_secs - elapsed)
+                _mo_entries[eid] = {
+                    "active": active,
+                    "started_at": started_at.isoformat(),
+                    "remaining_seconds": int(remaining),
+                }
+        _manual_override_state = {
+            "reset_duration_seconds": int(_reset_secs),
+            "tracked_covers": sorted(self.manager.covers),
+            "entries": _mo_entries,
+        }
+
+        _last_success_time = self._last_update_success_time
+        _last_exc = getattr(self, "last_exception", None)
+
         ctx = DiagnosticContext(
+            pos_sun=self.pos_sun,
             cover=self._cover_data,
-            pipeline_result=self._pipeline_result,
-            coordinator=self,
-            weather_readings=self._weather_readings,
-            is_in_command_grace=self._grace_mgr.is_in_command_grace_period,
-            is_in_startup_grace=self._grace_mgr.is_in_startup_grace_period(),
-            last_update_success_time=self._last_update_success_time,
-            manifest_version=_MANIFEST_VERSION,
+            pipeline_result=result,
+            climate_mode=self._climate_mode,
+            check_adaptive_time=self.check_adaptive_time,
+            after_start_time=self.after_start_time,
+            before_end_time=self.before_end_time,
+            start_time=self._time_mgr.start_time_value,
+            end_time=self._end_time,
+            automatic_control=self.automatic_control,
+            last_cover_action=self.last_cover_action,
+            last_skipped_action=self.last_skipped_action,
+            min_change=self.min_change,
+            time_threshold=self.time_threshold,
+            switch_mode=self._toggles.switch_mode,
+            inverse_state=self._inverse_state,
+            use_interpolation=self._use_interpolation,
+            final_state=self.state,
+            config_options=dict(self.config_entry.options),
+            motion_detected=self.is_motion_detected,
+            motion_timeout_active=self._motion_mgr.is_motion_timeout_active,
+            motion_hold_active=(
+                result.skip_command
+                and result.control_method == ControlMethod.MOTION
+            ),
+            force_override_sensors=self.config_entry.options.get(
+                CONF_FORCE_OVERRIDE_SENSORS, []
+            ),
+            force_override_position=self.config_entry.options.get(
+                CONF_FORCE_OVERRIDE_POSITION, 0
+            ),
+            event_timeline=self._event_buffer.snapshot() or None,
+            cover_command_state=self._cmd_svc.get_all_entity_state_snapshots() or None,
+            debug_config={
+                "dry_run": self.config_entry.options.get(CONF_DRY_RUN, False),
+                "debug_mode": self.config_entry.options.get(CONF_DEBUG_MODE, False),
+                "debug_categories": self.config_entry.options.get(
+                    CONF_DEBUG_CATEGORIES, []
+                ),
+                "debug_event_buffer_size": self.config_entry.options.get(
+                    CONF_DEBUG_EVENT_BUFFER_SIZE, DEFAULT_DEBUG_EVENT_BUFFER_SIZE
+                ),
+            },
+            integration_version=_MANIFEST_VERSION,
+            cover_type=self._cover_type,
+            last_update_success=self.last_update_success,
+            last_exception_repr=repr(_last_exc) if _last_exc is not None else None,
+            last_update_success_time_iso=(
+                _last_success_time.isoformat()
+                if _last_success_time is not None
+                else None
+            ),
+            update_interval_seconds=(
+                self.update_interval.total_seconds()
+                if self.update_interval is not None
+                else None
+            ),
+            covers=_covers,
+            manual_override_state=_manual_override_state,
+            manual_toggle=self.manual_toggle,
+            enabled_toggle=(
+                self.enabled_toggle if self.enabled_toggle is not None else True
+            ),
+            primary_axis_suppression_counts=(
+                self.manager.primary_axis_suppression_counts()
+            ),
         )
         return self._diagnostics_builder.build(ctx)
 
