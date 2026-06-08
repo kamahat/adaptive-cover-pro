@@ -10,7 +10,13 @@ if TYPE_CHECKING:
 
     from ..config_context_adapter import ConfigContextAdapter
 
-from ..const import BLANK_TIME
+from ..const import (
+    BLANK_TIME,
+    CONF_END_ENTITY,
+    CONF_END_TIME,
+    CONF_START_ENTITY,
+    CONF_START_TIME,
+)
 from ..helpers import get_datetime_from_str, get_safe_state
 from .common import EventRecorder
 
@@ -68,6 +74,25 @@ class TimeWindowManager:
         self._start_time_entity = start_time_entity
         self._end_time_config = end_time
         self._end_time_entity = end_time_entity
+
+    def update(self, hass, options: dict) -> None:  # noqa: ARG002
+        """Update configuration from a coordinator options dict.
+
+        Convenience wrapper called by coordinator._update_options().
+        Extracts time-window keys from *options* and delegates to
+        :pymeth:`update_config`.
+
+        Args:
+            hass: Home Assistant instance (unused, accepted for call-site symmetry).
+            options: Config-entry options dict.
+
+        """
+        self.update_config(
+            start_time=options.get(CONF_START_TIME),
+            start_time_entity=options.get(CONF_START_ENTITY),
+            end_time=options.get(CONF_END_TIME),
+            end_time_entity=options.get(CONF_END_ENTITY),
+        )
 
     @property
     def is_active(self) -> bool:

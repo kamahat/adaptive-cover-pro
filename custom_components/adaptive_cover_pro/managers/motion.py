@@ -9,7 +9,7 @@ from collections.abc import Callable
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
-from ..const import DEFAULT_MOTION_TIMEOUT
+from ..const import CONF_MOTION_SENSORS, CONF_MOTION_TIMEOUT, DEFAULT_MOTION_TIMEOUT
 from ..helpers import is_entity_active
 from .common import EventRecorder, TimeoutController
 
@@ -75,6 +75,23 @@ class MotionManager:
         """
         self._sensors = list(sensors)
         self._timeout_seconds = timeout_seconds
+
+    def update(self, hass, options: dict) -> None:  # noqa: ARG002
+        """Update configuration from a coordinator options dict.
+
+        Convenience wrapper called by coordinator._update_options().
+        Extracts motion-sensor keys from *options* and delegates to
+        :pymeth:`update_config`.
+
+        Args:
+            hass: Home Assistant instance (unused, accepted for call-site symmetry).
+            options: Config-entry options dict.
+
+        """
+        self.update_config(
+            sensors=list(options.get(CONF_MOTION_SENSORS) or []),
+            timeout_seconds=int(options.get(CONF_MOTION_TIMEOUT) or DEFAULT_MOTION_TIMEOUT),
+        )
 
     # --- Properties ---
 

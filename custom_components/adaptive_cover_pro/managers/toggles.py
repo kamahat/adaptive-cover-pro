@@ -21,3 +21,15 @@ class ToggleManager:
         self.return_to_default_toggle: bool | None = None
         self.motion_control: bool = True
         self.enabled_toggle: bool | None = None
+
+    def update(self, options: dict) -> None:  # noqa: ARG002
+        """Accept options dict for call-site symmetry with other managers.
+
+        Toggle state is owned by HA switch entities and updated via the
+        coordinator property setters — there are no options keys that map
+        directly to toggle values. This method intentionally does nothing.
+
+        Args:
+            options: Config-entry options dict (ignored).
+
+        """
