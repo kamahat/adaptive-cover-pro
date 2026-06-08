@@ -1,4 +1,4 @@
-"""Hub scene entities for Adaptive Cover Pro — Alexa-friendly scenes."""
+"""Hub scene entities for Adaptive Cover Pro - Alexa-friendly scenes."""
 
 from __future__ import annotations
 
@@ -67,14 +67,14 @@ class AdaptiveCoverOpenScene(_HubSceneBase):
 
 
 class AdaptiveCoverClosedScene(_HubSceneBase):
-    """Scene: close all blinds (Alexa: 'Volets fermés')."""
+    """Scene: close all blinds (Alexa: 'Volets fermÃ©s')."""
 
     _attr_translation_key = "hub_scene_closed"
 
     def __init__(self, hass: HomeAssistant, entry: ConfigEntry, tracked: list[str]) -> None:
         super().__init__(hass, entry, tracked)
         self._attr_unique_id = f"{entry.entry_id}_hub_scene_closed"
-        self._attr_name = "Volets fermés"
+        self._attr_name = "Volets fermÃ©s"
 
     async def async_activate(self, **kwargs: Any) -> None:
         for entity_id in self._tracked:
