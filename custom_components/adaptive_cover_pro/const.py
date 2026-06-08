@@ -267,6 +267,8 @@ CONF_OUTSIDETEMP_ENTITY = "outside_temp"  # outdoor temp sensor entity_id
 # Outdoor temp threshold for summer/winter mode switch (range 0-100).
 CONF_OUTSIDE_THRESHOLD = "outside_threshold"
 CONF_PRESENCE_ENTITY = "presence_entity"  # presence/occupancy sensor entity_id
+CONF_IS_HUB = "is_hub"  # Hub entry flag
+CONF_HUB_ENTITIES = "hub_tracked_entities"  # Hub tracked cover entities
 CONF_SECURITY_ENABLED = "security_enabled"  # bool: enable security (close when absent)
 CONF_SECURITY_CLOSE_POSITION = "security_close_position"  # int 0-100: position when security fires
 DEFAULT_SECURITY_CLOSE_POSITION = 0  # fully closed by default
