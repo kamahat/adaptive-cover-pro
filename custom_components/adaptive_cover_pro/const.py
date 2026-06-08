@@ -267,6 +267,9 @@ CONF_OUTSIDETEMP_ENTITY = "outside_temp"  # outdoor temp sensor entity_id
 # Outdoor temp threshold for summer/winter mode switch (range 0-100).
 CONF_OUTSIDE_THRESHOLD = "outside_threshold"
 CONF_PRESENCE_ENTITY = "presence_entity"  # presence/occupancy sensor entity_id
+CONF_SECURITY_ENABLED = "security_enabled"  # bool: enable security (close when absent)
+CONF_SECURITY_CLOSE_POSITION = "security_close_position"  # int 0-100: position when security fires
+DEFAULT_SECURITY_CLOSE_POSITION = 0  # fully closed by default
 CONF_WEATHER_ENTITY = "weather_entity"  # weather. integration entity_id
 CONF_WEATHER_STATE = "weather_state"  # states that trigger climate handler
 # True to close covers at night in winter for added insulation.
