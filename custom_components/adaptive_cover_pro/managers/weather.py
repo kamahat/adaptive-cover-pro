@@ -6,6 +6,20 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from ..const import (
+    CONF_AZIMUTH,
+    CONF_WEATHER_BYPASS_AUTO_CONTROL,
+    CONF_WEATHER_IS_RAINING_SENSOR,
+    CONF_WEATHER_IS_WINDY_SENSOR,
+    CONF_WEATHER_OVERRIDE_POSITION,
+    CONF_WEATHER_OVERRIDE_MIN_MODE,
+    CONF_WEATHER_RAIN_SENSOR,
+    CONF_WEATHER_RAIN_THRESHOLD,
+    CONF_WEATHER_SEVERE_SENSORS,
+    CONF_WEATHER_TIMEOUT,
+    CONF_WEATHER_WIND_DIRECTION_SENSOR,
+    CONF_WEATHER_WIND_DIRECTION_TOLERANCE,
+    CONF_WEATHER_WIND_SPEED_SENSOR,
+    CONF_WEATHER_WIND_SPEED_THRESHOLD,
     DEFAULT_WEATHER_RAIN_THRESHOLD,
     DEFAULT_WEATHER_TIMEOUT,
     DEFAULT_WEATHER_WIND_DIRECTION_TOLERANCE,
@@ -113,6 +127,38 @@ class WeatherManager:
         self._is_windy_sensor = is_windy_sensor
         self._severe_sensors = list(severe_sensors)
         self._timeout_seconds = timeout_seconds
+
+    def update(self, hass, options: dict) -> None:  # noqa: ARG002
+        """Update configuration from a coordinator options dict.
+
+        Convenience wrapper called by coordinator._update_options().
+        Extracts weather keys from *options* and delegates to
+        :pymeth:`update_config`.
+
+        Args:
+            hass: Home Assistant instance (unused, accepted for call-site symmetry).
+            options: Config-entry options dict.
+
+        """
+        self.update_config(
+            wind_speed_sensor=options.get(CONF_WEATHER_WIND_SPEED_SENSOR),
+            wind_direction_sensor=options.get(CONF_WEATHER_WIND_DIRECTION_SENSOR),
+            wind_speed_threshold=float(
+                options.get(CONF_WEATHER_WIND_SPEED_THRESHOLD) or DEFAULT_WEATHER_WIND_SPEED_THRESHOLD
+            ),
+            wind_direction_tolerance=int(
+                options.get(CONF_WEATHER_WIND_DIRECTION_TOLERANCE) or DEFAULT_WEATHER_WIND_DIRECTION_TOLERANCE
+            ),
+            win_azi=int(options.get(CONF_AZIMUTH) or DEFAULT_WINDOW_AZIMUTH),
+            rain_sensor=options.get(CONF_WEATHER_RAIN_SENSOR),
+            rain_threshold=float(
+                options.get(CONF_WEATHER_RAIN_THRESHOLD) or DEFAULT_WEATHER_RAIN_THRESHOLD
+            ),
+            is_raining_sensor=options.get(CONF_WEATHER_IS_RAINING_SENSOR),
+            is_windy_sensor=options.get(CONF_WEATHER_IS_WINDY_SENSOR),
+            severe_sensors=list(options.get(CONF_WEATHER_SEVERE_SENSORS) or []),
+            timeout_seconds=int(options.get(CONF_WEATHER_TIMEOUT) or DEFAULT_WEATHER_TIMEOUT),
+        )
 
     # --- Properties ---
 
