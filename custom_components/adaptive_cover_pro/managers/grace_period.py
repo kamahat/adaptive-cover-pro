@@ -59,9 +59,7 @@ class GracePeriodManager:
     def any_command_grace_active(self) -> bool:
         """Return True when at least one entity is in a command grace period.
 
-        Used by the UpdateFingerprint builder so that a just-commanded cover
-        does not allow the pipeline to be skipped on the very next reconciliation
-        tick (the grace period itself is part of the observable state).
+        Return True when at least one cover is still in a post-command grace window.
         """
         return any(
             self.is_in_command_grace_period(eid) for eid in self._command_timestamps
