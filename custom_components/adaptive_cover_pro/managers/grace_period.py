@@ -55,6 +55,16 @@ class GracePeriodManager:
 
     # --- Command grace period ---
 
+    @property
+    def any_command_grace_active(self) -> bool:
+        """Return True when at least one entity is in a command grace period.
+
+        Return True when at least one cover is still in a post-command grace window.
+        """
+        return any(
+            self.is_in_command_grace_period(eid) for eid in self._command_timestamps
+        )
+
     def is_in_command_grace_period(self, entity_id: str) -> bool:
         """Check if entity is in command grace period.
 
