@@ -119,6 +119,7 @@ from .state.cover_provider import CoverProvider
 from .state.snapshot import CoverStateSnapshot, SunSnapshot
 from .state.sun_provider import SunProvider
 from .state.window_transition_tracker import WindowTransitionTracker
+from .state.update_fingerprint import UpdateFingerprint
 
 _MANIFEST_VERSION: str = json.loads(
     (pathlib.Path(__file__).parent / "manifest.json").read_text()
@@ -448,6 +449,9 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         # HA's DataUpdateCoordinator only exposes last_update_success (bool);
         # we track the timestamp ourselves so diagnostics can report it.
         self._last_update_success_time: dt.datetime | None = None
+        # Fingerprint of last update cycle; short-circuits _calculate_cover_state (3.4).
+        self._last_fingerprint: UpdateFingerprint | None = None
+
         # Issue #437: forecast cache + scheduling.  The forecast is heavy
         # (~289-call astral walk x 49-sample window) and must NOT run inline
         # on the event loop every state-write.  ``_position_forecast`` is
@@ -1197,14 +1201,41 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         # Self-heal stuck weather override (issue #255: missed state-change events)
         self._reconcile_weather_override()
 
-        # Read custom-position sensor states.
+        # Read custom-position sensor states early so the fingerprint includes
+        # them, and prev_custom_position_sensors_active is stamped correctly below.
         current_custom_position_sensors_active = {
             s.entity_id: s.is_on
             for s in self._snapshot_builder.read_custom_position_sensors(options)
         }
 
-        # Calculate cover state (pipeline runs with up-to-date override state)
-        state = self._calculate_cover_state(cover_data, options)
+        # 3.4 pipeline short-circuit: skip _calculate_cover_state when ALL
+        # pipeline inputs are identical to the previous cycle.
+        _fp = UpdateFingerprint.from_coordinator_state(
+            self._snapshot,
+            manual_override_active=self.manager.binary_cover_manual,
+            weather_override_active=self.is_weather_override_active,
+            motion_timeout_active=self.is_motion_timeout_active,
+            grace_period_active=self._grace_mgr.any_command_grace_active,
+            in_time_window=self.check_adaptive_time,
+            custom_position_sensor_states=current_custom_position_sensors_active,
+        )
+        _can_skip = (
+            not self.state_change
+            and not self.cover_state_change
+            and not self.first_refresh
+            and not auto_expired
+            and self._last_fingerprint is not None
+            and _fp == self._last_fingerprint
+        )
+        if _can_skip:
+            self.logger.debug(
+                "Fingerprint unchanged - skipping _calculate_cover_state (3.4 opt)"
+            )
+            state = self.state
+        else:
+            # Calculate cover state (pipeline runs with up-to-date override state)
+            state = self._calculate_cover_state(cover_data, options)
+        self._last_fingerprint = _fp
 
         # Update prev state for next cycle (current force override state is now
         # captured in the snapshot we just built).
