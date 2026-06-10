@@ -1038,7 +1038,9 @@
         "state": {
           "force_override_active": "Dérogation forcée active",
           "motion_timeout": "Aucun mouvement — position par défaut utilisée"
-        }
+        },
+        "name": "Statut de contrôle",
+        "description": "Méthode de décision active dans le pipeline pour ce store (automatique, dérogation forcée, délai d’inactivité, etc.)."
       },
       "motion_status": {
         "state": {
@@ -1048,7 +1050,9 @@
           "no_motion": "Aucun mouvement",
           "waiting_for_data": "En attente de données",
           "holding": "Maintien de la position"
-        }
+        },
+        "name": "Statut du mouvement",
+        "description": "État actuel du capteur de mouvement : mouvement détecté, délai en attente ou aucun mouvement."
       },
       "decision_trace": {
         "name": "Trace de décision",
@@ -1064,69 +1068,102 @@
           "custom_position": "Position personnalisée",
           "weather_override": "Dérogation météo",
           "cloud_suppression": "Désactivation par temps nuageux"
-        }
+        },
+        "description": "Dernière règle ayant déterminé la position du store — utile pour diagnostiquer des positions inattendues."
       },
       "position_forecast": {
-        "name": "Prévision de position"
+        "name": "Prévision de position",
+        "description": "Horodatage du prochain changement de position prévu selon le calcul de la trajectoire solaire."
       },
       "climate_status": {
         "state": {
           "summer_mode": "Mode été",
           "winter_mode": "Mode hiver",
           "intermediate": "Intermédiaire"
-        }
+        },
+        "name": "Statut climatique",
+        "description": "Saison thermique détectée (été / hiver / intermédiaire) utilisée pour choisir la stratégie de position du store."
       }
     },
     "switch": {
       "glare_zone_0": {
-        "name": "Zone d'éblouissement 1"
+        "name": "Zone d'éblouissement 1",
+        "description": "Active la protection anti-éblouissement pour la zone 1 — ferme le store lors d’un éblouissement direct dans cette zone."
       },
       "glare_zone_1": {
-        "name": "Zone d'éblouissement 2"
+        "name": "Zone d'éblouissement 2",
+        "description": "Active la protection anti-éblouissement pour la zone 2 — ferme le store lors d’un éblouissement direct dans cette zone."
       },
       "glare_zone_2": {
-        "name": "Zone d'éblouissement 3"
+        "name": "Zone d'éblouissement 3",
+        "description": "Active la protection anti-éblouissement pour la zone 3 — ferme le store lors d’un éblouissement direct dans cette zone."
       },
       "glare_zone_3": {
-        "name": "Zone d'éblouissement 4"
+        "name": "Zone d'éblouissement 4",
+        "description": "Active la protection anti-éblouissement pour la zone 4 — ferme le store lors d’un éblouissement direct dans cette zone."
       },
       "enabled_toggle": {
         "name": "Intégration activée",
         "state": {
           "on": "On",
           "off": "Off"
-        }
+        },
+        "description": "Interrupteur principal — quand désactivé, l’intégration arrête tous les mouvements automatiques du store."
       },
       "automatic_control": {
         "name": "Contrôle automatique",
         "state": {
           "on": "On",
           "off": "Off"
-        }
+        },
+        "description": "Active ou désactive le contrôle automatique de la position en fonction du calcul de la position du soleil."
       },
       "motion_control": {
         "name": "Contrôle du mouvement",
         "state": {
           "on": "On",
           "off": "Off"
-        }
+        },
+        "description": "Quand activé, les événements de détection de mouvement influencent la position du store (ex : ouvrir sur mouvement)."
       },
       "manual_toggle": {
         "name": "Détection de Dérogation Manuelle",
         "state": {
           "on": "Activé",
           "off": "Désactivé"
-        }
+        },
+        "description": "Quand activé, l’intégration détecte les déplacements manuels du store et suspend temporairement l’automatisation."
+      },
+      "return_to_default_toggle": {
+        "description": "Si activé, le store revient à sa position par défaut quand le contrôle automatique est désactivé."
+      },
+      "switch_mode": {
+        "description": "Bascule entre le mode de fonctionnement standard et alternatif pour ce store."
+      },
+      "temp_toggle": {
+        "description": "Active ou désactive l’ajustement basé sur la température intérieure/extérieure."
+      },
+      "lux_toggle": {
+        "description": "Active ou désactive les ajustements de position basés sur le niveau de luminosité (lux)."
+      },
+      "irradiance_toggle": {
+        "description": "Active ou désactive le contrôle basé sur l’irradiance solaire pour prévenir la surchauffe."
       }
     },
     "button": {
       "my_position": {
-        "name": "Position My gérée"
+        "name": "Position My gérée",
+        "description": "Déplace le store vers la position My Position enregistrée et réactive le contrôle automatique depuis cette base."
+      },
+      "reset_manual_override": {
+        "name": "Réinitialiser la dérogation manuelle",
+        "description": "Annule immédiatement toute dérogation manuelle active et reprend le contrôle automatique."
       }
     },
     "number": {
       "my_position_value": {
-        "name": "Valeur de position My gérée"
+        "name": "Valeur de position My gérée",
+        "description": "Position cible (0–100 %) enregistrée comme My Position et appliquée lors de l’appui sur le bouton correspondant."
       }
     }
   },
