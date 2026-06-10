@@ -1038,7 +1038,9 @@
         "state": {
           "force_override_active": "Force override active",
           "motion_timeout": "No motion - using default position"
-        }
+        },
+        "name": "Control Status",
+        "description": "Current pipeline decision method active for this cover (automatic, force override, motion timeout, etc.)."
       },
       "motion_status": {
         "state": {
@@ -1048,14 +1050,18 @@
           "no_motion": "No Motion",
           "holding": "Holding Position",
           "waiting_for_data": "Waiting for Data"
-        }
+        },
+        "name": "Motion Status",
+        "description": "Current motion sensor state: whether motion is detected, pending timeout, or no motion."
       },
       "climate_status": {
         "state": {
           "summer_mode": "Summer Mode",
           "winter_mode": "Winter Mode",
           "intermediate": "Intermediate"
-        }
+        },
+        "name": "Climate Status",
+        "description": "Detected thermal season (summer / winter / intermediate) used to select the cover position strategy."
       },
       "decision_trace": {
         "name": "Decision Trace",
@@ -1071,62 +1077,93 @@
           "custom_position": "Custom Position",
           "weather_override": "Weather Override",
           "cloud_suppression": "Cloud Suppression"
-        }
+        },
+        "description": "Last rule that determined the cover position — useful for diagnosing unexpected positions."
       },
       "position_forecast": {
-        "name": "Position Forecast"
+        "name": "Position Forecast",
+        "description": "Timestamp of the next scheduled position change based on sun trajectory calculations."
       }
     },
     "switch": {
       "glare_zone_0": {
-        "name": "Glare Zone 1"
+        "name": "Glare Zone 1",
+        "description": "Activate glare protection for zone 1 — closes the cover when direct glare is detected in this zone."
       },
       "glare_zone_1": {
-        "name": "Glare Zone 2"
+        "name": "Glare Zone 2",
+        "description": "Activate glare protection for zone 2 — closes the cover when direct glare is detected in this zone."
       },
       "glare_zone_2": {
-        "name": "Glare Zone 3"
+        "name": "Glare Zone 3",
+        "description": "Activate glare protection for zone 3 — closes the cover when direct glare is detected in this zone."
       },
       "glare_zone_3": {
-        "name": "Glare Zone 4"
+        "name": "Glare Zone 4",
+        "description": "Activate glare protection for zone 4 — closes the cover when direct glare is detected in this zone."
       },
       "enabled_toggle": {
         "name": "Integration Enabled",
         "state": {
           "on": "On",
           "off": "Off"
-        }
+        },
+        "description": "Master switch — when off, the integration stops all automatic cover movements."
       },
       "automatic_control": {
         "name": "Automatic Control",
         "state": {
           "on": "On",
           "off": "Off"
-        }
+        },
+        "description": "Enable or disable automatic position control based on sun position calculations."
       },
       "motion_control": {
         "name": "Motion Control",
         "state": {
           "on": "On",
           "off": "Off"
-        }
+        },
+        "description": "When enabled, motion detection events influence the cover position (e.g. open on motion)."
       },
       "manual_toggle": {
         "name": "Manual Override Detection",
         "state": {
           "on": "On",
           "off": "Off"
-        }
+        },
+        "description": "When enabled, the integration detects manual cover movements and pauses automation temporarily."
+      },
+      "return_to_default_toggle": {
+        "description": "If enabled, the cover returns to its default position when automatic control is disabled."
+      },
+      "switch_mode": {
+        "description": "Toggle between standard and alternative operating mode for this cover."
+      },
+      "temp_toggle": {
+        "description": "Enable or disable the temperature-based override that adjusts the cover based on indoor/outdoor temperature."
+      },
+      "lux_toggle": {
+        "description": "Enable or disable light level (lux) based adjustments to the cover position."
+      },
+      "irradiance_toggle": {
+        "description": "Enable or disable solar irradiance-based control to prevent overheating."
       }
     },
     "button": {
       "my_position": {
-        "name": "Managed My Position"
+        "name": "Managed My Position",
+        "description": "Moves the cover to the saved 'My Position' target and re-enables automatic control from that baseline."
+      },
+      "reset_manual_override": {
+        "name": "Reset Manual Override",
+        "description": "Immediately cancels any active manual override and resumes automatic control."
       }
     },
     "number": {
       "my_position_value": {
-        "name": "Managed My Position Value"
+        "name": "Managed My Position Value",
+        "description": "The target position (0-100 %) stored as 'My Position' and applied when the My Position button is pressed."
       }
     }
   },
