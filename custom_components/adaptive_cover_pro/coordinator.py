@@ -2225,6 +2225,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         ctx = DiagnosticContext(
             pos_sun=self.pos_sun,
             cover=self._cover_data,
+            position_forecast=self._position_forecast,
             pipeline_result=result,
             climate_mode=self._climate_mode,
             check_adaptive_time=self.check_adaptive_time,

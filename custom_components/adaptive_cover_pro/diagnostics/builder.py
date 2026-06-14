@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from ..const import ControlStatus
-from ..const import ClimateStrategy, ControlMethod, SunState
+from ..const import ClimateStrategy, ControlMethod, FORECAST_STEP_MINUTES, SunState
 
 # ---------------------------------------------------------------------------
 # Context dataclass – the coordinator populates this before calling build()
@@ -56,6 +56,10 @@ class DiagnosticContext:
     inverse_state: bool = False
     use_interpolation: bool = False
     final_state: int = 0  # coordinator.state (after interpolation/inverse)
+
+    # Solar-tracking-only forecast for the rest of today (issue #437 cache).
+    # Optional — None when the background recompute hasn't produced one yet.
+    position_forecast: Any = None  # Forecast | None
 
     # Configuration snapshot
     config_options: dict = field(default_factory=dict)
@@ -164,6 +168,7 @@ class DiagnosticsBuilder:
         diagnostics.update(self._build_climate(ctx))
         diagnostics.update(self._build_last_action(ctx))
         diagnostics.update(self._build_covers(ctx))
+        diagnostics.update(self._build_forecast(ctx))
         diagnostics.update(self._build_manual_override_state(ctx))
         diagnostics.update(self._build_configuration(ctx))
         diagnostics.update(self._build_debug_info(ctx))
@@ -542,6 +547,40 @@ class DiagnosticsBuilder:
         if not ctx.covers:
             return {"covers": {}}
         return {"covers": ctx.covers}
+
+    @staticmethod
+    def _build_forecast(ctx: DiagnosticContext) -> dict:
+        """Build the rest-of-day position forecast section.
+
+        The forecast is a **solar-tracking-only** projection: it holds the
+        window geometry constant and walks the sun forward through the rest of
+        today. It deliberately ignores every real-time handler (manual
+        override, motion, weather safety, climate, custom positions), so it is
+        useful for validating sun/FOV geometry and timing — *not* for
+        explaining why a cover did or did not move at a given instant (the
+        ``decision_trace`` section above answers that). The ``description``
+        field is emitted into the dump so a reader never mistakes the
+        projection for the live decision.
+        """
+        forecast = ctx.position_forecast
+        if forecast is None:
+            return {}
+        # Reuse the sensor's wire serialization ("forecast" samples + "events",
+        # ISO-8601 times) so the dump and the card share one format.
+        return {
+            "position_forecast": {
+                "description": (
+                    "Solar-tracking-only projection for the rest of today. "
+                    "Holds window geometry constant and walks the sun forward; "
+                    "does NOT model manual override, motion, weather safety, "
+                    "climate, or custom-position handlers. Use it to validate "
+                    "sun/FOV geometry and timing, not to explain a specific "
+                    "command — see decision_trace for that."
+                ),
+                "step_minutes": FORECAST_STEP_MINUTES,
+                **forecast.to_attrs(),
+            }
+        }
 
     @staticmethod
     def _build_manual_override_state(ctx: DiagnosticContext) -> dict:

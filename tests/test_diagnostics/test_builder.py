@@ -1195,3 +1195,58 @@ class TestPrimaryAxisSuppressionCounts:
         ctx = _base_ctx(primary_axis_suppression_counts={})
         diag, _ = builder.build(ctx)
         assert "primary_axis_suppression_last_24h" not in diag
+
+
+# ---------------------------------------------------------------------------
+# Position forecast
+# ---------------------------------------------------------------------------
+
+
+class TestForecast:
+    """Verify the rest-of-day forecast section."""
+
+    @staticmethod
+    def _make_forecast():
+        from custom_components.adaptive_cover_pro.forecast import (
+            Forecast,
+            ForecastEvent,
+            ForecastSample,
+        )
+
+        t0 = dt.datetime(2026, 6, 14, 12, 0, tzinfo=dt.UTC)
+        return Forecast(
+            samples=(
+                ForecastSample(t=t0, position=40, handler="solar"),
+                ForecastSample(
+                    t=t0 + dt.timedelta(minutes=15), position=0, handler="default"
+                ),
+            ),
+            events=(ForecastEvent(t=t0, kind="fov_exit", label="Sun leaves FOV"),),
+        )
+
+    def test_omitted_when_no_forecast(self, builder: DiagnosticsBuilder):
+        """No cached forecast → key absent (background recompute not done yet)."""
+        diag, _ = builder.build(_base_ctx(position_forecast=None))
+        assert "position_forecast" not in diag
+
+    def test_present_when_forecast_cached(self, builder: DiagnosticsBuilder):
+        """Cached forecast surfaces under ``position_forecast`` with samples/events."""
+        ctx = _base_ctx(position_forecast=self._make_forecast())
+        diag, _ = builder.build(ctx)
+        section = diag["position_forecast"]
+        assert section["step_minutes"] == 15
+        assert section["forecast"][0] == {
+            "t": "2026-06-14T12:00:00+00:00",
+            "position": 40,
+            "handler": "solar",
+        }
+        assert section["events"][0]["kind"] == "fov_exit"
+
+    def test_labeled_solar_only(self, builder: DiagnosticsBuilder):
+        """A reader must be told the projection ignores non-solar handlers."""
+        ctx = _base_ctx(position_forecast=self._make_forecast())
+        diag, _ = builder.build(ctx)
+        description = diag["position_forecast"]["description"].lower()
+        assert "solar-tracking-only" in description
+        assert "does not model" in description
+        assert "decision_trace" in description
