@@ -44,7 +44,7 @@ from .const import (
     DOMAIN,
     _LOGGER,
 )
-from .coordinator import AdaptiveDataUpdateCoordinator
+from .coordinator import AdaptiveConfigEntry, AdaptiveDataUpdateCoordinator
 from .helpers import (
     copy_legacy_slot_sensors_to_list,
     custom_position_slot_sensors,
@@ -78,10 +78,9 @@ async def async_initialize_integration(
     return True
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_setup_entry(hass: HomeAssistant, entry: AdaptiveConfigEntry) -> bool:
     """Set up Adaptive Cover Pro from a config entry."""
 
-    hass.data.setdefault(DOMAIN, {})
     await async_setup_services(hass)
 
     coordinator = AdaptiveDataUpdateCoordinator(hass)
@@ -240,7 +239,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # Store coordinator before platform setup so sensor async_added_to_hass can
     # access it during RestoreEntity rehydration (must run before first_refresh).
-    hass.data[DOMAIN][entry.entry_id] = coordinator
+    entry.runtime_data = coordinator
 
     # Prune entity registry orphans left over from past unique_id renames.
     # Runs before platform setup so orphans are removed before new entities register.
@@ -288,10 +287,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
-async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
+async def async_unload_entry(hass: HomeAssistant, entry: AdaptiveConfigEntry) -> bool:
     """Unload a config entry."""
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
-        hass.data[DOMAIN].pop(entry.entry_id)
         await async_unload_services(hass)
 
     return unload_ok

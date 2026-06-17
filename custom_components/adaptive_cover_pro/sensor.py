@@ -43,9 +43,8 @@ from .const import (
     DEFAULT_CUSTOM_POSITION_PRIORITY,
     DEFAULT_TEMPLATE_COMBINE_MODE,
     DEGREES_IN_CIRCLE,
-    DOMAIN,
 )
-from .coordinator import AdaptiveDataUpdateCoordinator
+from .coordinator import AdaptiveConfigEntry, AdaptiveDataUpdateCoordinator
 from .entity_base import AdaptiveCoverDiagnosticSensorBase, AdaptiveCoverSensorBase
 from .const import ControlMethod
 from .helpers import (
@@ -1207,13 +1206,11 @@ _DIAGNOSTIC_CLASSES: dict[str, type] = {
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    config_entry: ConfigEntry,
+    config_entry: AdaptiveConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Initialize Adaptive Cover Pro config entry."""
-    coordinator: AdaptiveDataUpdateCoordinator = hass.data[DOMAIN][
-        config_entry.entry_id
-    ]
+    coordinator: AdaptiveDataUpdateCoordinator = config_entry.runtime_data
 
     entities: list[SensorEntity] = []
 

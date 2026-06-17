@@ -196,10 +196,14 @@ class AdaptiveCoverData:
     position_forecast: Forecast | None = None
 
 
+type AdaptiveConfigEntry = ConfigEntry[AdaptiveDataUpdateCoordinator]
+"""Config entry whose ``runtime_data`` holds the coordinator instance."""
+
+
 class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
     """Adaptive cover data update coordinator."""
 
-    config_entry: ConfigEntry
+    config_entry: AdaptiveConfigEntry
 
     # Default capabilities for covers when entity not ready
     _DEFAULT_CAPABILITIES = {
