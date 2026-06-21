@@ -242,7 +242,6 @@ from .config_dynamic import (  # noqa: E402
     weather_override_schema,
 )
 
-
 # Module-level constant for tests / imports. Identical to the legacy
 # vol.Schema(...) shape — metric labels, no hass needed. ``sun_tracking_schema``
 # is re-exported from ``config_dynamic`` above.
