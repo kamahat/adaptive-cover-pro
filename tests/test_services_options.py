@@ -31,6 +31,7 @@ from custom_components.adaptive_cover_pro.const import (
     CONF_ENABLE_MIN_POSITION,
     CONF_ENABLE_SUN_TRACKING,
     CONF_END_ENTITY,
+    CONF_END_OF_WINDOW_POS,
     CONF_END_TIME,
     CONF_FORCE_OVERRIDE_MIN_MODE,
     CONF_FORCE_OVERRIDE_POSITION,
@@ -227,6 +228,22 @@ class TestFieldValidators:
     def test_none_always_accepted(self):
         for _key, validator in FIELD_VALIDATORS.items():
             validator(None)  # should not raise for any field
+
+    def test_end_of_window_pos_in_option_ranges(self):
+        """Issue #625: end-of-window position range is single-sourced (0, 100)."""
+        from custom_components.adaptive_cover_pro.const import OPTION_RANGES
+
+        assert OPTION_RANGES[CONF_END_OF_WINDOW_POS] == (0, 100)
+
+    def test_end_of_window_pos_validator(self):
+        """Issue #625: validator accepts None/0/100, rejects out-of-range."""
+        FIELD_VALIDATORS[CONF_END_OF_WINDOW_POS](None)
+        FIELD_VALIDATORS[CONF_END_OF_WINDOW_POS](0)
+        FIELD_VALIDATORS[CONF_END_OF_WINDOW_POS](100)
+        with pytest.raises(Exception):
+            FIELD_VALIDATORS[CONF_END_OF_WINDOW_POS](101)
+        with pytest.raises(Exception):
+            FIELD_VALIDATORS[CONF_END_OF_WINDOW_POS](-1)
 
     def test_bool_field_accepts_bool(self):
         FIELD_VALIDATORS[CONF_ENABLE_MIN_POSITION](True)
@@ -1626,3 +1643,63 @@ class TestSunsetSunriseTimeEntity:
         mock_update.assert_called_once()
         new_opts = mock_update.call_args[1]["options"]
         assert new_opts.get("sunrise_time_entity") == "sensor.custom_sunrise"
+
+
+# ---------------------------------------------------------------------------
+# Issue #665 — diagnostic sensor target resolution (e2e)
+# ---------------------------------------------------------------------------
+
+
+class TestDiagnosticSensorTargetResolution:
+    """E2E: service call targeted at the decision-trace sensor must persist options.
+
+    Before the fix, targeting sensor.*_decision_trace silently no-ops because
+    the entity is not in coord.entities (which holds only cover entity_ids).
+    After the fix, _resolve_targets falls back to the entity registry and maps
+    the sensor's config_entry_id → coordinator so the options are written.
+    """
+
+    async def test_set_sunset_sunrise_via_diagnostic_sensor_target(
+        self, hass: HomeAssistant
+    ):
+        """set_sunset_sunrise targeted at the decision-trace sensor writes options."""
+        entry = await _setup(hass, entry_id="diag_ss_01")
+
+        # The decision-trace sensor entity_id for this integration instance.
+        diag_sensor = "sensor.options_cover_decision_trace"
+
+        # Simulate the entity registry knowing this sensor belongs to our entry.
+        fake_reg_entry = MagicMock()
+        fake_reg_entry.config_entry_id = entry.entry_id
+
+        ent_reg_mock = MagicMock()
+        ent_reg_mock.async_get = MagicMock(return_value=fake_reg_entry)
+
+        with (
+            patch.object(hass.config_entries, "async_update_entry") as mock_update,
+            patch.object(hass.config_entries, "async_reload", new_callable=AsyncMock),
+            patch(
+                "custom_components.adaptive_cover_pro.services.er.async_get",
+                return_value=ent_reg_mock,
+            ),
+        ):
+            hass.states.async_set(diag_sensor, "on", {})
+            await hass.services.async_call(
+                DOMAIN,
+                "set_sunset_sunrise",
+                {CONF_SUNSET_POS: 0, CONF_SUNSET_OFFSET: 120},
+                blocking=True,
+                target={"entity_id": [diag_sensor]},
+            )
+            await hass.async_block_till_done()
+
+        mock_update.assert_called_once(), (
+            "async_update_entry must be called — service must not silently no-op"
+        )
+        new_opts = mock_update.call_args[1]["options"]
+        assert (
+            new_opts[CONF_SUNSET_POS] == 0
+        ), f"sunset_position must be 0, got {new_opts.get(CONF_SUNSET_POS)!r}"
+        assert (
+            new_opts[CONF_SUNSET_OFFSET] == 120
+        ), f"sunset_offset must be 120, got {new_opts.get(CONF_SUNSET_OFFSET)!r}"

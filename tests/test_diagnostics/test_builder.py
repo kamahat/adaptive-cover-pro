@@ -74,6 +74,8 @@ def _make_pr(
     configured_cloudy_pos: int | None = None,
     bypass_auto_control: bool = False,
     is_safety: bool = False,
+    tilt: int | None = None,
+    tilt_only_slot: int | None = None,
 ) -> PipelineResult:
     """Build a PipelineResult with sensible defaults."""
     return PipelineResult(
@@ -91,6 +93,8 @@ def _make_pr(
         configured_cloudy_pos=configured_cloudy_pos,
         bypass_auto_control=bypass_auto_control,
         is_safety=is_safety,
+        tilt=tilt,
+        tilt_only_slot=tilt_only_slot,
     )
 
 
@@ -467,6 +471,43 @@ class TestTimeWindowDiagnostics:
         assert "end_time" in tw
 
 
+class TestEndOfWindowDiagnostics:
+    """issue #625: end-of-window position surfaced in diagnostics."""
+
+    def test_configured_value_and_active_flag_when_closed(
+        self, builder: DiagnosticsBuilder
+    ):
+        from custom_components.adaptive_cover_pro.const import CONF_END_OF_WINDOW_POS
+
+        ctx = _base_ctx(
+            config_options={CONF_END_OF_WINDOW_POS: 20},
+            before_end_time=False,
+            end_of_window_active=True,
+        )
+        diag, _ = builder.build(ctx)
+        assert diag["configuration"]["end_of_window_position"] == 20
+        assert diag["default_position"]["configured_end_of_window_pos"] == 20
+        assert diag["default_position"]["end_of_window_active"] is True
+
+    def test_active_flag_false_when_window_open(self, builder: DiagnosticsBuilder):
+        from custom_components.adaptive_cover_pro.const import CONF_END_OF_WINDOW_POS
+
+        ctx = _base_ctx(
+            config_options={CONF_END_OF_WINDOW_POS: 20},
+            before_end_time=True,
+            end_of_window_active=False,
+        )
+        diag, _ = builder.build(ctx)
+        assert diag["default_position"]["end_of_window_active"] is False
+
+    def test_unset_value_is_none(self, builder: DiagnosticsBuilder):
+        ctx = _base_ctx(config_options={})
+        diag, _ = builder.build(ctx)
+        assert diag["configuration"]["end_of_window_position"] is None
+        assert diag["default_position"]["configured_end_of_window_pos"] is None
+        assert diag["default_position"]["end_of_window_active"] is False
+
+
 # ---------------------------------------------------------------------------
 # Sun validity diagnostics
 # ---------------------------------------------------------------------------
@@ -767,6 +808,7 @@ class TestConfigurationDiagnostics:
             "enabled_toggle",
             "cloud_suppression_enabled",
             "cloudy_position",
+            "end_of_window_position",
             "is_sunny_source",
             "templated_thresholds",
         }
@@ -947,6 +989,65 @@ class TestDecisionTrace:
         handlers = [s["handler"] for s in diag["decision_trace"]]
         assert handlers == ["a", "b", "c"]
 
+    def test_trace_includes_priority_when_set(self, builder: DiagnosticsBuilder):
+        """A step's priority is surfaced; absent when None (synthetic step)."""
+        steps = [
+            DecisionStep(
+                handler="weather",
+                matched=True,
+                reason="storm",
+                position=100,
+                priority=90,
+            ),
+            DecisionStep(
+                handler="floor_clamp", matched=True, reason="floor", position=40
+            ),
+        ]
+        pr = PipelineResult(
+            position=100,
+            control_method=ControlMethod.WEATHER,
+            reason="weather",
+            decision_trace=steps,
+        )
+        diag, _ = builder.build(_base_ctx(pipeline_result=pr))
+        trace = diag["decision_trace"]
+        assert trace[0]["priority"] == 90
+        assert "priority" not in trace[1]  # None → omitted
+
+
+class TestHandlerPriorities:
+    """Tests for the handler_priorities section."""
+
+    def test_defaults_when_no_overrides(self, builder: DiagnosticsBuilder):
+        diag, _ = builder.build(_base_ctx(config_options={}))
+        rows = diag["handler_priorities"]
+        assert rows["weather"] == {
+            "priority": 90,
+            "default": 90,
+            "overridden": False,
+        }
+        # Ordered highest-priority first.
+        assert list(rows) == [
+            "weather",
+            "manual_override",
+            "motion_timeout",
+            "cloud_suppression",
+            "climate",
+            "glare_zone",
+            "solar",
+        ]
+
+    def test_override_marked_and_reordered(self, builder: DiagnosticsBuilder):
+        diag, _ = builder.build(
+            _base_ctx(config_options={"solar_priority": 95, "weather_priority": 20})
+        )
+        rows = diag["handler_priorities"]
+        assert rows["solar"] == {"priority": 95, "default": 40, "overridden": True}
+        assert rows["weather"] == {"priority": 20, "default": 90, "overridden": True}
+        # Solar now sorts first; weather drops below climate.
+        assert list(rows)[0] == "solar"
+        assert list(rows).index("weather") > list(rows).index("climate")
+
 
 # ---------------------------------------------------------------------------
 # Covers section
@@ -1117,6 +1218,39 @@ class TestCloudyPositionDiagnostics:
         diag, _ = builder.build(_base_ctx(config_options={}))
         assert diag["configuration"]["cloud_suppression_enabled"] is False
 
+    def test_is_sunny_source_template_when_only_template_set(
+        self, builder: DiagnosticsBuilder
+    ):
+        """is_sunny_source == '[template]' when only the template is configured (#639)."""
+        from custom_components.adaptive_cover_pro.const import CONF_IS_SUNNY_TEMPLATE
+
+        options = {CONF_IS_SUNNY_TEMPLATE: "{{ true }}"}
+        diag, _ = builder.build(_base_ctx(config_options=options))
+        assert diag["configuration"]["is_sunny_source"] == "[template]"
+
+    def test_is_sunny_source_sensor_takes_priority_over_template(
+        self, builder: DiagnosticsBuilder
+    ):
+        """A configured sensor wins over the template in is_sunny_source (#639)."""
+        from custom_components.adaptive_cover_pro.const import (
+            CONF_IS_SUNNY_SENSOR,
+            CONF_IS_SUNNY_TEMPLATE,
+        )
+
+        options = {
+            CONF_IS_SUNNY_SENSOR: "binary_sensor.sunny",
+            CONF_IS_SUNNY_TEMPLATE: "{{ true }}",
+        }
+        diag, _ = builder.build(_base_ctx(config_options=options))
+        assert diag["configuration"]["is_sunny_source"] == "binary_sensor.sunny"
+
+    def test_is_sunny_source_weather_state_when_neither_set(
+        self, builder: DiagnosticsBuilder
+    ):
+        """Falls back to 'weather_state' when no sensor and no template (#639)."""
+        diag, _ = builder.build(_base_ctx(config_options={}))
+        assert diag["configuration"]["is_sunny_source"] == "weather_state"
+
     def test_default_position_includes_configured_cloudy_pos(
         self, builder: DiagnosticsBuilder
     ):
@@ -1250,3 +1384,45 @@ class TestForecast:
         assert "solar-tracking-only" in description
         assert "does not model" in description
         assert "decision_trace" in description
+
+
+# ---------------------------------------------------------------------------
+# Issue #667: surface an active tilt-only custom slot in the Control Status
+# tracker entity (position_explanation + control_state_reason).
+# ---------------------------------------------------------------------------
+
+
+class TestTiltOnlyCustomSlotSurfacing:
+    """An applied tilt-only custom slot is visible on the Control Status tracker."""
+
+    def test_position_explanation_appends_tilt_only_slot(
+        self, builder: DiagnosticsBuilder
+    ):
+        """position_explanation mentions the tilt-only slot alongside the winner."""
+        pr = _make_pr(
+            reason="solar position 45%",
+            tilt=30,
+            tilt_only_slot=1,
+        )
+        diag, explanation = builder.build(_base_ctx(pipeline_result=pr))
+        assert "solar position 45%" in explanation
+        assert "tilt fixed at 30% by Custom #1" in explanation
+        assert explanation == diag["position_explanation"]
+
+    def test_control_state_reason_appends_tilt_only_slot(
+        self, builder: DiagnosticsBuilder
+    ):
+        """control_state_reason gains a tilt-only suffix for the tracker entity."""
+        pr = _make_pr(reason="solar position 45%", tilt=30, tilt_only_slot=2)
+        diag, _ = builder.build(_base_ctx(pipeline_result=pr))
+        assert diag["control_state_reason"] == "Sun in FOV — tilt fixed by Custom #2"
+
+    def test_no_tilt_only_slot_leaves_strings_unchanged(
+        self, builder: DiagnosticsBuilder
+    ):
+        """With no applied tilt-only slot, neither string mentions a tilt fix."""
+        pr = _make_pr(reason="solar position 45%", tilt=None, tilt_only_slot=None)
+        diag, explanation = builder.build(_base_ctx(pipeline_result=pr))
+        assert "tilt fixed" not in explanation
+        assert "tilt fixed" not in diag["control_state_reason"]
+        assert diag["control_state_reason"] == "Sun in FOV"

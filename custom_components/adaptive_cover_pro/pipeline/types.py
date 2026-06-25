@@ -241,6 +241,10 @@ class DecisionStep:
     reason: str
     position: int | None
     tilt: int | None = None
+    # Evaluation priority of the handler that produced this step (higher wins).
+    # Surfaced in diagnostics so a re-ordered chain is visible for debugging.
+    # None for synthetic steps (e.g. floor_clamp) that aren't a real handler.
+    priority: int | None = None
     # Physical position the cover is held at during a manual override step.
     # Set by PipelineRegistry only for the manual_override winning step
     # (propagated from PipelineResult.held_position). None for all other
@@ -308,6 +312,13 @@ class PipelineResult:
     # the carriage. Cover-type-agnostic — set by the registry, acted on only
     # inside cover_types/.
     tilt_only_contribution_active: bool = False
+
+    # 1-based slot number of the tilt-only contribution that was *applied*
+    # (overlaid its slat angle onto the position winner). Set by the registry
+    # only when the overlay actually took effect (winner's own tilt was None);
+    # None when no tilt-only slot fired or when it was deferred because the
+    # winner already set tilt. Surfaced in the Control Status string (#667).
+    tilt_only_slot: int | None = None
 
     # When True, the coordinator should route this command through
     # CoverCommandService.send_my_position() on non-position-capable covers

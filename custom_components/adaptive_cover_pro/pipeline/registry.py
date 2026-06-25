@@ -84,6 +84,7 @@ class PipelineRegistry:
                             reason=result.reason,
                             position=result.position,
                             held_position=result.held_position,
+                            priority=handler.priority,
                         )
                     )
                 else:
@@ -93,6 +94,7 @@ class PipelineRegistry:
                             matched=False,
                             reason=f"outprioritized by {winning_handler.name}",
                             position=result.position,
+                            priority=handler.priority,
                         )
                     )
             else:
@@ -102,6 +104,7 @@ class PipelineRegistry:
                         matched=False,
                         reason=handler.describe_skip(snapshot),
                         position=None,
+                        priority=handler.priority,
                     )
                 )
 
@@ -199,6 +202,10 @@ class PipelineRegistry:
         tilt_contribution = resolve_tilt_axis(snapshot)
         tilt_overlay: int | None = None
         tilt_only_active = False
+        # Slot number of the tilt-only contribution that was actually applied —
+        # surfaced in the Control Status string (#667). Stays None when the
+        # contribution is deferred (winner already set tilt).
+        tilt_only_slot_applied: int | None = None
         if tilt_contribution is not None:
             tilt_only_active = True
             # Replace any trace step for the contributing slot — it came from the
@@ -207,6 +214,7 @@ class PipelineRegistry:
             trace = _drop_trace_steps(trace, {tilt_contribution.source})
             if winner.tilt is None:
                 tilt_overlay = tilt_contribution.tilt
+                tilt_only_slot_applied = tilt_contribution.slot
                 trace.append(
                     DecisionStep(
                         handler=tilt_contribution.source,
@@ -258,6 +266,7 @@ class PipelineRegistry:
             default_position=snapshot.default_position,
             is_sunset_active=snapshot.is_sunset_active,
             tilt_only_contribution_active=tilt_only_active,
+            tilt_only_slot=tilt_only_slot_applied,
             **merged,
         )
         if self._event_buffer is not None:
