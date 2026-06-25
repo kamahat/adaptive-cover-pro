@@ -1255,6 +1255,13 @@
           "off": "Off"
         }
       },
+      "sun_tracking": {
+        "name": "Sonnenverfolgung",
+        "state": {
+          "on": "An",
+          "off": "Aus"
+        }
+      },
       "motion_control": {
         "name": "Bewegungssteuerung",
         "state": {
