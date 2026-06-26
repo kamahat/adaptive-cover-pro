@@ -157,22 +157,30 @@ if $DRY_RUN; then
     echo "==> Dry run complete — no files were copied."
 else
     # ── Stamp 7-char commit sha in deployed manifest.json ─────────────────────
-    DEV_VERSION="$(git rev-parse --short=7 HEAD 2>/dev/null || echo "unknown")"
+    # The sha is carried as SemVer build metadata on the manifest's real version
+    # (e.g. 2.30.0-beta.1+873727b) so the deployed version stays a VALID version.
+    # A raw short-sha is rejected by Home Assistant's AwesomeVersion parser when
+    # it contains hex letters (e.g. 873727b), which silently blocks the
+    # integration from loading ("Integration not found").
+    DEV_SHA="$(git rev-parse --short=7 HEAD 2>/dev/null || echo "unknown")"
     if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
-        DEV_VERSION="${DEV_VERSION}-dirty"
+        DEV_SHA="${DEV_SHA}.dirty"
     fi
-    echo "==> Stamping version ${DEV_VERSION} in deployed manifest.json..."
-    python3 - "${DST}manifest.json" "${DEV_VERSION}" <<'EOF'
+    echo "==> Stamping sha ${DEV_SHA} as build metadata in deployed manifest.json..."
+    python3 - "${DST}manifest.json" "${DEV_SHA}" <<'EOF'
 import json, sys
-path, version = sys.argv[1], sys.argv[2]
+path, sha = sys.argv[1], sys.argv[2]
 with open(path) as f:
     m = json.load(f)
-m['version'] = version
+# Strip any prior build metadata so re-deploys don't accumulate +sha+sha.
+base = str(m.get('version', '0.0.0')).split('+', 1)[0]
+m['version'] = f"{base}+{sha}"
 with open(path, 'w') as f:
     json.dump(m, f, indent=2)
     f.write('\n')
 EOF
 
+    DEV_VERSION="$(python3 -c "import json,sys; print(json.load(open('${DST}manifest.json'))['version'])")"
     echo ""
     echo "==> Deploy complete (version ${DEV_VERSION})."
 
