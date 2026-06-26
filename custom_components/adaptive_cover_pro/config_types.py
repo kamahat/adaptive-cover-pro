@@ -335,6 +335,9 @@ class ManualOverrideSlice:
     reset: bool
     duration: dict
     ignore_external: bool
+    # Input binary sensors whose off→on edge engages manual override on every
+    # cover in the instance (issue #688). Empty = feature off.
+    input_entities: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -384,6 +387,7 @@ class RuntimeConfig:
             CONF_INTERP_START,
             CONF_MANUAL_IGNORE_EXTERNAL,
             CONF_MANUAL_OVERRIDE_DURATION,
+            CONF_MANUAL_OVERRIDE_INPUT_ENTITIES,
             CONF_MANUAL_OVERRIDE_RESET,
             CONF_MANUAL_THRESHOLD,
             CONF_MAX_COVERAGE_STEPS,
@@ -470,6 +474,7 @@ class RuntimeConfig:
                 reset=options.get(CONF_MANUAL_OVERRIDE_RESET, False),
                 duration=options.get(CONF_MANUAL_OVERRIDE_DURATION) or {"hours": 2},
                 ignore_external=options.get(CONF_MANUAL_IGNORE_EXTERNAL, False),
+                input_entities=options.get(CONF_MANUAL_OVERRIDE_INPUT_ENTITIES, []),
             ),
             time_window=TimeWindowSlice(
                 start_time=options.get(CONF_START_TIME),
