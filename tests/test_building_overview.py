@@ -132,23 +132,24 @@ def test_roster_lists_type_label_and_entities():
     assert "**Patio** — Horizontal Awning — cover.patio" in text
 
 
-def test_comparison_shows_only_differences_with_tail():
+def test_comparison_shows_differences_and_identicals():
     profile = _profile({})
     living = _cover("Living", options={CONF_CLIMATE_MODE: True})
     bedroom = _cover("Bedroom", options={CONF_CLIMATE_MODE: False})
     text = build_building_overview(profile, [living, bedroom])
     lines = text.splitlines()
-    assert any(
-        "Climate mode" in line and "| on |" in line.replace(" ", " ") for line in lines
-    )
+    # Differences render as a per-setting line (no wide table) naming each cover.
+    assert "| Setting |" not in text
     climate_row = next(line for line in lines if "Climate mode" in line)
-    assert "on" in climate_row and "off" in climate_row
+    assert "Living" in climate_row and "on" in climate_row
+    assert "Bedroom" in climate_row and "off" in climate_row
     # Behavioral-only: physical settings are never compared.
     assert "azimuth" not in text.lower()
     assert "Field of view" not in text
     assert "Geometry" not in text
-    # Identical settings collapse into a tail count, not rows.
-    assert "identical across all covers" in text
+    # Identical settings are now listed explicitly, not collapsed into a count.
+    assert "Identical across all covers" in text
+    assert "Delta position / time" in text
 
 
 def test_comparison_all_identical():
@@ -164,8 +165,11 @@ def test_unset_equals_default_in_comparison():
     a = _cover("A", options={CONF_DELTA_POSITION: DEFAULT_DELTA_POSITION})
     b = _cover("B")  # delta_position unset → normalizes to the same default
     text = build_building_overview(profile, [a, b])
-    assert "Delta position" not in text
     assert "All comparable settings are identical" in text
+    # Delta position is identical (not a difference) → it appears as a list entry
+    # under the identical section, never as a "most …, except …" difference line.
+    delta_line = next(line for line in text.splitlines() if "Delta position" in line)
+    assert delta_line.startswith("- Delta position")
 
 
 def test_custom_positions_compared_as_count():
@@ -184,15 +188,17 @@ def test_custom_positions_compared_as_count():
     assert "0 slot(s)" in custom_row
 
 
-def test_many_covers_fall_back_to_bulleted_list():
+def test_many_covers_render_without_table():
     profile = _profile({})
     covers = [
         _cover(f"Cover{i}", options={CONF_CLIMATE_MODE: i % 2 == 0}) for i in range(6)
     ]
     text = build_building_overview(profile, covers)
-    assert "| Setting |" not in text
-    assert "**Cover0** (Vertical Blind)" in text
-    assert "Climate mode:" in text
+    assert "| Setting |" not in text  # no wide table, even with many covers
+    # Even split → every cover named on the single per-setting line.
+    climate_row = next(line for line in text.splitlines() if "Climate mode" in line)
+    assert "**Cover0**" in climate_row and "**Cover1**" in climate_row
+    assert "on" in climate_row and "off" in climate_row
 
 
 def test_profile_value_breakdown_statuses():
@@ -243,3 +249,23 @@ def test_build_override_records():
     assert by_key[CONF_WEATHER_ENTITY].profile_text == "weather.home"
     assert by_key[CONF_LUX_ENTITY].profile_sets_it is False
     assert by_key[CONF_LUX_ENTITY].entry_id == "bedroom"
+
+
+def test_overridden_empty_value_reads_none():
+    """A cover that overrides a profile sensor by clearing it reads "(none)"."""
+    profile = _profile({CONF_WEATHER_WIND_SPEED_SENSOR: "sensor.wind"})
+    cover = _cover(
+        "Bedroom",
+        options={
+            CONF_WEATHER_WIND_SPEED_SENSOR: "",
+            CONF_PROFILE_SENSOR_OVERRIDES: [CONF_WEATHER_WIND_SPEED_SENSOR],
+        },
+    )
+    record = build_override_records(profile, [cover])[0]
+    assert record.profile_sets_it is True
+    assert record.local_text == "(none)"
+    # The cover's own sensor-step breakdown shows the same wording.
+    out = profile_value_breakdown(
+        profile.options, cover.options, [CONF_WEATHER_WIND_SPEED_SENSOR]
+    )
+    assert "Wind speed: `(none)` — overridden (profile: `sensor.wind`)" in out

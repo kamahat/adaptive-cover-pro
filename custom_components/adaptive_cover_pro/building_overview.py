@@ -21,6 +21,7 @@ never branches on cover-type strings (uses ``get_policy``).
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
@@ -78,9 +79,8 @@ from .profile_link import classify_profile_sensor_source
 
 _NONE = "—"
 _NOT_SET = "(not set)"
-# Above this many covers a wide markdown table wraps badly in the HA form, so
-# fall back to a per-cover bulleted list of only the differing settings.
-_MATRIX_COVER_LIMIT = 4
+# A local override that intentionally clears/disables a sensor the profile sets.
+_NONE_LOCAL = "(none)"
 
 # English labels for the markdown body. Keyed by dotted name so a future
 # acp-translate pass can lift the whole block into summary_i18n unchanged.
@@ -102,8 +102,7 @@ _LABELS: dict[str, str] = {
     "roster_header": "**Linked covers**",
     "matrix_header": "**Settings comparison** (differences only)",
     "matrix_all_same": "All comparable settings are identical across the {n} covers.",
-    "matrix_tail": "{n} other setting(s) identical across all covers.",
-    "col_setting": "Setting",
+    "identical_header": "**Identical across all covers**",
     # Inherit/override breakdown shown on a linked cover's sensor steps.
     "inherit_header": (
         'Inherited from profile "{title}" — change a field to set a local '
@@ -176,6 +175,11 @@ def _entity_repr(value: Any) -> str:
     return str(value) if _is_set(value) else _NONE
 
 
+def _local_override_repr(value: Any) -> str:
+    """Render a cover's local override value; an unset/cleared value reads "(none)"."""
+    return _entity_repr(value) if _is_set(value) else _NONE_LOCAL
+
+
 # ---------------------------------------------------------------------------
 # Override enumeration (shared by the overview notes + Local Overrides step)
 # ---------------------------------------------------------------------------
@@ -231,7 +235,7 @@ def build_override_records(
                     cover_name=name,
                     key=key,
                     label=_sensor_label(key),
-                    local_text=_entity_repr(local),
+                    local_text=_local_override_repr(local),
                     profile_text=_entity_repr(profile),
                     profile_sets_it=source == "override",
                 )
@@ -272,7 +276,7 @@ def profile_value_breakdown(
             lines.append(
                 _LABELS["inherit_overridden"].format(
                     label=label,
-                    value=_entity_repr(local),
+                    value=_local_override_repr(local),
                     profile=_entity_repr(profile),
                 )
             )
@@ -466,7 +470,7 @@ def _override_notes(profile_options: dict, records: list[_CoverRecord]) -> list[
                     _LABELS["override_note"].format(
                         cover=record.name,
                         label=_sensor_label(key),
-                        local=_entity_repr(local),
+                        local=_local_override_repr(local),
                         profile=_entity_repr(profile),
                     )
                 )
@@ -495,50 +499,40 @@ def _build_linked_covers_section(records: list[_CoverRecord]) -> list[str]:
 
 
 def _build_comparison_section(records: list[_CoverRecord]) -> list[str]:
-    differing = []
+    differing: list[tuple[_DiffSpec, list[str]]] = []
+    identical: list[tuple[str, str]] = []
     for spec in _COMPARISON_SPECS:
         values = [spec.extract(r) for r in records]
         if len(set(values)) > 1:
             differing.append((spec, values))
+        else:
+            identical.append((spec.label, values[0]))
 
     lines = [_LABELS["matrix_header"], ""]
     if not differing:
         lines.append(_LABELS["matrix_all_same"].format(n=len(records)))
-        return lines
-
-    if len(records) > _MATRIX_COVER_LIMIT:
-        lines.extend(_comparison_as_list(records, differing))
     else:
-        lines.extend(_comparison_as_table(records, differing))
-    identical = len(_COMPARISON_SPECS) - len(differing)
+        lines += [_format_diff_line(spec.label, records, v) for spec, v in differing]
+
     if identical:
-        lines.append("")
-        lines.append(_LABELS["matrix_tail"].format(n=identical))
+        lines += ["", _LABELS["identical_header"]]
+        lines += [f"- {label}: `{value}`" for label, value in identical]
     return lines
 
 
-def _comparison_as_table(records: list[_CoverRecord], differing: list) -> list[str]:
-    header = (
-        f"| {_LABELS['col_setting']} | " + " | ".join(r.name for r in records) + " |"
-    )
-    sep = "|" + "---|" * (len(records) + 1)
-    lines = [header, sep]
-    for spec, values in differing:
-        lines.append(f"| {spec.label} | " + " | ".join(values) + " |")
-    return lines
+def _format_diff_line(
+    label: str, records: list[_CoverRecord], values: list[str]
+) -> str:
+    """One differing setting: a majority value plus the covers that deviate.
 
-
-def _comparison_as_list(records: list[_CoverRecord], differing: list) -> list[str]:
-    """Per-cover bulleted fallback for many covers; only differing settings."""
-    lines: list[str] = []
-    for idx, record in enumerate(records):
-        type_label = (
-            get_policy(record.sensor_type).display_label()
-            if record.sensor_type
-            else _NONE
+    When a strict majority of covers share one value, name only the exceptions;
+    otherwise (even split / all distinct) list every cover's value.
+    """
+    top_value, top_count = Counter(values).most_common(1)[0]
+    if top_count * 2 > len(records):
+        exceptions = ", ".join(
+            f"**{r.name}** `{v}`" for r, v in zip(records, values) if v != top_value
         )
-        lines.append(f"**{record.name}** ({type_label})")
-        for spec, values in differing:
-            lines.append(f"- {spec.label}: {values[idx]}")
-        lines.append("")
-    return lines
+        return f"- {label} — most `{top_value}`, except {exceptions}"
+    parts = " · ".join(f"**{r.name}** `{v}`" for r, v in zip(records, values))
+    return f"- {label} — {parts}"

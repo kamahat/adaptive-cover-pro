@@ -3808,6 +3808,11 @@ class OptionsFlowHandler(OptionsFlow):
                     "profile_overrides",
                     "done",
                 ],
+                description_placeholders={
+                    "instance_name": self._config_entry.title,
+                    "coffee_url": "https://www.buymeacoffee.com/jrhubott",
+                    "profile_line": "",
+                },
             )
 
         # Ordered by the 4-layer pipeline model (#613): physical setup →
@@ -4318,11 +4323,10 @@ class OptionsFlowHandler(OptionsFlow):
                 )
             }
         )
-        listing = "\n".join(f"- {o['label']}" for o in options)
         return self.async_show_form(
             step_id="profile_overrides",
             data_schema=schema,
-            description_placeholders={"overrides": listing},
+            description_placeholders={"overrides": ""},
         )
 
     async def async_step_pipeline_priorities(

@@ -255,8 +255,13 @@ async def test_profile_overrides_step_lists_and_clears(hass: HomeAssistant) -> N
 
     result = await flow.async_step_profile_overrides()
     assert result["step_id"] == "profile_overrides"
-    listing = result["description_placeholders"]["overrides"]
-    assert "Bedroom" in listing and "Weather entity" in listing
+    # The overrides render once, as the clearable checkbox list (not duplicated
+    # into the description).
+    assert result["description_placeholders"]["overrides"] == ""
+    schema = result["data_schema"].schema
+    select_key = next(k for k in schema if str(k) == "clear_overrides")
+    labels = [o["label"] for o in schema[select_key].config["options"]]
+    assert any("Bedroom" in lbl and "Weather entity" in lbl for lbl in labels)
 
     # Clear the override → cover re-inherits the profile value, list emptied.
     await flow.async_step_profile_overrides(
