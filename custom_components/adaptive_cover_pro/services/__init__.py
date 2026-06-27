@@ -34,11 +34,18 @@ def loaded_coordinators(
 
     Replaces the legacy ``hass.data[DOMAIN]`` registry: each loaded entry now
     stores its coordinator on ``entry.runtime_data``.
+
+    Virtual entries (e.g. the Building Profile, ``controls_cover == False``) reach
+    ``LOADED`` without setting ``runtime_data`` — they build no coordinator. Skip
+    them so callers never dereference a missing coordinator. ``getattr`` is robust
+    whether the running HA leaves ``runtime_data`` unset (raising ``AttributeError``)
+    or defaults it to ``None``.
     """
     return {
-        entry.entry_id: entry.runtime_data
+        entry.entry_id: coordinator
         for entry in hass.config_entries.async_entries(DOMAIN)
         if entry.state is ConfigEntryState.LOADED
+        and (coordinator := getattr(entry, "runtime_data", None)) is not None
     }
 
 
