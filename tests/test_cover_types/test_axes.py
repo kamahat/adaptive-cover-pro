@@ -41,7 +41,13 @@ from custom_components.adaptive_cover_pro.state.snapshot import CoverCapabilitie
 # Cover-type keys exercised across the parametrised tests below. Listed once
 # here so adding a new cover type only changes one place (the parametrize
 # decorators below pick up the new value automatically).
-ALL_COVER_TYPES = ["cover_blind", "cover_awning", "cover_tilt", "cover_venetian"]
+ALL_COVER_TYPES = [
+    "cover_blind",
+    "cover_awning",
+    "cover_tilt",
+    "cover_venetian",
+    "cover_roof_window",
+]
 
 
 # ---------------------------------------------------------------------------
@@ -162,6 +168,7 @@ class TestPolicyAxesDeclarations:
                 "cover_awning": AXIS_NAME_POSITION,
                 "cover_tilt": AXIS_NAME_TILT,
                 "cover_venetian": AXIS_NAME_POSITION,
+                "cover_roof_window": AXIS_NAME_POSITION,
             },
         ),
         (
@@ -172,6 +179,7 @@ class TestPolicyAxesDeclarations:
                 "cover_awning": AXIS_NAME_POSITION,
                 "cover_tilt": AXIS_NAME_TILT,  # cover_tilt always routes tilt
                 "cover_venetian": AXIS_NAME_POSITION,
+                "cover_roof_window": AXIS_NAME_POSITION,
             },
         ),
         (
@@ -184,6 +192,7 @@ class TestPolicyAxesDeclarations:
                 "cover_awning": AXIS_NAME_TILT,
                 "cover_tilt": AXIS_NAME_TILT,
                 "cover_venetian": AXIS_NAME_TILT,
+                "cover_roof_window": AXIS_NAME_TILT,
             },
         ),
     ],
@@ -667,6 +676,35 @@ def test_wiki_anchor(cover_type: str, anchor: str) -> None:
     ``_GEOMETRY_WIKI_URL`` dict on ``config_flow.py``.
     """
     assert get_policy(cover_type).wiki_anchor() == anchor
+
+
+@pytest.mark.unit
+@pytest.mark.parametrize(
+    ("cover_type", "expected"),
+    [
+        ("cover_blind", False),
+        ("cover_awning", False),
+        ("cover_tilt", False),
+        ("cover_venetian", True),
+    ],
+)
+def test_drift_reset_option_is_venetian_only(cover_type: str, expected: bool) -> None:
+    """The drift-reset threshold (#663) is a venetian-only geometry option.
+
+    The accumulator state and reset behaviour live on ``DualAxisSequencer``,
+    which only the venetian policy owns. The config key must surface in no
+    other cover type's geometry schema — a regression guard so the option
+    never leaks into a non-venetian policy.
+    """
+    import voluptuous as vol
+
+    from custom_components.adaptive_cover_pro.const import (
+        CONF_VENETIAN_TILT_RESET_THRESHOLD,
+    )
+
+    schema = get_policy(cover_type).geometry_schema()
+    keys = {(k.schema if isinstance(k, vol.Marker) else k) for k in schema.schema}
+    assert (CONF_VENETIAN_TILT_RESET_THRESHOLD in keys) is expected
 
 
 class TestLiftTravelMetres:

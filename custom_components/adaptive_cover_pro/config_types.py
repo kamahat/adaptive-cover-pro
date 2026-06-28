@@ -6,10 +6,65 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .const import (
+    BLIND_SPOT_SLOT_NUMBERS,
+    BLIND_SPOT_SLOTS,
+    DEFAULT_BLIND_SPOT_ELEVATION_MODE,
     DEFAULT_MOTION_TEMPLATE_MODE,
     DEFAULT_TEMPLATE_COMBINE_MODE,
+    DEFAULT_WEATHER_ENABLED,
+    BlindSpot,
     TiltMode,
 )
+
+
+def _make_blind_spot(
+    left: Any,
+    right: Any,
+    elevation: Any,
+    elevation_mode: Any = None,
+) -> BlindSpot | None:
+    """Build a :class:`BlindSpot` from a slot's values, or ``None`` if inactive.
+
+    A slot is *active* only when its left AND right are both set. This is the
+    single place a ``BlindSpot`` is assembled from raw slot values — both the
+    live slot-1 derivation (``CoverConfig.blind_spots``) and the slot-2+ builder
+    (``_extra_blind_spots_from``) delegate here. ``elevation_mode`` falls back to
+    the default ("below") when absent (issue #702).
+    """
+    if left is None or right is None:
+        return None
+    return BlindSpot(
+        left=int(left),
+        right=int(right),
+        elevation=None if elevation is None else int(elevation),
+        elevation_mode=elevation_mode or DEFAULT_BLIND_SPOT_ELEVATION_MODE,
+    )
+
+
+def _extra_blind_spots_from(get: Any, *, enabled: bool) -> tuple[BlindSpot, ...]:
+    """Build blind-spot slots 2..N from an option accessor.
+
+    Slot 1 is intentionally excluded: it derives *live* from the flat
+    ``blind_spot_*`` fields on :class:`CoverConfig` (so post-construction
+    mutation of those fields is reflected). The whole feature is gated by the
+    master ``enabled`` flag.
+    """
+    if not enabled:
+        return ()
+    spots: list[BlindSpot] = []
+    for n in BLIND_SPOT_SLOT_NUMBERS:
+        if n == 1:
+            continue
+        keys = BLIND_SPOT_SLOTS[n]
+        bs = _make_blind_spot(
+            get(keys["left"]),
+            get(keys["right"]),
+            get(keys["elevation"]),
+            get(keys["elevation_mode"]),
+        )
+        if bs is not None:
+            spots.append(bs)
+    return tuple(spots)
 
 
 def _num_or(value: Any, default: float) -> float:
@@ -78,6 +133,36 @@ class CoverConfig:
     min_pos_sun_tracking: int | None = (
         None  # separate floor for sun-tracking only; None = use min_pos
     )
+    # Slot-1 elevation mode (issue #702): "below" (default) blocks low sun,
+    # "above" blocks high sun. Flat like the other slot-1 fields so the live
+    # ``blind_spots`` property reflects post-construction mutation.
+    blind_spot_elevation_mode: str = DEFAULT_BLIND_SPOT_ELEVATION_MODE
+    # Blind-spot slots 2..N (issue #701). Slot 1 is NOT stored here — it derives
+    # live from the flat ``blind_spot_*`` fields above via the ``blind_spots``
+    # property, so post-construction mutation of those fields is reflected.
+    extra_blind_spots: tuple[BlindSpot, ...] = ()
+
+    @property
+    def blind_spots(self) -> tuple[BlindSpot, ...]:
+        """Active blind-spot wedges: slot 1 (live, from flat fields) then 2..N.
+
+        Sun inside ANY of these is treated as blocked. Returns ``()`` when the
+        master enable is off or no slot is active. Computed on every access so
+        it always reflects the current flat slot-1 field values.
+        """
+        if not self.blind_spot_on:
+            return ()
+        spots: list[BlindSpot] = []
+        slot1 = _make_blind_spot(
+            self.blind_spot_left,
+            self.blind_spot_right,
+            self.blind_spot_elevation,
+            self.blind_spot_elevation_mode,
+        )
+        if slot1 is not None:
+            spots.append(slot1)
+        spots.extend(self.extra_blind_spots)
+        return tuple(spots)
 
     @classmethod
     def from_options(cls, options: dict) -> CoverConfig:
@@ -85,6 +170,7 @@ class CoverConfig:
         from .const import (
             CONF_AZIMUTH,
             CONF_BLIND_SPOT_ELEVATION,
+            CONF_BLIND_SPOT_ELEVATION_MODE,
             CONF_BLIND_SPOT_LEFT,
             CONF_BLIND_SPOT_RIGHT,
             CONF_DEFAULT_HEIGHT,
@@ -136,7 +222,13 @@ class CoverConfig:
             blind_spot_left=options.get(CONF_BLIND_SPOT_LEFT),
             blind_spot_right=options.get(CONF_BLIND_SPOT_RIGHT),
             blind_spot_elevation=options.get(CONF_BLIND_SPOT_ELEVATION),
+            blind_spot_elevation_mode=options.get(
+                CONF_BLIND_SPOT_ELEVATION_MODE, DEFAULT_BLIND_SPOT_ELEVATION_MODE
+            ),
             blind_spot_on=options.get(CONF_ENABLE_BLIND_SPOT, False),
+            extra_blind_spots=_extra_blind_spots_from(
+                options.get, enabled=options.get(CONF_ENABLE_BLIND_SPOT, False)
+            ),
             min_elevation=options.get(CONF_MIN_ELEVATION, None),
             max_elevation=options.get(CONF_MAX_ELEVATION, None),
         )
@@ -208,6 +300,46 @@ class OscillatingConfig:
 
 
 @dataclass
+class RoofWindowConfig:
+    """Configuration specific to roof / skylight windows (#212).
+
+    A roof window is a vertical-style blind travelling down-slope across
+    pitched glass. It reuses the vertical window geometry (distance, height,
+    depth, sill — carried in a sibling ``VerticalConfig``) and adds the glass
+    pitch and the along-slope roof height above the window.
+
+    ``roof_pitch`` is measured FROM HORIZONTAL: ``0`` = flat skylight,
+    ``90`` = vertical window (reproduces the vertical engine exactly).
+    ``roof_height_above`` enables the ridge occlusion gate when > 0; ``0``
+    (the default) disables it (e.g. a window sitting at the ridge).
+    """
+
+    roof_pitch: float = 40.0
+    roof_height_above: float = 0.0
+
+    @classmethod
+    def from_options(cls, options: dict) -> RoofWindowConfig:
+        """Build from a config-entry options dict, applying defaults."""
+        from .const import (
+            CONF_ROOF_HEIGHT_ABOVE,
+            CONF_ROOF_PITCH,
+            DEFAULT_ROOF_HEIGHT_ABOVE,
+            DEFAULT_ROOF_PITCH,
+        )
+
+        pitch = options.get(CONF_ROOF_PITCH)
+        height_above = options.get(CONF_ROOF_HEIGHT_ABOVE)
+        return cls(
+            roof_pitch=float(pitch) if pitch is not None else float(DEFAULT_ROOF_PITCH),
+            roof_height_above=(
+                float(height_above)
+                if height_above is not None
+                else float(DEFAULT_ROOF_HEIGHT_ABOVE)
+            ),
+        )
+
+
+@dataclass
 class TiltConfig:
     """Configuration specific to tilt/venetian blinds."""
 
@@ -230,6 +362,14 @@ class VenetianSlice:
     post_settle_hold_seconds: float
     tilt_skip_above: int
     venetian_mode: str
+    # Accumulated commanded tilt-% change that triggers a mechanical drift
+    # reset (issue #663). 0 disables. Consumed by ``DualAxisSequencer`` via a
+    # live ``get_tilt_reset_threshold`` lambda threaded through ``attach()``.
+    tilt_reset_threshold: int
+    # Direction the drift-reset drives the slats before re-sending the target
+    # (issue #686): ``open`` (default, back-compat) or ``close``. Consumed by
+    # ``DualAxisSequencer`` via a live ``get_tilt_reset_direction`` lambda.
+    tilt_reset_direction: str
     # Width (seconds) of the publish-lag suppression window anchored to the
     # cover's ``moving → settled`` transition (issue #33 Phase 5). Used by
     # ``DualAxisSequencer.is_in_suppression_with_cap`` for the tilt axis and
@@ -293,6 +433,10 @@ class WeatherSlice:
     is_raining_template_mode: str = DEFAULT_TEMPLATE_COMBINE_MODE
     is_windy_template: str | None = None
     is_windy_template_mode: str = DEFAULT_TEMPLATE_COMBINE_MODE
+    # Master on/off toggle for the whole weather override (issue #719). When
+    # False the manager ignores every configured sensor/template. Defaults OFF
+    # for new covers; pre-existing covers are migrated to True (v3.5 → v3.6).
+    enabled: bool = DEFAULT_WEATHER_ENABLED
 
 
 @dataclass(frozen=True, slots=True)
@@ -314,6 +458,15 @@ class TrackingSlice:
     # When False (default), command once and let a settle past tolerance become
     # a manual override (issue #591).
     enable_position_matching: bool = False
+    # When True, the position/tilt delta gate is also enforced for the 0 and
+    # 100 endpoints (issue #679). Default False preserves issue #629's
+    # always-send-to-0/100 guarantee.
+    enforce_delta_at_endpoints: bool = False
+    # When True (default, issue #697), a final target of 100 fires
+    # cover.open_cover and 0 fires cover.close_cover on position-capable covers
+    # instead of set_cover_position(100/0). Falls back to set_cover_position
+    # when the cover lacks open/close; never applies to a tilt-only axis.
+    endpoint_use_open_close: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,6 +476,9 @@ class ManualOverrideSlice:
     reset: bool
     duration: dict
     ignore_external: bool
+    # Input binary sensors whose off→on edge engages manual override on every
+    # cover in the instance (issue #688). Empty = feature off.
+    input_entities: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -364,6 +520,8 @@ class RuntimeConfig:
             CONF_ENABLE_POSITION_MATCHING,
             CONF_END_ENTITY,
             CONF_END_TIME,
+            CONF_ENDPOINT_USE_OPEN_CLOSE,
+            CONF_ENFORCE_DELTA_AT_ENDPOINTS,
             CONF_ENTITIES,
             CONF_INTERP_END,
             CONF_INTERP_LIST,
@@ -371,6 +529,7 @@ class RuntimeConfig:
             CONF_INTERP_START,
             CONF_MANUAL_IGNORE_EXTERNAL,
             CONF_MANUAL_OVERRIDE_DURATION,
+            CONF_MANUAL_OVERRIDE_INPUT_ENTITIES,
             CONF_MANUAL_OVERRIDE_RESET,
             CONF_MANUAL_THRESHOLD,
             CONF_MAX_COVERAGE_STEPS,
@@ -387,7 +546,10 @@ class RuntimeConfig:
             CONF_VENETIAN_BACKROTATE_PUBLISH_LAG,
             CONF_VENETIAN_MODE,
             CONF_VENETIAN_POST_SETTLE_HOLD,
+            CONF_VENETIAN_TILT_RESET_DIRECTION,
+            CONF_VENETIAN_TILT_RESET_THRESHOLD,
             CONF_VENETIAN_TILT_SKIP_ABOVE,
+            CONF_WEATHER_ENABLED,
             CONF_WEATHER_IS_RAINING_SENSOR,
             CONF_WEATHER_IS_RAINING_TEMPLATE,
             CONF_WEATHER_IS_RAINING_TEMPLATE_MODE,
@@ -404,13 +566,18 @@ class RuntimeConfig:
             CONF_WEATHER_WIND_SPEED_THRESHOLD,
             DEFAULT_DEBUG_EVENT_BUFFER_SIZE,
             DEFAULT_ENABLE_POSITION_MATCHING,
+            DEFAULT_ENDPOINT_USE_OPEN_CLOSE,
+            DEFAULT_ENFORCE_DELTA_AT_ENDPOINTS,
             DEFAULT_MAX_COVERAGE_STEPS,
             DEFAULT_MINIMIZE_MOVEMENTS,
             DEFAULT_MOTION_TIMEOUT,
             DEFAULT_VENETIAN_BACKROTATE_PUBLISH_LAG_SECONDS,
             DEFAULT_VENETIAN_MODE,
             DEFAULT_VENETIAN_POST_SETTLE_HOLD_SECONDS,
+            DEFAULT_VENETIAN_TILT_RESET_DIRECTION,
+            DEFAULT_VENETIAN_TILT_RESET_THRESHOLD,
             DEFAULT_VENETIAN_TILT_SKIP_ABOVE,
+            DEFAULT_WEATHER_ENABLED,
             DEFAULT_WEATHER_RAIN_THRESHOLD,
             DEFAULT_WEATHER_TIMEOUT,
             DEFAULT_WEATHER_WIND_DIRECTION_TOLERANCE,
@@ -443,11 +610,20 @@ class RuntimeConfig:
                 enable_position_matching=options.get(
                     CONF_ENABLE_POSITION_MATCHING, DEFAULT_ENABLE_POSITION_MATCHING
                 ),
+                enforce_delta_at_endpoints=options.get(
+                    CONF_ENFORCE_DELTA_AT_ENDPOINTS,
+                    DEFAULT_ENFORCE_DELTA_AT_ENDPOINTS,
+                ),
+                endpoint_use_open_close=options.get(
+                    CONF_ENDPOINT_USE_OPEN_CLOSE,
+                    DEFAULT_ENDPOINT_USE_OPEN_CLOSE,
+                ),
             ),
             manual_override=ManualOverrideSlice(
                 reset=options.get(CONF_MANUAL_OVERRIDE_RESET, False),
                 duration=options.get(CONF_MANUAL_OVERRIDE_DURATION) or {"hours": 2},
                 ignore_external=options.get(CONF_MANUAL_IGNORE_EXTERNAL, False),
+                input_entities=options.get(CONF_MANUAL_OVERRIDE_INPUT_ENTITIES, []),
             ),
             time_window=TimeWindowSlice(
                 start_time=options.get(CONF_START_TIME),
@@ -510,6 +686,7 @@ class RuntimeConfig:
                 timeout_seconds=options.get(
                     CONF_WEATHER_TIMEOUT, DEFAULT_WEATHER_TIMEOUT
                 ),
+                enabled=options.get(CONF_WEATHER_ENABLED, DEFAULT_WEATHER_ENABLED),
             ),
             venetian=VenetianSlice(
                 post_settle_hold_seconds=options.get(
@@ -520,6 +697,14 @@ class RuntimeConfig:
                     CONF_VENETIAN_TILT_SKIP_ABOVE, DEFAULT_VENETIAN_TILT_SKIP_ABOVE
                 ),
                 venetian_mode=options.get(CONF_VENETIAN_MODE, DEFAULT_VENETIAN_MODE),
+                tilt_reset_threshold=options.get(
+                    CONF_VENETIAN_TILT_RESET_THRESHOLD,
+                    DEFAULT_VENETIAN_TILT_RESET_THRESHOLD,
+                ),
+                tilt_reset_direction=options.get(
+                    CONF_VENETIAN_TILT_RESET_DIRECTION,
+                    DEFAULT_VENETIAN_TILT_RESET_DIRECTION,
+                ),
                 backrotate_publish_lag_seconds=options.get(
                     CONF_VENETIAN_BACKROTATE_PUBLISH_LAG,
                     DEFAULT_VENETIAN_BACKROTATE_PUBLISH_LAG_SECONDS,

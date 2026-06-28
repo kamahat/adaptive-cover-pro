@@ -17,12 +17,14 @@ from homeassistant.helpers.event import (
 from homeassistant.helpers.template import Template
 
 from .const import (
+    CONF_BUILDING_PROFILE_ID,
     CONF_CLOUD_COVERAGE_ENTITY,
     CONF_DAYTIME_GATE_SENSORS,
     CONF_DAYTIME_GATE_TEMPLATE,
     CONF_DEVICE_ID,
     CONF_ENABLE_MY_POSITION_ENTITIES,
     CONF_ENABLE_POSITION_MATCHING,
+    CONF_ENABLE_SUN_TRACKING,
     CONF_END_ENTITY,
     CONF_ENTITIES,
     CONF_START_ENTITY,
@@ -34,7 +36,9 @@ from .const import (
     CONF_MOTION_TEMPLATE,
     CONF_OUTSIDETEMP_ENTITY,
     CONF_PRESENCE_ENTITY,
+    CONF_SENSOR_TYPE,
     CONF_TEMP_ENTITY,
+    CONF_WEATHER_ENABLED,
     CONF_WEATHER_ENTITY,
     CONF_WEATHER_IS_RAINING_SENSOR,
     CONF_WEATHER_IS_RAINING_TEMPLATE,
@@ -51,11 +55,14 @@ from .const import (
     _LOGGER,
 )
 from .coordinator import AdaptiveConfigEntry, AdaptiveDataUpdateCoordinator
+from .cover_types import get_policy
 from .helpers import (
     copy_legacy_slot_sensors_to_list,
     custom_position_slot_sensors,
+    manual_override_input_entities,
     motion_entities,
 )
+from .profile_link import _copy_profile_to_cover, _covers_linked_to
 from .templates import is_template_string
 from .migrations import (
     async_prune_legacy_entities,
@@ -120,6 +127,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: AdaptiveConfigEntry) -> 
 
     await async_setup_services(hass)
 
+    # Virtual entry types (the Building Profile) hold only shared building-level
+    # sensor IDs — they register no platforms and build no coordinator. Filter on
+    # the policy capability, never on the cover-type string, so the regression
+    # guard stays unambiguous. Register a propagation update-listener so a change
+    # to the profile reaches its linked covers, then return without forwarding
+    # platforms.
+    if not get_policy(entry.data[CONF_SENSOR_TYPE]).controls_cover:
+        entry.async_on_unload(entry.add_update_listener(_async_profile_propagate))
+        return True
+
     coordinator = AdaptiveDataUpdateCoordinator(hass)
     # Detect reload vs. cold HA boot so first-refresh can suppress non-safety
     # positioning commands when the user just saved options mid-day.
@@ -131,6 +148,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: AdaptiveConfigEntry) -> 
     _start_time_entity = entry.options.get(CONF_START_ENTITY)
     _end_time_entity = entry.options.get(CONF_END_ENTITY)
     _motion_sensors = motion_entities(entry.options)
+    _manual_override_input_entities = manual_override_input_entities(entry.options)
     _cloud_coverage_entity = entry.options.get(CONF_CLOUD_COVERAGE_ENTITY)
     _lux_entity = entry.options.get(CONF_LUX_ENTITY)
     _irradiance_entity = entry.options.get(CONF_IRRADIANCE_ENTITY)
@@ -195,6 +213,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: AdaptiveConfigEntry) -> 
                 hass,
                 _motion_sensors,
                 coordinator.async_check_motion_state_change,
+            )
+        )
+
+    # Register input-sensor manual-override listeners separately (issue #688):
+    # an off→on edge on one of these (e.g. a Shelly wall-switch input) engages
+    # manual override on every cover in the instance. Dedicated handler, not the
+    # motion debounce path.
+    if _manual_override_input_entities:
+        entry.async_on_unload(
+            async_track_state_change_event(
+                hass,
+                _manual_override_input_entities,
+                coordinator.async_check_manual_override_input_change,
             )
         )
 
@@ -339,10 +370,35 @@ async def async_setup_entry(hass: HomeAssistant, entry: AdaptiveConfigEntry) -> 
 
 async def async_unload_entry(hass: HomeAssistant, entry: AdaptiveConfigEntry) -> bool:
     """Unload a config entry."""
+    # Virtual entry types (Building Profile, controls_cover == False) forwarded
+    # no platforms in async_setup_entry, so unloading platforms would raise
+    # "Config entry was never loaded!". Mirror the setup short-circuit.
+    if not get_policy(entry.data[CONF_SENSOR_TYPE]).controls_cover:
+        await async_unload_services(hass)
+        return True
     if unload_ok := await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
         await async_unload_services(hass)
-
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Clean up after a config entry is removed.
+
+    Q5 active sweep: when a deleted entry is a Building Profile (virtual,
+    ``controls_cover == False``), strip the dangling ``CONF_BUILDING_PROFILE_ID``
+    from every cover still linked to it so their profile pickers re-expose on the
+    next options view. The last-copied sensor IDs are deliberately left in place
+    so the covers keep functioning. Removing a real cover does nothing here.
+    """
+    if get_policy(entry.data.get(CONF_SENSOR_TYPE)).controls_cover:
+        return
+    for cover in _covers_linked_to(hass, entry):
+        hass.config_entries.async_update_entry(
+            cover,
+            options={
+                k: v for k, v in cover.options.items() if k != CONF_BUILDING_PROFILE_ID
+            },
+        )
 
 
 # Fields that moved from centimetres to metres in config-entry version 2.
@@ -459,12 +515,76 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         new_options.setdefault(CONF_ENABLE_POSITION_MATCHING, True)
         new_minor = 4
 
+    # v3.4 → v3.5: previously seeded the now-removed weather-retraction
+    # visibility toggle (CONF_SHOW_WEATHER_RETRACTION). The toggle is gone (the
+    # retraction pickers are always shown), so this is a no-op minor bump kept
+    # only to advance entries sitting at minor 4 to 5 — without it they would
+    # stay below MINOR_VERSION and re-trigger migration every restart.
+    if new_version == 3 and new_minor < 5:
+        new_minor = 5
+
+    # v3.5 → v3.6: enable the weather override by default for every pre-existing
+    # entry so upgrading covers keep firing weather safety overrides (issue
+    # #719). New installs default OFF via the config-flow schema. Additive +
+    # rollback-safe: the key is only filled when absent.
+    if new_version == 3 and new_minor < 6:
+        new_options.setdefault(CONF_WEATHER_ENABLED, True)
+        new_minor = 6
+
     hass.config_entries.async_update_entry(
         entry, options=new_options, version=new_version, minor_version=new_minor
     )
     return True
 
 
+# Option keys that a live coordinator can apply without a full reload, mapped
+# to the coordinator coroutine that applies them. When *every* changed option
+# key is in this map the listener applies them in place (rebuilds the pipeline,
+# no reload); any other changed key forces a full reload so all listeners and
+# pipeline handlers pick up the new values. This is the single rebuild path —
+# the option-backed switches only persist the value and rely on the listener.
+_RUNTIME_APPLICABLE_OPTIONS: dict[str, str] = {
+    CONF_ENABLE_SUN_TRACKING: "async_apply_sun_tracking_update",
+}
+
+
+async def _async_profile_propagate(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Propagate a Building Profile's sensor changes to its linked covers.
+
+    Registered as the update listener for virtual ``building_profile`` entries
+    (which build no coordinator). Re-copies the profile's non-empty shared-sensor
+    subset into every linked cover via the shared copier — the ``async_update_entry``
+    it performs fires each cover's self-reload listener, so linked covers pick up
+    the changed sensor IDs immediately.
+    """
+    # Guard: only profiles (virtual, controls_cover == False) propagate. A real
+    # cover reaching here would be a wiring bug — its own listener handles reloads.
+    if get_policy(entry.data.get(CONF_SENSOR_TYPE)).controls_cover:
+        return
+    for cover in _covers_linked_to(hass, entry):
+        _copy_profile_to_cover(hass, entry, cover)
+
+
 async def _async_update_listener(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Handle options update."""
+    coordinator = entry.runtime_data
+    previous_options = coordinator._cached_options
+    if previous_options is not None:
+        current_options = dict(entry.options)
+        previous_options = dict(previous_options)
+        changed_keys = {
+            key
+            for key in current_options.keys() | previous_options.keys()
+            if current_options.get(key) != previous_options.get(key)
+        }
+
+        if not changed_keys:
+            return
+        if changed_keys.issubset(_RUNTIME_APPLICABLE_OPTIONS):
+            for apply_name in {
+                _RUNTIME_APPLICABLE_OPTIONS[key] for key in changed_keys
+            }:
+                await getattr(coordinator, apply_name)()
+            return
+
     await hass.config_entries.async_reload(entry.entry_id)

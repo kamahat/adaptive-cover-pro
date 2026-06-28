@@ -19,6 +19,8 @@ if TYPE_CHECKING:
 
 from ..const import (
     BLANK_TIME,
+    BLIND_SPOT_ELEVATION_MODES,
+    BLIND_SPOT_SLOTS,
     CONF_ARM_LENGTH,
     CONF_AWNING_ANGLE,
     CONF_AWNING_HOUSING_OFFSET,
@@ -26,9 +28,6 @@ from ..const import (
     CONF_AWNING_MIN_ANGLE,
     CONF_AWNING_PIVOT_OFFSET,
     CONF_AZIMUTH,
-    CONF_BLIND_SPOT_ELEVATION,
-    CONF_BLIND_SPOT_LEFT,
-    CONF_BLIND_SPOT_RIGHT,
     CONF_CLIMATE_MODE,
     CONF_CLIMATE_PRIORITY,
     CONF_CLOUD_COVERAGE_ENTITY,
@@ -46,6 +45,7 @@ from ..const import (
     CONF_ENABLE_MIN_POSITION,
     CONF_ENABLE_POSITION_MATCHING,
     CONF_ENABLE_SUN_TRACKING,
+    CONF_ENDPOINT_USE_OPEN_CLOSE,
     CONF_END_ENTITY,
     CONF_END_OF_WINDOW_POS,
     CONF_END_TIME,
@@ -100,6 +100,8 @@ from ..const import (
     CONF_PRESENCE_TEMPLATE,
     CONF_PRESENCE_TEMPLATE_MODE,
     CONF_RETURN_SUNSET,
+    CONF_ROOF_HEIGHT_ABOVE,
+    CONF_ROOF_PITCH,
     CONF_SILL_HEIGHT,
     CONF_SOLAR_PRIORITY,
     CONF_START_ENTITY,
@@ -122,9 +124,13 @@ from ..const import (
     CONF_VENETIAN_BACKROTATE_PUBLISH_LAG,
     CONF_VENETIAN_MODE,
     CONF_VENETIAN_POST_SETTLE_HOLD,
+    CONF_VENETIAN_TILT_RESET_DIRECTION,
+    CONF_VENETIAN_TILT_RESET_THRESHOLD,
     CONF_VENETIAN_TILT_SKIP_ABOVE,
     VENETIAN_MODES,
+    VENETIAN_TILT_RESET_DIRECTIONS,
     TemplateCombineMode,
+    CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR,
     CONF_TRANSPARENT_BLIND,
     CONF_WEATHER_BYPASS_AUTO_CONTROL,
     CONF_WEATHER_ENTITY,
@@ -302,6 +308,9 @@ FIELD_VALIDATORS: dict[str, Any] = {
     CONF_AWNING_MAX_ANGLE: _range(CONF_AWNING_MAX_ANGLE),
     CONF_AWNING_HOUSING_OFFSET: _range(CONF_AWNING_HOUSING_OFFSET),
     CONF_AWNING_PIVOT_OFFSET: _range(CONF_AWNING_PIVOT_OFFSET),
+    # Geometry — roof / skylight window (#212)
+    CONF_ROOF_PITCH: _range(CONF_ROOF_PITCH),
+    CONF_ROOF_HEIGHT_ABOVE: _range(CONF_ROOF_HEIGHT_ABOVE),
     # Geometry — tilt/venetian
     CONF_TILT_DEPTH: _range(CONF_TILT_DEPTH),
     CONF_TILT_DISTANCE: _range(CONF_TILT_DISTANCE),
@@ -311,6 +320,8 @@ FIELD_VALIDATORS: dict[str, Any] = {
     # Venetian-specific options
     CONF_VENETIAN_POST_SETTLE_HOLD: _range(CONF_VENETIAN_POST_SETTLE_HOLD),
     CONF_VENETIAN_TILT_SKIP_ABOVE: _range(CONF_VENETIAN_TILT_SKIP_ABOVE),
+    CONF_VENETIAN_TILT_RESET_THRESHOLD: _range(CONF_VENETIAN_TILT_RESET_THRESHOLD),
+    CONF_VENETIAN_TILT_RESET_DIRECTION: _select_v(*VENETIAN_TILT_RESET_DIRECTIONS),
     CONF_VENETIAN_BACKROTATE_PUBLISH_LAG: _range(CONF_VENETIAN_BACKROTATE_PUBLISH_LAG),
     CONF_VENETIAN_MODE: _select_v(*VENETIAN_MODES),
     # Sun tracking
@@ -323,17 +334,27 @@ FIELD_VALIDATORS: dict[str, Any] = {
     CONF_DISTANCE: _range(CONF_DISTANCE),
     CONF_MINIMIZE_MOVEMENTS: _bool_v(),
     CONF_MAX_COVERAGE_STEPS: _range(CONF_MAX_COVERAGE_STEPS),
-    # Blind spot
+    # Blind spot — master enable plus per-slot left/right/elevation ranges
+    # (issue #701). Slot 1 reuses the legacy unsuffixed keys; slots 2/3 are
+    # suffixed. Every slot pulls its range from OPTION_RANGES.
     CONF_ENABLE_BLIND_SPOT: _bool_v(),
-    CONF_BLIND_SPOT_LEFT: _range(CONF_BLIND_SPOT_LEFT),
-    CONF_BLIND_SPOT_RIGHT: _range(CONF_BLIND_SPOT_RIGHT),
-    CONF_BLIND_SPOT_ELEVATION: _range(CONF_BLIND_SPOT_ELEVATION),
+    **{
+        keys[sub]: _range(keys[sub])
+        for keys in BLIND_SPOT_SLOTS.values()
+        for sub in ("left", "right", "elevation")
+    },
+    # Per-slot elevation mode is a below/above select, not a numeric range.
+    **{
+        keys["elevation_mode"]: _select_v(*BLIND_SPOT_ELEVATION_MODES)
+        for keys in BLIND_SPOT_SLOTS.values()
+    },
     # Position limits & sunset/sunrise
     CONF_DEFAULT_HEIGHT: _range(CONF_DEFAULT_HEIGHT),
     CONF_MAX_POSITION: _range(CONF_MAX_POSITION),
     CONF_ENABLE_MAX_POSITION: _bool_v(),
     CONF_MIN_POSITION: _range(CONF_MIN_POSITION),
     CONF_ENABLE_MIN_POSITION: _bool_v(),
+    CONF_ENDPOINT_USE_OPEN_CLOSE: _bool_v(),
     CONF_ENABLE_POSITION_MATCHING: _bool_v(),
     CONF_MIN_POSITION_SUN_TRACKING: _range(CONF_MIN_POSITION_SUN_TRACKING),
     CONF_SUNSET_POS: _range(CONF_SUNSET_POS),
@@ -450,6 +471,7 @@ FIELD_VALIDATORS: dict[str, Any] = {
     CONF_PRESENCE_TEMPLATE_MODE: _select_v(*[m.value for m in TemplateCombineMode]),
     CONF_TRANSPARENT_BLIND: _bool_v(),
     CONF_WINTER_CLOSE_INSULATION: _bool_v(),
+    CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR: _bool_v(),
     # Weather safety
     CONF_WEATHER_BYPASS_AUTO_CONTROL: _bool_v(),
     CONF_WEATHER_WIND_SPEED_SENSOR: _entity_v(),
@@ -580,6 +602,7 @@ _SECTION_CLIMATE = frozenset(
         CONF_PRESENCE_TEMPLATE_MODE,
         CONF_TRANSPARENT_BLIND,
         CONF_WINTER_CLOSE_INSULATION,
+        CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR,
     }
 )
 
@@ -620,11 +643,11 @@ _SECTION_SUN_TRACKING = frozenset(
 )
 
 _SECTION_BLIND_SPOT = frozenset(
-    {
-        CONF_ENABLE_BLIND_SPOT,
-        CONF_BLIND_SPOT_LEFT,
-        CONF_BLIND_SPOT_RIGHT,
-        CONF_BLIND_SPOT_ELEVATION,
+    {CONF_ENABLE_BLIND_SPOT}
+    | {
+        keys[sub]
+        for keys in BLIND_SPOT_SLOTS.values()
+        for sub in ("left", "right", "elevation", "elevation_mode")
     }
 )
 
@@ -656,11 +679,13 @@ _SECTION_GEOMETRY_OSCILLATING = frozenset(
         CONF_AWNING_PIVOT_OFFSET,
     }
 )
+_SECTION_GEOMETRY_ROOF = frozenset({CONF_ROOF_PITCH, CONF_ROOF_HEIGHT_ABOVE})
 _SECTION_GEOMETRY_ALL = (
     _SECTION_GEOMETRY_VERTICAL
     | _SECTION_GEOMETRY_AWNING
     | _SECTION_GEOMETRY_TILT
     | _SECTION_GEOMETRY_OSCILLATING
+    | _SECTION_GEOMETRY_ROOF
 )
 
 _SECTION_VENETIAN = frozenset(
@@ -757,14 +782,18 @@ def _cross_field_validate(
     # Remove keys explicitly cleared (value=None) from the merged view
     merged_active = {k: v for k, v in merged.items() if v is not None}
 
-    # Blind spot ordering
-    if CONF_BLIND_SPOT_LEFT in patch or CONF_BLIND_SPOT_RIGHT in patch:
-        left = merged_active.get(CONF_BLIND_SPOT_LEFT)
-        right = merged_active.get(CONF_BLIND_SPOT_RIGHT)
-        if left is not None and right is not None and right <= left:
-            raise ServiceValidationError(
-                f"blind_spot_right ({right}) must be greater than blind_spot_left ({left})."
-            )
+    # Blind spot ordering — one check per slot (issue #701). Slot 1 uses the
+    # legacy unsuffixed keys; slots 2/3 are suffixed.
+    for keys in BLIND_SPOT_SLOTS.values():
+        left_key = keys["left"]
+        right_key = keys["right"]
+        if left_key in patch or right_key in patch:
+            left = merged_active.get(left_key)
+            right = merged_active.get(right_key)
+            if left is not None and right is not None and right <= left:
+                raise ServiceValidationError(
+                    f"{right_key} ({right}) must be greater than {left_key} ({left})."
+                )
 
     # Temperature ordering (skipped when either side is a template — #577)
     if CONF_TEMP_LOW in patch or CONF_TEMP_HIGH in patch:
@@ -942,7 +971,7 @@ def _make_section_handler(hass: HomeAssistant, allowed_keys: frozenset[str]):
 
 
 async def _handle_set_custom_position(hass: HomeAssistant, call: ServiceCall) -> None:
-    """Handle set_custom_position — routes slot 1–5 to the right option keys."""
+    """Handle set_custom_position — routes slot 1–10 to the right option keys."""
     from . import _resolve_targets  # noqa: PLC0415
 
     slot = call.data.get("slot")

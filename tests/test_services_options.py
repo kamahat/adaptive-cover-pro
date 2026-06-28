@@ -21,6 +21,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.adaptive_cover_pro.const import (
     CONF_AZIMUTH,
+    CONF_BLIND_SPOT_ELEVATION,
     CONF_BLIND_SPOT_LEFT,
     CONF_BLIND_SPOT_RIGHT,
     CONF_CLIMATE_MODE,
@@ -58,6 +59,7 @@ from custom_components.adaptive_cover_pro.const import (
     CONF_SENSOR_TYPE,
     CONF_START_ENTITY,
     CONF_START_TIME,
+    CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR,
     CONF_SUNRISE_OFFSET,
     CONF_SUNSET_OFFSET,
     CONF_SUNSET_POS,
@@ -80,6 +82,7 @@ from custom_components.adaptive_cover_pro.services.options_service import (
     FIELD_VALIDATORS,
     IDENTITY_KEYS,
     OPTIONS_SERVICE_NAMES,
+    _SECTION_CLIMATE,
     _cross_field_validate,
     apply_options_patch,
     validate_options_patch,
@@ -268,6 +271,24 @@ class TestFieldValidators:
         with pytest.raises(Exception):
             FIELD_VALIDATORS["tilt_mode"]("mode3")
 
+    def test_blind_spot_elevation_mode_select(self):
+        """Every slot's elevation-mode validator accepts below/above/None (#702)."""
+        from custom_components.adaptive_cover_pro.const import BLIND_SPOT_SLOTS
+
+        for keys in BLIND_SPOT_SLOTS.values():
+            key = keys["elevation_mode"]
+            FIELD_VALIDATORS[key]("below")
+            FIELD_VALIDATORS[key]("above")
+            FIELD_VALIDATORS[key](None)
+
+    def test_blind_spot_elevation_mode_rejects_invalid(self):
+        """An out-of-vocabulary elevation mode is rejected (#702)."""
+        from custom_components.adaptive_cover_pro.const import BLIND_SPOT_SLOTS
+
+        for keys in BLIND_SPOT_SLOTS.values():
+            with pytest.raises(Exception):
+                FIELD_VALIDATORS[keys["elevation_mode"]]("sideways")
+
     def test_motion_template_mode_select(self):
         FIELD_VALIDATORS[CONF_MOTION_TEMPLATE_MODE]("or")
         FIELD_VALIDATORS[CONF_MOTION_TEMPLATE_MODE]("and")
@@ -390,6 +411,37 @@ class TestCrossFieldValidate:
             {CONF_BLIND_SPOT_LEFT: 10, CONF_BLIND_SPOT_RIGHT: 30},
             {},
         )
+
+    def test_blind_spot_slot2_right_must_exceed_left(self):
+        with pytest.raises(ServiceValidationError, match="blind_spot_right_2"):
+            _cross_field_validate(
+                {"blind_spot_left_2": 30, "blind_spot_right_2": 20},
+                {},
+            )
+
+    def test_blind_spot_slot3_valid(self):
+        _cross_field_validate(
+            {"blind_spot_left_3": 10, "blind_spot_right_3": 30},
+            {},
+        )
+
+    def test_blind_spot_slot2_ranges_in_option_ranges(self):
+        from custom_components.adaptive_cover_pro.const import OPTION_RANGES
+
+        assert OPTION_RANGES["blind_spot_left_2"] == OPTION_RANGES[CONF_BLIND_SPOT_LEFT]
+        assert (
+            OPTION_RANGES["blind_spot_right_3"] == OPTION_RANGES[CONF_BLIND_SPOT_RIGHT]
+        )
+        assert (
+            OPTION_RANGES["blind_spot_elevation_2"]
+            == OPTION_RANGES[CONF_BLIND_SPOT_ELEVATION]
+        )
+
+    def test_blind_spot_slot2_validator_rejects_out_of_range(self):
+        # Range validators raise voluptuous errors (see test_numeric_out_of_range_raises).
+        with pytest.raises(Exception):
+            FIELD_VALIDATORS["blind_spot_left_2"](400)
+        FIELD_VALIDATORS["blind_spot_left_2"](100)  # in range, should not raise
 
     def test_temp_low_must_be_less_than_high(self):
         with pytest.raises(ServiceValidationError, match="temp_low"):
@@ -901,7 +953,7 @@ class TestSetCustomPosition:
             await _call(
                 hass,
                 "set_custom_position",
-                {"slot": 6, "sensor": "binary_sensor.x", "position": 50},
+                {"slot": 11, "sensor": "binary_sensor.x", "position": 50},
             )
 
     async def test_sensor_without_position_raises(self, hass: HomeAssistant):
@@ -1067,6 +1119,31 @@ class TestSetClimate:
         new_opts = mock_update.call_args[1]["options"]
         assert new_opts[CONF_TEMP_LOW] == 18
         assert new_opts[CONF_TEMP_HIGH] == 26
+
+    async def test_summer_close_bypass_sun_floor_round_trip(self, hass: HomeAssistant):
+        """set_climate round-trips summer_close_bypass_sun_floor (issue #689)."""
+        await _setup(hass, entry_id="cl_bypass_01")
+        with (
+            patch.object(hass.config_entries, "async_update_entry") as mock_update,
+            patch.object(hass.config_entries, "async_reload", new_callable=AsyncMock),
+        ):
+            await _call(
+                hass,
+                "set_climate",
+                {CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR: True},
+            )
+
+        new_opts = mock_update.call_args[1]["options"]
+        assert new_opts[CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR] is True
+
+    def test_summer_close_bypass_sun_floor_validator_and_section(self):
+        """The bypass flag is a bool validator and lives in the climate section (#689)."""
+        assert CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR in FIELD_VALIDATORS
+        # bool validator accepts bools and None, rejects non-bools.
+        FIELD_VALIDATORS[CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR](True)
+        FIELD_VALIDATORS[CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR](False)
+        FIELD_VALIDATORS[CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR](None)
+        assert CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR in _SECTION_CLIMATE
 
 
 class TestSetWeatherSafety:

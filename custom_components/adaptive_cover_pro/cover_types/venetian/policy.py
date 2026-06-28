@@ -18,7 +18,11 @@ from dataclasses import replace
 from typing import TYPE_CHECKING, Any, ClassVar
 
 import voluptuous as vol
-from homeassistant.const import SERVICE_SET_COVER_POSITION
+from homeassistant.const import (
+    SERVICE_CLOSE_COVER,
+    SERVICE_OPEN_COVER,
+    SERVICE_SET_COVER_POSITION,
+)
 from homeassistant.helpers import selector
 
 from ...const import (
@@ -30,6 +34,8 @@ from ...const import (
     CONF_VENETIAN_BACKROTATE_PUBLISH_LAG,
     CONF_VENETIAN_MODE,
     CONF_VENETIAN_POST_SETTLE_HOLD,
+    CONF_VENETIAN_TILT_RESET_DIRECTION,
+    CONF_VENETIAN_TILT_RESET_THRESHOLD,
     CONF_VENETIAN_TILT_SKIP_ABOVE,
     ControlMethod,
     DEFAULT_MAX_COVERAGE_STEPS,
@@ -39,16 +45,22 @@ from ...const import (
     DEFAULT_VENETIAN_BACKROTATE_PUBLISH_LAG_SECONDS,
     DEFAULT_VENETIAN_MODE,
     DEFAULT_VENETIAN_POST_SETTLE_HOLD_SECONDS,
+    DEFAULT_VENETIAN_TILT_RESET_DIRECTION,
+    DEFAULT_VENETIAN_TILT_RESET_THRESHOLD,
     DEFAULT_VENETIAN_TILT_SKIP_ABOVE,
     MAX_VENETIAN_BACKROTATE_PUBLISH_LAG,
+    MAX_VENETIAN_TILT_RESET_THRESHOLD,
     MAX_VENETIAN_TILT_SKIP_ABOVE,
     MIN_VENETIAN_BACKROTATE_PUBLISH_LAG,
+    MIN_VENETIAN_TILT_RESET_THRESHOLD,
     MIN_VENETIAN_TILT_SKIP_ABOVE,
     POSITION_CLOSED,
     POSITION_OPEN,
+    TRACE_KEY_TILT,
     VENETIAN_MODE_POSITION_AND_TILT,
     VENETIAN_MODE_TILT_ONLY,
     VENETIAN_MODES,
+    VENETIAN_TILT_RESET_DIRECTIONS,
 )
 from ...engine.covers import AdaptiveVerticalCover, VenetianCoverCalculation
 from ...managers.manual_override import SecondaryAxisCheck
@@ -75,6 +87,16 @@ if TYPE_CHECKING:
     from ...engine.covers import AdaptiveGeneralCover
     from ...pipeline.types import PipelineResult
     from ...services.configuration_service import ConfigurationService
+
+
+# Position-axis services the dual-axis sequencer must treat as a carriage move.
+# The endpoint open/close substitution (issue #697) routes a target of 100 to
+# ``open_cover`` and 0 to ``close_cover``; both drive the carriage to an
+# endpoint exactly like ``set_cover_position`` does, so the tilt-first /
+# post-settle tilt sequence must still run for them.
+_POSITION_AXIS_SERVICES = frozenset(
+    {SERVICE_SET_COVER_POSITION, SERVICE_OPEN_COVER, SERVICE_CLOSE_COVER}
+)
 
 
 # Re-exported for callers that want the unit-independent venetian-only keys.
@@ -113,6 +135,20 @@ def _venetian_extras_schema() -> dict:
                 min=MIN_VENETIAN_TILT_SKIP_ABOVE, max=MAX_VENETIAN_TILT_SKIP_ABOVE
             ),
         ),
+        vol.Optional(
+            CONF_VENETIAN_TILT_RESET_THRESHOLD,
+            default=DEFAULT_VENETIAN_TILT_RESET_THRESHOLD,
+        ): vol.All(
+            vol.Coerce(int),
+            vol.Range(
+                min=MIN_VENETIAN_TILT_RESET_THRESHOLD,
+                max=MAX_VENETIAN_TILT_RESET_THRESHOLD,
+            ),
+        ),
+        vol.Optional(
+            CONF_VENETIAN_TILT_RESET_DIRECTION,
+            default=DEFAULT_VENETIAN_TILT_RESET_DIRECTION,
+        ): vol.In(VENETIAN_TILT_RESET_DIRECTIONS),
         vol.Optional(CONF_VENETIAN_MODE, default=DEFAULT_VENETIAN_MODE): vol.In(
             VENETIAN_MODES
         ),
@@ -291,6 +327,25 @@ class VenetianPolicy(CoverTypePolicy, register=True):
         backrotate_line = [
             L["geometry.venetian.backrotate_lag"].format(lag=round(lag, 1))
         ]
+        # Drift-reset is opt-in: render the line only when a non-zero threshold
+        # is configured (0 disables the feature entirely).
+        reset_threshold = config.get(
+            CONF_VENETIAN_TILT_RESET_THRESHOLD,
+            DEFAULT_VENETIAN_TILT_RESET_THRESHOLD,
+        )
+        reset_direction = config.get(
+            CONF_VENETIAN_TILT_RESET_DIRECTION,
+            DEFAULT_VENETIAN_TILT_RESET_DIRECTION,
+        )
+        drift_reset_line = (
+            [
+                L["geometry.venetian.drift_reset"].format(
+                    threshold=reset_threshold, direction=reset_direction
+                )
+            ]
+            if reset_threshold
+            else []
+        )
         return (
             window_dimensions_lines(config, labels)
             + slat_line
@@ -301,6 +356,7 @@ class VenetianPolicy(CoverTypePolicy, register=True):
             + max_tilt_line
             + post_settle_line
             + backrotate_line
+            + drift_reset_line
         )
 
     def cover_capability_warnings(self, known: dict[str, dict]) -> list[str]:
@@ -453,6 +509,17 @@ class VenetianPolicy(CoverTypePolicy, register=True):
             logger=logger,
         )
         tilt = venetian_calc.tilt_for_position(result.position)
+        # Issue #682: merge the (otherwise transient) tilt engine's raw trace into
+        # the position engine's _last_calc_details under a `tilt` sub-key so the
+        # live solar_calculation sensor and the diagnostics download surface BOTH
+        # axes. Guarded: only when the position engine recorded a dict trace and
+        # the tilt engine produced one (this branch is the non-suppressed path).
+        tilt_trace = getattr(
+            venetian_calc._tilt, "_last_calc_details", None
+        )  # noqa: SLF001
+        cover_trace = getattr(cover, "_last_calc_details", None)
+        if isinstance(cover_trace, dict) and tilt_trace is not None:
+            cover_trace[TRACE_KEY_TILT] = tilt_trace
         # Movement minimization: quantize the slat tilt into the same number of
         # discrete coverage levels as the carriage position (which the solar
         # branch already quantized). The tilt axis closes at 0%, so full coverage
@@ -518,6 +585,9 @@ class VenetianPolicy(CoverTypePolicy, register=True):
             event_buffer=kwargs.get("event_buffer"),
             invert_tilt=kwargs.get("invert_tilt"),
             get_min_change=kwargs.get("get_min_change"),
+            get_enforce_delta_at_endpoints=kwargs.get("get_enforce_delta_at_endpoints"),
+            get_tilt_reset_threshold=kwargs.get("get_tilt_reset_threshold"),
+            get_tilt_reset_direction=kwargs.get("get_tilt_reset_direction"),
             post_settle_hold_seconds=kwargs.get(
                 "post_settle_hold_seconds", DEFAULT_VENETIAN_POST_SETTLE_HOLD_SECONDS
             ),
@@ -623,6 +693,35 @@ class VenetianPolicy(CoverTypePolicy, register=True):
             reason=reason,
         )
 
+    async def apply_user_tilt(
+        self,
+        entity_id: str,
+        *,
+        tilt: int,
+        reason: str,
+    ) -> bool:
+        """Drive a user-requested tilt on the tilt axis ONLY (issue #684).
+
+        A venetian is dual-axis: the proxy/user must be able to set slat tilt
+        without moving the carriage. We read the *current* carriage position
+        purely as a reference for the sequencer's pairing/rebase logic — it is
+        never commanded — and force the tilt send so a user re-requesting the
+        current angle still fires. ``update_tilt_only`` →
+        ``_send_tilt_command`` applies ``_to_wire`` internally, so inverse-tilt
+        is handled for free.
+        """
+        if self._sequencer is None:
+            return False
+        current_position = self._sequencer._get_current_position(entity_id)
+        await self._sequencer.update_tilt_only(
+            entity_id,
+            tilt_target=tilt,
+            current_position=current_position,
+            reason=reason,
+            force=True,
+        )
+        return True
+
     def _is_in_tilt_command_grace(self, entity_id: str, delta: float = 0.0) -> bool:
         """Return True when the entity is inside the command-grace window.
 
@@ -690,7 +789,7 @@ class VenetianPolicy(CoverTypePolicy, register=True):
         to ``_send_tilt_command``, so total service-call count for an
         opening transition remains 2 (tilt + position).
         """
-        if service != SERVICE_SET_COVER_POSITION:
+        if service not in _POSITION_AXIS_SERVICES:
             return
         seq = self._sequencer
         if seq is None:
@@ -732,8 +831,10 @@ class VenetianPolicy(CoverTypePolicy, register=True):
         slats on a fully-retracted blind (issue #33).
         """
         # Only chain a tilt after the position axis fired — direct tilt
-        # commands and open/close-only paths skip the sequence entirely.
-        if service != SERVICE_SET_COVER_POSITION:
+        # commands skip the sequence entirely. The endpoint open_cover /
+        # close_cover substitution (issue #697) counts as a position-axis
+        # move, so it still drives the dual-axis sequence.
+        if service not in _POSITION_AXIS_SERVICES:
             return
         seq = self._sequencer
         if seq is None:

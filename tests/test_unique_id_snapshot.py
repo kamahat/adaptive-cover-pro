@@ -84,6 +84,7 @@ EXPECTED_UNIQUE_ID_SUFFIXES = sorted(
         "Start Sun",
         "End Sun",
         "sun_position",
+        "solar_calculation",
         "control_status",
         "decision_trace",
         "last_skipped_action",
@@ -96,6 +97,7 @@ EXPECTED_UNIQUE_ID_SUFFIXES = sorted(
         # --- switch platform (uses display switch_name, not translation key) ---
         "Integration Enabled",
         "Automatic Control",
+        "Sun Tracking",
         "Manual Override",  # translation key is "manual_toggle"; unique_id keeps display name
         "Climate Mode",
         "Outside Temperature",

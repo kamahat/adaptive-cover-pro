@@ -22,11 +22,15 @@ from homeassistant.helpers import selector
 
 from .const import (
     BLANK_TIME,
+    BLIND_SPOT_ELEV_MODE_ABOVE,
+    BLIND_SPOT_SLOTS,
+    DEFAULT_BLIND_SPOT_ELEVATION_MODE,
+    LIGHT_CLOUD_SENSOR_KEYS,
+    WEATHER_OVERRIDE_SENSOR_KEYS,
     CONF_AWNING_ANGLE,
     CONF_AZIMUTH,
-    CONF_BLIND_SPOT_ELEVATION,
-    CONF_BLIND_SPOT_LEFT,
-    CONF_BLIND_SPOT_RIGHT,
+    CONF_BUILDING_PROFILE_ID,
+    CONF_PROFILE_SENSOR_OVERRIDES,
     CONF_CLIMATE_MODE,
     CONF_CLOUD_SUPPRESSION,
     CONF_CLOUDY_POSITION,
@@ -50,6 +54,8 @@ from .const import (
     CONF_END_ENTITY,
     CONF_END_OF_WINDOW_POS,
     CONF_END_TIME,
+    CONF_ENDPOINT_USE_OPEN_CLOSE,
+    CONF_ENFORCE_DELTA_AT_ENDPOINTS,
     CONF_ENTITIES,
     CONF_FORCE_OVERRIDE_MIN_MODE,
     CONF_FORCE_OVERRIDE_POSITION,
@@ -63,6 +69,7 @@ from .const import (
     DEFAULT_ENABLE_MY_POSITION_ENTITIES,
     DEFAULT_ENABLE_POSITION_MATCHING,
     DEFAULT_ENABLE_PROXY_COVER,
+    DEFAULT_ENDPOINT_USE_OPEN_CLOSE,
     DEFAULT_MAX_COVERAGE_STEPS,
     DEFAULT_MINIMIZE_MOVEMENTS,
     CONF_FOV_COMPUTE,
@@ -88,6 +95,7 @@ from .const import (
     CONF_MANUAL_IGNORE_EXTERNAL,
     CONF_MANUAL_IGNORE_INTERMEDIATE,
     CONF_MANUAL_OVERRIDE_DURATION,
+    CONF_MANUAL_OVERRIDE_INPUT_ENTITIES,
     CONF_MANUAL_OVERRIDE_RESET,
     CONF_MANUAL_THRESHOLD,
     CONF_MAX_COVERAGE_STEPS,
@@ -121,6 +129,7 @@ from .const import (
     CONF_SILL_HEIGHT,
     CONF_START_ENTITY,
     CONF_START_TIME,
+    CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR,
     CONF_SUNRISE_OFFSET,
     CONF_SUNRISE_TIME_ENTITY,
     CONF_SUNSET_OFFSET,
@@ -154,6 +163,7 @@ from .const import (
     CONF_WEATHER_WIND_SPEED_SENSOR,
     CONF_WEATHER_WIND_SPEED_THRESHOLD,
     CONF_WEATHER_BYPASS_AUTO_CONTROL,
+    CONF_WEATHER_ENABLED,
     CONF_WINDOW_DEPTH,
     CONF_WINDOW_WIDTH,
     DEFAULT_DELTA_POSITION,
@@ -187,12 +197,18 @@ _LOGGER = logging.getLogger(__name__)
 
 # Cover-type picker options, derived from the policy registry so a new cover
 # type appears in the create flow automatically (no edit here). Order follows
-# registration order (blind, awning, tilt, venetian, …).
+# registration order (blind, awning, tilt, venetian, …). Virtual entry types
+# that drive no cover (Building Profile) are filtered out via the
+# ``controls_cover`` discriminator — they get their own top-level create option,
+# not a cover-type dropdown entry.
 from .cover_types import POLICY_REGISTRY as _POLICY_REGISTRY  # noqa: E402
+from .cover_types import get_policy as _get_policy  # noqa: E402
 
-SENSOR_TYPE_MENU = list(_POLICY_REGISTRY)
+SENSOR_TYPE_MENU = [k for k in _POLICY_REGISTRY if _get_policy(k).controls_cover]
 
 _STANDALONE_SENTINEL = "__standalone__"
+# Sentinel value for the "no profile / unlink" choice in the link selector.
+_PROFILE_NONE_SENTINEL = "__none__"
 
 _WIKI_BASE_URL = "https://github.com/jrhubott/adaptive-cover-pro/wiki"
 
@@ -241,6 +257,7 @@ from .cover_types.tilt import GEOMETRY_TILT_SCHEMA  # noqa: E402, F401
 from .cover_types.venetian import GEOMETRY_VENETIAN_SCHEMA  # noqa: E402, F401
 from .unit_system import (  # noqa: E402
     options_to_display,
+    sensor_unit_label,
     user_input_to_canonical,
 )
 
@@ -249,7 +266,9 @@ from .unit_system import (  # noqa: E402
 # call sites. config_flow is a consumer of these — not their owner.
 from . import config_fields  # noqa: E402
 from .config_dynamic import (  # noqa: E402
+    behavior_schema as _behavior_schema,
     blind_spot_schema,
+    building_profile_sensors_schema,
     glare_zones_schema as _glare_zones_schema,
     light_cloud_schema,
     sun_tracking_schema,
@@ -261,6 +280,33 @@ from .pipeline.handlers import (  # noqa: E402
     resolve_handler_priority,
 )
 from .priority_chain import build_priority_chain  # noqa: E402
+from .profile_link import (  # noqa: E402
+    _building_profile_entries,
+    _copy_profile_to_cover,
+    _covers_linked_to,
+    clear_cover_override,
+    compute_override_keys,
+    merge_profile_into_config,
+    profile_for_cover,
+)
+
+# Local Overrides step: the multi-select field key and the empty-state message.
+_OVERRIDE_SELECT_KEY = "clear_overrides"
+_LABELS_NO_OVERRIDES = "No local overrides — every linked cover matches this profile."
+
+# Profile-owned keys shown on each sensor step (for the inherit/override note).
+# The light/cloud and weather-override groups already exist as const frozensets;
+# the rest split between the temperature and behavior steps.
+_TEMPERATURE_PROFILE_KEYS = frozenset({CONF_OUTSIDETEMP_ENTITY})
+_BEHAVIOR_PROFILE_KEYS = frozenset(
+    {
+        CONF_SUNSET_TIME_ENTITY,
+        CONF_SUNRISE_TIME_ENTITY,
+        CONF_DAYTIME_GATE_SENSORS,
+        CONF_DAYTIME_GATE_TEMPLATE,
+        CONF_DAYTIME_GATE_TEMPLATE_MODE,
+    }
+)
 
 
 def _handler_priority_overrides(config: dict[str, Any]) -> dict[str, int]:
@@ -275,10 +321,36 @@ def _handler_priority_overrides(config: dict[str, Any]) -> dict[str, int]:
     }
 
 
+def _blind_spot_step_errors(user_input: dict[str, Any]) -> dict[str, str]:
+    """Return per-slot ``right <= left`` errors for the blind-spot step (#701).
+
+    Shared by the initial and options flows so the gate is identical. A slot is
+    only checked when both its edges are present; absent (optional) slots 2/3
+    produce no error.
+    """
+    errors: dict[str, str] = {}
+    for keys in BLIND_SPOT_SLOTS.values():
+        left = user_input.get(keys["left"])
+        right = user_input.get(keys["right"])
+        if left is not None and right is not None and right <= left:
+            errors[keys["right"]] = "Must be greater than 'Blind Spot Left Edge'"
+    return errors
+
+
 # Module-level constant for tests / imports. Identical to the legacy
 # vol.Schema(...) shape — metric labels, no hass needed. ``sun_tracking_schema``
 # is re-exported from ``config_dynamic`` above.
 SUN_TRACKING_SCHEMA = sun_tracking_schema()
+
+# Combined creation form for a Building Profile entry: the name field plus the
+# shared building-level sensor pickers, collected in one step. Reuses
+# ``building_profile_sensors_schema`` so the sensor set stays single-sourced.
+BUILDING_PROFILE_CREATE_SCHEMA = vol.Schema(
+    {
+        vol.Required("name"): selector.TextSelector(),
+        **building_profile_sensors_schema().schema,
+    }
+)
 
 
 # Keys in SUN_TRACKING_SCHEMA stored in canonical metres.
@@ -342,6 +414,13 @@ POSITION_SCHEMA = vol.Schema(
         ),
         vol.Optional(
             CONF_ENABLE_MIN_POSITION, default=False
+        ): selector.BooleanSelector(),
+        vol.Optional(
+            CONF_ENFORCE_DELTA_AT_ENDPOINTS, default=False
+        ): selector.BooleanSelector(),
+        vol.Optional(
+            CONF_ENDPOINT_USE_OPEN_CLOSE,
+            default=DEFAULT_ENDPOINT_USE_OPEN_CLOSE,
         ): selector.BooleanSelector(),
         vol.Optional(CONF_MIN_POSITION, default=0): selector.NumberSelector(
             selector.NumberSelectorConfig(
@@ -557,6 +636,9 @@ MANUAL_OVERRIDE_SCHEMA = vol.Schema(
             CONF_MANUAL_IGNORE_EXTERNAL, default=False
         ): selector.BooleanSelector(),
         vol.Optional(
+            CONF_MANUAL_OVERRIDE_INPUT_ENTITIES, default=[]
+        ): _binary_on_selector(multiple=True),
+        vol.Optional(
             CONF_TRANSIT_TIMEOUT,
             default=DEFAULT_TRANSIT_TIMEOUT_SECONDS,
         ): selector.NumberSelector(
@@ -671,7 +753,8 @@ DEBUG_SCHEMA = vol.Schema(
 )
 
 
-# Module-level constant for tests / imports. Uses empty/fallback labels.
+# Module-level constant for tests / imports. Uses empty/fallback labels; the
+# retraction pickers are always part of the schema (no per-cover gate).
 # ``weather_override_schema`` is re-exported from ``config_dynamic`` above.
 WEATHER_OVERRIDE_SCHEMA = weather_override_schema()
 
@@ -799,6 +882,40 @@ INTERPOLATION_OPTIONS = vol.Schema(
 def _get_azimuth_edges(data) -> int:
     """Return the total azimuth field-of-view span (fov_left + fov_right)."""
     return data[CONF_FOV_LEFT] + data[CONF_FOV_RIGHT]
+
+
+_WEATHER_SAFETY_WIKI = (
+    "https://github.com/jrhubott/adaptive-cover-pro/wiki/Configuration-Weather-Safety"
+)
+
+
+def _weather_override_placeholders(
+    hass: HomeAssistant | None,
+    options: dict[str, Any] | None,
+) -> dict[str, str]:
+    """description_placeholders for the weather_override step.
+
+    Returns ``learn_more``, ``wind_unit``, and ``rain_unit``. The unit strings
+    are read from the configured sensor's ``unit_of_measurement``; when no
+    sensor is configured (or its state is unavailable) the helper falls back to
+    HA's locale unit so the field still carries a unit label.
+    """
+    opts = options or {}
+    if hass is not None:
+        wind_fallback = str(hass.config.units.wind_speed_unit)
+        rain_fallback = str(hass.config.units.accumulated_precipitation_unit)
+    else:
+        wind_fallback = ""
+        rain_fallback = ""
+    return {
+        "learn_more": _WEATHER_SAFETY_WIKI,
+        "wind_unit": sensor_unit_label(
+            hass, opts.get(CONF_WEATHER_WIND_SPEED_SENSOR), wind_fallback
+        ),
+        "rain_unit": sensor_unit_label(
+            hass, opts.get(CONF_WEATHER_RAIN_SENSOR), rain_fallback
+        ),
+    }
 
 
 def _stringify_templatable(suggested: dict) -> dict:
@@ -1099,6 +1216,7 @@ _SUMMARY_LABELS_EN: dict[str, str] = {
     ),
     "headers.your_cover": "**Your Cover**",
     "cover.type_with_entities": "{type_label} controlling {entity_str}",
+    "cover.building_profile": "🏢 Linked to building profile: {name}",
     "headers.cover_warnings": "**Cover Warnings**",
     "headers.how_it_decides": "**How It Decides** (first matching rule wins)",
     # --- singular/plural words ---
@@ -1125,6 +1243,10 @@ _SUMMARY_LABELS_EN: dict[str, str] = {
     "weather.condition_join": " or ",
     "weather.delay": " (waits {delay}s after clearing)",
     "weather.bypass": " ⚠️ halts all automation while triggered",
+    "weather.disabled_warning": (
+        "🌧️ Weather safety: ⚠️ sensors configured but the feature is "
+        "turned OFF — weather overrides are ignored"
+    ),
     # --- Manual override (80) ---
     "rules.manual": (
         "✋ Manual override: pauses automatic control when you move the cover"
@@ -1135,6 +1257,7 @@ _SUMMARY_LABELS_EN: dict[str, str] = {
     "manual.resets_on_move": "resets on next move",
     "manual.ignore_intermediate": "ignores intermediate positions",
     "manual.ignore_external": "ACP-only (ignores external moves)",
+    "manual.input_entities": "input-sensor override: {count} sensor(s)",
     "manual.transit_timeout": "transit timeout: {seconds}s",
     # --- Custom positions ---
     "rules.custom_tilt_only": (
@@ -1156,6 +1279,13 @@ _SUMMARY_LABELS_EN: dict[str, str] = {
     "warnings.custom_and_no_sensors": (
         "⚠️ Custom #{slot}: combine mode AND is set but no trigger sensors are "
         "configured — the template alone activates the slot."
+    ),
+    "warnings.custom_safety_bypass": (
+        "⚠️ Custom #{slot} is at safety priority ({safety}) — it bypasses the "
+        "automatic-control toggle, manual override, and the start/end time "
+        "window, so it can move the cover even when automatic control is OFF "
+        "and outside your schedule. Lower its priority below {safety} to make "
+        "it respect those gates."
     ),
     # --- Motion (75) ---
     "rules.motion": (
@@ -1205,6 +1335,7 @@ _SUMMARY_LABELS_EN: dict[str, str] = {
     "climate.presence": "presence: {entity}",
     "climate.transparent": "transparent blind",
     "climate.winter_close": "closes fully in winter for insulation",
+    "climate.summer_full_close": "closes fully in summer heat",
     # --- Glare (45) ---
     "rules.glare": (
         "🔆 Glare zones: lowers blind further to protect floor areas from "
@@ -1288,6 +1419,7 @@ _SUMMARY_LABELS_EN: dict[str, str] = {
     ),
     "blind_spot.range": "{left}°–{right}°",
     "blind_spot.elevation": "up to {elev}° elevation",
+    "blind_spot.elevation_above": "above {elev}° elevation",
     # --- Default fallback (0) ---
     "rules.default": "🌙 Default (no rule matches) → {default_pos}%",
     "default.tilt": ("  ↳ Default tilt: {tilt}% (explicit; overrides solar-computed)"),
@@ -1466,8 +1598,10 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
     _has_motion_template = is_template_string(config.get(CONF_MOTION_TEMPLATE))
     has_motion = bool(_motion_sources) or _has_motion_template
     # Build per-slot custom position data:
-    # list of (slot, trigger_desc, position, priority, use_my, tilt, tilt_only)
-    _custom_slots: list[tuple[int, str, int, int, bool, int | None, bool]] = []
+    # list of
+    #   (slot, trigger_desc, position, priority, use_my, tilt, tilt_only,
+    #    has_trigger)
+    _custom_slots: list[tuple[int, str, int, int, bool, int | None, bool, bool]] = []
     _and_no_sensor_slots: list[int] = []
     for _i, _slot_keys in CUSTOM_POSITION_SLOTS.items():
         if not custom_position_slot_configured(config, _slot_keys):
@@ -1496,8 +1630,18 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
         _use_my = bool(config.get(_slot_keys["use_my"]))
         _slot_tilt = config.get(_slot_keys["tilt"])
         _tilt_only = bool(config.get(_slot_keys["tilt_only"]))
+        _has_trigger = bool(_sensors) or _has_tpl
         _custom_slots.append(
-            (_i, _trigger, int(_pos), _pri, _use_my, _slot_tilt, _tilt_only)
+            (
+                _i,
+                _trigger,
+                int(_pos),
+                _pri,
+                _use_my,
+                _slot_tilt,
+                _tilt_only,
+                _has_trigger,
+            )
         )
     has_custom_position = bool(_custom_slots)
     my_pos = config.get(CONF_MY_POSITION_VALUE)  # None = not configured
@@ -1581,6 +1725,13 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
     # which still renders English over the policy's own base layer).
     lines.extend(summary_policy.summary_geometry_lines(config, L))
 
+    # Building profile link — show the profile name when this is a linked cover.
+    _profile_id = config.get(CONF_BUILDING_PROFILE_ID)
+    if _profile_id and hass is not None:
+        _profile_entry = hass.config_entries.async_get_entry(_profile_id)
+        if _profile_entry is not None:
+            lines.append(L["cover.building_profile"].format(name=_profile_entry.title))
+
     # =========================================================================
     # Section 1c: Cover Capability Warnings
     # =========================================================================
@@ -1596,8 +1747,15 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
     lines.append("")
     lines.append(L["headers.how_it_decides"])
 
-    # Weather safety override (90)
-    if has_weather:
+    # Weather safety override (90). The master toggle (issue #719) gates the
+    # whole feature. A summary config missing the key is treated as enabled
+    # (back-compat — the warning must only fire on an explicit opt-out); a new
+    # cover that leaves the toggle off after configuring sensors gets the
+    # OFF-with-sensors footgun warning instead of the normal rule line.
+    weather_enabled = config.get(CONF_WEATHER_ENABLED, True)
+    if has_weather and not weather_enabled:
+        lines.append(L["weather.disabled_warning"])
+    elif has_weather:
         wx_parts = []
         wind_sensor = config.get(CONF_WEATHER_WIND_SPEED_SENSOR)
         wind_thresh = config.get(CONF_WEATHER_WIND_SPEED_THRESHOLD)
@@ -1674,6 +1832,9 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
         mo_parts.append(L["manual.ignore_intermediate"])
     if config.get(CONF_MANUAL_IGNORE_EXTERNAL):
         mo_parts.append(L["manual.ignore_external"])
+    input_entities = config.get(CONF_MANUAL_OVERRIDE_INPUT_ENTITIES)
+    if input_entities:
+        mo_parts.append(L["manual.input_entities"].format(count=len(input_entities)))
     transit_timeout = config.get(CONF_TRANSIT_TIMEOUT)
     if (
         transit_timeout is not None
@@ -1697,6 +1858,7 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
             _use_my,
             _slot_tilt,
             _tilt_only,
+            _has_trigger,
         ) in _custom_slots:
             tilt_note = (
                 L["custom.tilt_note"].format(tilt=_slot_tilt)
@@ -1747,11 +1909,21 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
             _use_my,
             _slot_tilt,
             _tilt_only,
+            _has_trigger,
         ) in _custom_slots:
             if _tilt_only and (
                 config.get(f"custom_position_min_mode_{_slot}") or _use_my
             ):
                 lines.append(L["warnings.custom_tilt_only_conflict"].format(slot=_slot))
+            # Footgun (issue #711): a safety-priority slot with a live trigger
+            # bypasses the auto-control toggle, manual override, and the time
+            # window — it can move the cover at any hour with automation off.
+            if _pri >= CUSTOM_POSITION_SAFETY_PRIORITY and _has_trigger:
+                lines.append(
+                    L["warnings.custom_safety_bypass"].format(
+                        slot=_slot, safety=CUSTOM_POSITION_SAFETY_PRIORITY
+                    )
+                )
         # Footgun warning: AND combine mode with no sensors — the template
         # gates nothing and the slot degenerates to template-only OR.
         for _slot in _and_no_sensor_slots:
@@ -1897,6 +2069,8 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
             cl_parts.append(L["climate.transparent"])
         if config.get(CONF_WINTER_CLOSE_INSULATION):
             cl_parts.append(L["climate.winter_close"])
+        if config.get(CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR):
+            cl_parts.append(L["climate.summer_full_close"])
         cl_str = f" ({', '.join(cl_parts)})" if cl_parts else ""
         lines.append(
             L["rules.climate"].format(detail=cl_str) + _badge(_prio["climate"])
@@ -2118,18 +2292,29 @@ def _build_config_summary(  # noqa: C901, PLR0912, PLR0915
         if sunset_off or sunrise_off:
             lines.append(L["timing.gate_offset_ignored"].format(indent=indent))
 
-    # Blind spot (sub-bullet / informational, no priority of its own)
+    # Blind spot (sub-bullet / informational, no priority of its own). One line
+    # per active slot — a slot is active when its left & right are both set
+    # (issue #701). Slot 1 reuses the legacy unsuffixed keys.
     if config.get(CONF_ENABLE_BLIND_SPOT):
-        bs_l = config.get(CONF_BLIND_SPOT_LEFT)
-        bs_r = config.get(CONF_BLIND_SPOT_RIGHT)
-        bs_e = config.get(CONF_BLIND_SPOT_ELEVATION)
-        bs_parts = []
-        if bs_l is not None and bs_r is not None:
-            bs_parts.append(L["blind_spot.range"].format(left=bs_l, right=bs_r))
-        if bs_e is not None:
-            bs_parts.append(L["blind_spot.elevation"].format(elev=bs_e))
-        bs_str = " ".join(bs_parts)
-        lines.append(L["blind_spot.line"].format(bs=bs_str))
+        for keys in BLIND_SPOT_SLOTS.values():
+            bs_l = config.get(keys["left"])
+            bs_r = config.get(keys["right"])
+            if bs_l is None or bs_r is None:
+                continue
+            bs_e = config.get(keys["elevation"])
+            bs_parts = [L["blind_spot.range"].format(left=bs_l, right=bs_r)]
+            if bs_e is not None:
+                # "above" blocks high sun; "below" (default) blocks low sun (#702).
+                bs_mode = config.get(
+                    keys["elevation_mode"], DEFAULT_BLIND_SPOT_ELEVATION_MODE
+                )
+                elev_key = (
+                    "blind_spot.elevation_above"
+                    if bs_mode == BLIND_SPOT_ELEV_MODE_ABOVE
+                    else "blind_spot.elevation"
+                )
+                bs_parts.append(L[elev_key].format(elev=bs_e))
+            lines.append(L["blind_spot.line"].format(bs=" ".join(bs_parts)))
 
     # Default fallback (priority 0) — shown as the final row of the chain
     lines.append(L["rules.default"].format(default_pos=default_pos) + _badge(0))
@@ -2401,11 +2586,9 @@ SYNC_CATEGORIES: dict[str, frozenset[str]] = {
         }
     ),
     "blind_spot": frozenset(
-        {
-            CONF_BLIND_SPOT_LEFT,
-            CONF_BLIND_SPOT_RIGHT,
-            CONF_BLIND_SPOT_ELEVATION,
-        }
+        keys[sub]
+        for keys in BLIND_SPOT_SLOTS.values()
+        for sub in ("left", "right", "elevation", "elevation_mode")
     ),
     "position": frozenset(
         {
@@ -2414,6 +2597,8 @@ SYNC_CATEGORIES: dict[str, frozenset[str]] = {
             CONF_ENABLE_MAX_POSITION,
             CONF_MIN_POSITION,
             CONF_ENABLE_MIN_POSITION,
+            CONF_ENFORCE_DELTA_AT_ENDPOINTS,
+            CONF_ENDPOINT_USE_OPEN_CLOSE,
             CONF_MIN_POSITION_SUN_TRACKING,
             CONF_SUNSET_POS,
             CONF_END_OF_WINDOW_POS,
@@ -2460,6 +2645,7 @@ SYNC_CATEGORIES: dict[str, frozenset[str]] = {
             CONF_MANUAL_THRESHOLD,
             CONF_MANUAL_IGNORE_INTERMEDIATE,
             CONF_MANUAL_IGNORE_EXTERNAL,
+            CONF_MANUAL_OVERRIDE_INPUT_ENTITIES,
             CONF_TRANSIT_TIMEOUT,
         }
     ),
@@ -2525,6 +2711,7 @@ SYNC_CATEGORIES: dict[str, frozenset[str]] = {
     ),
     "weather_override_values": frozenset(
         {
+            CONF_WEATHER_ENABLED,
             CONF_WEATHER_BYPASS_AUTO_CONTROL,
             CONF_WEATHER_WIND_SPEED_THRESHOLD,
             CONF_WEATHER_WIND_DIRECTION_TOLERANCE,
@@ -2536,21 +2723,13 @@ SYNC_CATEGORIES: dict[str, frozenset[str]] = {
             CONF_WEATHER_IS_WINDY_TEMPLATE_MODE,
         }
     ),
-    "weather_override_sensors": frozenset(
-        {
-            CONF_WEATHER_WIND_SPEED_SENSOR,
-            CONF_WEATHER_WIND_DIRECTION_SENSOR,
-            CONF_WEATHER_RAIN_SENSOR,
-            CONF_WEATHER_IS_RAINING_SENSOR,
-            CONF_WEATHER_IS_RAINING_TEMPLATE,
-            CONF_WEATHER_IS_WINDY_SENSOR,
-            CONF_WEATHER_IS_WINDY_TEMPLATE,
-            CONF_WEATHER_SEVERE_SENSORS,
-        }
-    ),
+    # Canonical membership lives in const.WEATHER_OVERRIDE_SENSOR_KEYS so the
+    # building-profile sensor-key set can reuse it without duplication.
+    "weather_override_sensors": WEATHER_OVERRIDE_SENSOR_KEYS,
     # Legacy alias: full union of weather_override_values + weather_override_sensors
     "weather_override": frozenset(
         {
+            CONF_WEATHER_ENABLED,
             CONF_WEATHER_BYPASS_AUTO_CONTROL,
             CONF_WEATHER_WIND_SPEED_SENSOR,
             CONF_WEATHER_WIND_DIRECTION_SENSOR,
@@ -2581,16 +2760,9 @@ SYNC_CATEGORIES: dict[str, frozenset[str]] = {
             CONF_IS_SUNNY_TEMPLATE_MODE,
         }
     ),
-    "light_cloud_sensors": frozenset(
-        {
-            CONF_WEATHER_ENTITY,
-            CONF_LUX_ENTITY,
-            CONF_IRRADIANCE_ENTITY,
-            CONF_CLOUD_COVERAGE_ENTITY,
-            CONF_IS_SUNNY_SENSOR,
-            CONF_IS_SUNNY_TEMPLATE,
-        }
-    ),
+    # Canonical membership lives in const.LIGHT_CLOUD_SENSOR_KEYS so the
+    # building-profile sensor-key set can reuse it without duplication.
+    "light_cloud_sensors": LIGHT_CLOUD_SENSOR_KEYS,
     # Legacy alias: full union of light_cloud_values + light_cloud_sensors
     "light_cloud": frozenset(
         {
@@ -2617,6 +2789,7 @@ SYNC_CATEGORIES: dict[str, frozenset[str]] = {
             CONF_OUTSIDE_THRESHOLD,
             CONF_TRANSPARENT_BLIND,
             CONF_WINTER_CLOSE_INSULATION,
+            CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR,
             CONF_PRESENCE_TEMPLATE_MODE,
         }
     ),
@@ -2642,6 +2815,7 @@ SYNC_CATEGORIES: dict[str, frozenset[str]] = {
             CONF_PRESENCE_TEMPLATE_MODE,
             CONF_TRANSPARENT_BLIND,
             CONF_WINTER_CLOSE_INSULATION,
+            CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR,
         }
     ),
     # Legacy alias for backward compat
@@ -2670,6 +2844,7 @@ SYNC_CATEGORIES: dict[str, frozenset[str]] = {
             CONF_PRESENCE_TEMPLATE_MODE,
             CONF_TRANSPARENT_BLIND,
             CONF_WINTER_CLOSE_INSULATION,
+            CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR,
         }
     ),
     "glare_zones": frozenset(
@@ -2923,6 +3098,12 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
     """Handle ConfigFlow."""
 
     VERSION = 3
+    # 3.6 (issue #719): the v3.5→v3.6 block enables the weather override for every
+    # pre-existing entry so upgrades keep firing weather safety overrides; new
+    # installs default to off via the schema.
+    # 3.5 (issue #693): formerly seeded the now-removed CONF_SHOW_WEATHER_RETRACTION
+    # toggle. The toggle is gone (retraction pickers are always shown), so the
+    # v3.4→v3.5 block is a no-op minor bump kept to advance stale entries.
     # 3.4 (issue #591/#606): MINOR_VERSION raised so HA triggers
     # async_migrate_entry for entries below 3.4.  The v3.3→v3.4 block enables
     # position matching for every pre-existing entry so upgrades keep the old
@@ -2930,7 +3111,7 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
     # 3.3 (issue #563 trailing defect): copy legacy custom_position_sensor_N
     # into the new list key.
     # Rollback-safe: every migration block is additive (existing keys retained).
-    MINOR_VERSION = 4
+    MINOR_VERSION = 6
 
     def __init__(self) -> None:  # noqa: D107
         super().__init__()
@@ -2955,14 +3136,16 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         return OptionsFlowHandler(config_entry)
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None):
-        """Handle the initial step — show menu if other covers exist, else go straight to create."""
+        """Handle the initial step — always show the create menu.
+
+        Creating a cover and creating a building profile are distinct top-level
+        choices. The duplicate option only appears when prior entries exist.
+        """
         acp_entries = self.hass.config_entries.async_entries(DOMAIN)
-        if acp_entries:
-            return self.async_show_menu(
-                step_id="user",
-                menu_options=["create_new", "duplicate_existing"],
-            )
-        return await self.async_step_create_new()
+        menu_options = ["create_new", "create_building_profile"] + (
+            ["duplicate_existing"] if acp_entries else []
+        )
+        return self.async_show_menu(step_id="user", menu_options=menu_options)
 
     async def async_step_create_new(self, user_input: dict[str, Any] | None = None):
         """Handle create new cover flow."""
@@ -2973,6 +3156,27 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="create_new",
             data_schema=CONFIG_SCHEMA,
+        )
+
+    async def async_step_create_building_profile(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Create a Building Profile entry from a single combined form.
+
+        One step collects the profile name together with the shared
+        building-level sensor IDs, then delegates to the shared finalize
+        (``async_step_update``) — the same path the cover flow uses.
+        """
+        if user_input is not None:
+            self.config = dict(user_input)
+            self.type_blind = CoverType.BUILDING_PROFILE
+            return await self.async_step_update()
+        return self.async_show_form(
+            step_id="create_building_profile",
+            data_schema=BUILDING_PROFILE_CREATE_SCHEMA,
+            description_placeholders={
+                "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/How-It-Decides"
+            },
         )
 
     async def async_step_setup_mode(self, user_input: dict[str, Any] | None = None):
@@ -3130,11 +3334,19 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
                     },
                 )
             self.config.update(canonical)
+            # In full setup, offer to link this cover to a Building Profile when
+            # any profiles exist. Check profiles first so the guard short-circuits
+            # safely in unit tests that build a bare ConfigFlowHandler without
+            # initialising setup_mode (profiles are [] with a MagicMock hass).
+            if (
+                _building_profile_entries(self.hass)
+                and self.setup_mode != "quick"
+                and get_policy(self.type_blind).controls_cover
+            ):
+                return await self.async_step_building_profile()
             # L1 physical setup: the blind-spot sub-step (when enabled) attaches
             # to the window here, before L2 positions. Quick setup skips it.
-            if self.config.get(CONF_ENABLE_BLIND_SPOT) and self.setup_mode != "quick":
-                return await self.async_step_blind_spot()
-            return await self.async_step_position()
+            return await self._route_after_window_config()
         return self._show_sun_tracking_form(self.config)
 
     def _show_sun_tracking_form(
@@ -3155,6 +3367,67 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
             description_placeholders=_sun_tracking_placeholders(
                 self.type_blind, self.config
             ),
+        )
+
+    async def _route_after_window_config(self) -> FlowResult:
+        """Route to blind_spot or position after all window-config steps complete.
+
+        Called from ``async_step_sun_tracking`` (no profiles path) and from
+        ``async_step_building_profile`` (after profile selection), so the routing
+        logic lives in one place instead of being mirrored in both callers.
+        """
+        if self.config.get(CONF_ENABLE_BLIND_SPOT) and self.setup_mode != "quick":
+            return await self.async_step_blind_spot()
+        return await self.async_step_position()
+
+    async def async_step_building_profile(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Link this new cover to a Building Profile during creation.
+
+        Merges the profile's non-empty shared-sensor keys directly into
+        ``self.config`` (there is no existing entry yet) and stores
+        ``CONF_BUILDING_PROFILE_ID``. Selecting the none/skip choice leaves
+        the cover unlinked. On submit, routes to the same blind_spot/position
+        step that ``async_step_sun_tracking`` would have used, via the shared
+        ``_route_after_window_config`` helper.
+        """
+        if user_input is not None:
+            chosen = user_input.get(CONF_BUILDING_PROFILE_ID) or _PROFILE_NONE_SENTINEL
+            if chosen != _PROFILE_NONE_SENTINEL:
+                profile = self.hass.config_entries.async_get_entry(chosen)
+                if profile is not None:
+                    # Store only the link ID here. The sensor-value merge is
+                    # applied at entry-creation time (async_step_update) so that
+                    # profile values survive subsequent form steps that call
+                    # optional_entities() and overwrite absent keys with None.
+                    self.config[CONF_BUILDING_PROFILE_ID] = profile.entry_id
+            return await self._route_after_window_config()
+
+        profiles = _building_profile_entries(self.hass)
+        options = [
+            {"value": _PROFILE_NONE_SENTINEL, "label": "None (unlinked)"},
+            *({"value": e.entry_id, "label": e.title} for e in profiles),
+        ]
+        current = self.config.get(CONF_BUILDING_PROFILE_ID) or _PROFILE_NONE_SENTINEL
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_BUILDING_PROFILE_ID, default=current
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id="building_profile",
+            data_schema=schema,
+            description_placeholders={
+                "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/How-It-Decides"
+            },
         )
 
     async def async_step_position(self, user_input: dict[str, Any] | None = None):
@@ -3187,7 +3460,7 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
             return await self.async_step_weather_override()
         return self.async_show_form(
             step_id="behavior",
-            data_schema=BEHAVIOR_SCHEMA,
+            data_schema=_behavior_schema(self.config),
             description_placeholders={
                 "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/Configuration-Position",
                 "position_matching_wiki": "https://github.com/jrhubott/adaptive-cover-pro/wiki/Configuration-Position-Matching",
@@ -3198,13 +3471,12 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         """Add blindspot to data."""
         schema = blind_spot_schema(self.config)
         if user_input is not None:
-            if user_input[CONF_BLIND_SPOT_RIGHT] <= user_input[CONF_BLIND_SPOT_LEFT]:
+            errors = _blind_spot_step_errors(user_input)
+            if errors:
                 return self.async_show_form(
                     step_id="blind_spot",
                     data_schema=schema,
-                    errors={
-                        CONF_BLIND_SPOT_RIGHT: "Must be greater than 'Blind Spot Left Edge'"
-                    },
+                    errors=errors,
                     description_placeholders={
                         "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/Configuration-Blindspot"
                     },
@@ -3332,9 +3604,9 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="weather_override",
             data_schema=weather_override_schema(self.hass, self.config),
-            description_placeholders={
-                "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/Configuration-Weather-Safety"
-            },
+            description_placeholders=_weather_override_placeholders(
+                self.hass, self.config
+            ),
         )
 
     async def async_step_light_cloud(self, user_input: dict[str, Any] | None = None):
@@ -3437,17 +3709,30 @@ class ConfigFlowHandler(ConfigFlow, domain=DOMAIN):
 
         # Quick setup skips some steps (e.g. automation) leaving critical keys
         # absent from self.config.  Apply constant-backed defaults so the
-        # coordinator never receives None for gating values (issue #133).
-        options.setdefault(CONF_DELTA_POSITION, DEFAULT_DELTA_POSITION)
-        options.setdefault(CONF_DELTA_TIME, DEFAULT_DELTA_TIME)
-        options.setdefault(
-            CONF_MANUAL_OVERRIDE_DURATION, DEFAULT_MANUAL_OVERRIDE_DURATION
-        )
-        options.setdefault(CONF_MOTION_SENSORS, [])
-        options.setdefault(CONF_MOTION_TIMEOUT, DEFAULT_MOTION_TIMEOUT)
-        options.setdefault(
-            CONF_ENABLE_POSITION_MATCHING, DEFAULT_ENABLE_POSITION_MATCHING
-        )
+        # coordinator never receives None for gating values (issue #133). A
+        # virtual entry type (Building Profile) builds no coordinator, so it
+        # keeps only the sensor IDs it collected — no cover automation defaults.
+        if get_policy(self.type_blind).controls_cover:
+            options.setdefault(CONF_DELTA_POSITION, DEFAULT_DELTA_POSITION)
+            options.setdefault(CONF_DELTA_TIME, DEFAULT_DELTA_TIME)
+            options.setdefault(
+                CONF_MANUAL_OVERRIDE_DURATION, DEFAULT_MANUAL_OVERRIDE_DURATION
+            )
+            options.setdefault(CONF_MOTION_SENSORS, [])
+            options.setdefault(CONF_MOTION_TIMEOUT, DEFAULT_MOTION_TIMEOUT)
+            options.setdefault(
+                CONF_ENABLE_POSITION_MATCHING, DEFAULT_ENABLE_POSITION_MATCHING
+            )
+
+        # If the user linked a Building Profile during creation, merge its
+        # non-empty shared-sensor keys into options now — after all form steps
+        # have run. This ensures profile values survive optional_entities() calls
+        # in later steps that would otherwise overwrite absent keys with None.
+        profile_id = options.get(CONF_BUILDING_PROFILE_ID)
+        if profile_id:
+            _profile_entry = self.hass.config_entries.async_get_entry(profile_id)
+            if _profile_entry is not None:
+                merge_profile_into_config(_profile_entry, options)
 
         return self.async_create_entry(
             title=title,
@@ -3591,6 +3876,25 @@ class OptionsFlowHandler(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ) -> FlowResult:
         """Manage the options."""
+        # Building Profile entries have no cover, geometry, or handlers to
+        # configure — show a small menu (edit shared sensors, view the overview
+        # of linked covers) instead of the full cover-options menu.
+        if not get_policy(self.sensor_type).controls_cover:
+            return self.async_show_menu(
+                step_id="init",
+                menu_options=[
+                    "profile_sensors",
+                    "profile_overview",
+                    "profile_overrides",
+                    "done",
+                ],
+                description_placeholders={
+                    "instance_name": self._config_entry.title,
+                    "coffee_url": "https://www.buymeacoffee.com/jrhubott",
+                    "profile_line": "",
+                },
+            )
+
         # Ordered by the 4-layer pipeline model (#613): physical setup →
         # positions → handlers in priority order → global motion constraints.
 
@@ -3600,6 +3904,12 @@ class OptionsFlowHandler(OptionsFlow):
             "geometry",
             "sun_tracking",
         ]
+        # Link this cover to a Building Profile (shared sensor IDs). Only shown
+        # for real covers, and only when at least one profile exists to link to.
+        if get_policy(self.sensor_type).controls_cover and _building_profile_entries(
+            self.hass
+        ):
+            keys.append("building_profile")
         if self.options.get(CONF_ENABLE_BLIND_SPOT):
             keys.append("blind_spot")
 
@@ -3639,12 +3949,24 @@ class OptionsFlowHandler(OptionsFlow):
         # Icons are embedded directly in each translation string (e.g. "🪟 Covers & Device").
         menu_options: list[str] = keys
 
+        # Build the profile_line placeholder: shows the linked profile's title
+        # when this cover is linked, or collapses to "" when unlinked.
+        _linked_profile_id = self.options.get(CONF_BUILDING_PROFILE_ID)
+        _profile_line = ""
+        if _linked_profile_id:
+            _profile_entry = self.hass.config_entries.async_get_entry(
+                _linked_profile_id
+            )
+            if _profile_entry is not None:
+                _profile_line = f"\n🏢 Building Profile: **{_profile_entry.title}**"
+
         return self.async_show_menu(  # type: ignore[return-value]
             step_id="init",
             menu_options=menu_options,
             description_placeholders={
                 "instance_name": self.config_entry.title,
                 "coffee_url": "https://www.buymeacoffee.com/jrhubott",
+                "profile_line": _profile_line,
             },
         )
 
@@ -3803,11 +4125,12 @@ class OptionsFlowHandler(OptionsFlow):
         return self.async_show_form(
             step_id="behavior",
             data_schema=self.add_suggested_values_to_schema(
-                BEHAVIOR_SCHEMA, user_input or self.options
+                _behavior_schema(self.options), user_input or self.options
             ),
             description_placeholders={
                 "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/Configuration-Position",
                 "position_matching_wiki": "https://github.com/jrhubott/adaptive-cover-pro/wiki/Configuration-Position-Matching",
+                "profile_inherit": self._profile_inherit_note(_BEHAVIOR_PROFILE_KEYS),
             },
         )
 
@@ -3900,19 +4223,190 @@ class OptionsFlowHandler(OptionsFlow):
         self, user_input: dict[str, Any] | None = None
     ):
         """Manage weather-based safety overrides."""
-        suggested = _stringify_templatable(user_input or self.options)
         if user_input is not None:
+            # Profile-owned pickers are shown (inherit/override model), so they
+            # are present in user_input; null any cleared field as usual.
             self.optional_entities(_WEATHER_OVERRIDE_OPTIONAL_KEYS, user_input)
             self.options.update(user_input)
             return await self.async_step_init()
+        suggested = _stringify_templatable(self.options)
+        placeholders = dict(_weather_override_placeholders(self.hass, self.options))
+        placeholders["profile_inherit"] = self._profile_inherit_note(
+            WEATHER_OVERRIDE_SENSOR_KEYS
+        )
         return self.async_show_form(
             step_id="weather_override",
             data_schema=self.add_suggested_values_to_schema(
                 weather_override_schema(self.hass, suggested), suggested
             ),
+            description_placeholders=placeholders,
+        )
+
+    def _profile_inherit_note(self, keys) -> str:
+        """Markdown note of the profile's value per profile-owned key on a step.
+
+        Empty when the cover is unlinked. Lets a linked cover see whether the
+        Building Profile assigns a value (and whether the cover overrides it)
+        next to the pickers — HA can't annotate individual schema fields.
+        """
+        from .building_overview import profile_value_breakdown
+
+        profile = profile_for_cover(self.hass, self.options)
+        if profile is None:
+            return ""
+        return profile_value_breakdown(
+            profile.options or {}, self.options, keys, profile_title=profile.title
+        )
+
+    async def async_step_building_profile(
+        self, user_input: dict[str, Any] | None = None
+    ):
+        """Link this cover to a Building Profile (or unlink it).
+
+        Linking copies the profile's non-empty shared-sensor subset into this
+        cover's own options (reusing ``_copy_profile_to_cover``) and reloads the
+        cover. Selecting the none/unlink choice clears the link; the last-copied
+        sensor IDs are left in place (no teardown).
+        """
+        if user_input is not None:
+            chosen = user_input.get(CONF_BUILDING_PROFILE_ID) or _PROFILE_NONE_SENTINEL
+            if chosen != _PROFILE_NONE_SENTINEL:
+                profile = self.hass.config_entries.async_get_entry(chosen)
+                if profile is not None:
+                    _copy_profile_to_cover(self.hass, profile, self._config_entry)
+                    self.options = dict(self._config_entry.options)
+            elif self.options.pop(CONF_BUILDING_PROFILE_ID, None) is not None:
+                self.hass.config_entries.async_update_entry(
+                    self._config_entry, options=dict(self.options)
+                )
+            return await self.async_step_init()
+
+        profiles = _building_profile_entries(self.hass)
+        options = [
+            {"value": _PROFILE_NONE_SENTINEL, "label": "None (unlinked)"},
+            *({"value": e.entry_id, "label": e.title} for e in profiles),
+        ]
+        current = self.options.get(CONF_BUILDING_PROFILE_ID) or _PROFILE_NONE_SENTINEL
+        schema = vol.Schema(
+            {
+                vol.Optional(
+                    CONF_BUILDING_PROFILE_ID, default=current
+                ): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=options,
+                        mode=selector.SelectSelectorMode.DROPDOWN,
+                    )
+                ),
+            }
+        )
+        return self.async_show_form(
+            step_id="building_profile",
+            data_schema=schema,
             description_placeholders={
-                "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/Configuration-Weather-Safety"
+                "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/How-It-Decides"
             },
+        )
+
+    async def async_step_profile_sensors(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Edit the shared building-level sensor IDs on a Building Profile entry.
+
+        This is the only options step for a profile: it exposes exactly the
+        ``BUILDING_PROFILE_SENSOR_KEYS`` pickers and saves on submit.  Mirrors
+        the create-flow's ``async_step_create_building_profile`` sensor section.
+        """
+        if user_input is not None:
+            self.options.update(user_input)
+            return self.async_create_entry(title="", data=self.options)
+
+        schema = building_profile_sensors_schema()
+        return self.async_show_form(
+            step_id="profile_sensors",
+            data_schema=self.add_suggested_values_to_schema(schema, self.options),
+            description_placeholders={
+                "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/How-It-Decides"
+            },
+        )
+
+    async def async_step_profile_overview(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """Read-only overview of every cover linked to this Building Profile.
+
+        Scoped to this profile's linked covers — what shared sensors they
+        inherit (with divergence warnings) and how their per-cover settings
+        compare. Renders markdown only; submitting returns to the menu.
+        """
+        if user_input is not None:
+            return await self.async_step_init()
+        from .building_overview import build_building_overview
+
+        linked = _covers_linked_to(self.hass, self._config_entry)
+        overview_text = build_building_overview(self._config_entry, linked, self.hass)
+        return self.async_show_form(
+            step_id="profile_overview",
+            data_schema=vol.Schema({}),
+            description_placeholders={"overview": overview_text},
+        )
+
+    async def async_step_profile_overrides(
+        self, user_input: dict[str, Any] | None = None
+    ) -> FlowResult:
+        """View and clear linked covers' local sensor overrides.
+
+        Lists every shared sensor a linked cover has overridden (or set locally
+        where the profile is blank). Selecting entries and submitting clears them:
+        an overridden key re-inherits the profile value; a local key is removed.
+        """
+        from .building_overview import build_override_records
+
+        linked = _covers_linked_to(self.hass, self._config_entry)
+        records = build_override_records(self._config_entry, linked)
+        by_token = {f"{r.entry_id}|{r.key}": r for r in records}
+
+        if user_input is not None:
+            for token in user_input.get(_OVERRIDE_SELECT_KEY, []):
+                record = by_token.get(token)
+                cover = self.hass.config_entries.async_get_entry(record.entry_id)
+                if record is not None and cover is not None:
+                    clear_cover_override(
+                        self.hass, self._config_entry, cover, record.key
+                    )
+            return await self.async_step_init()
+
+        if not records:
+            return self.async_show_form(
+                step_id="profile_overrides",
+                data_schema=vol.Schema({}),
+                description_placeholders={"overrides": _LABELS_NO_OVERRIDES},
+            )
+
+        options = [
+            {
+                "value": token,
+                "label": (
+                    f"{r.cover_name} — {r.label}: {r.local_text} "
+                    f"(profile: {r.profile_text if r.profile_sets_it else 'not set'})"
+                ),
+            }
+            for token, r in by_token.items()
+        ]
+        schema = vol.Schema(
+            {
+                vol.Optional(_OVERRIDE_SELECT_KEY, default=[]): selector.SelectSelector(
+                    selector.SelectSelectorConfig(
+                        options=options,
+                        multiple=True,
+                        mode=selector.SelectSelectorMode.LIST,
+                    )
+                )
+            }
+        )
+        return self.async_show_form(
+            step_id="profile_overrides",
+            data_schema=schema,
+            description_placeholders={"overrides": ""},
         )
 
     async def async_step_pipeline_priorities(
@@ -4106,13 +4600,12 @@ class OptionsFlowHandler(OptionsFlow):
         """Add blindspot to data."""
         schema = blind_spot_schema(self.options)
         if user_input is not None:
-            if user_input[CONF_BLIND_SPOT_RIGHT] <= user_input[CONF_BLIND_SPOT_LEFT]:
+            errors = _blind_spot_step_errors(user_input)
+            if errors:
                 return self.async_show_form(
                     step_id="blind_spot",
                     data_schema=schema,
-                    errors={
-                        CONF_BLIND_SPOT_RIGHT: "Must be greater than 'Blind Spot Left Edge'"
-                    },
+                    errors=errors,
                     description_placeholders={
                         "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/Configuration-Blindspot"
                     },
@@ -4142,7 +4635,8 @@ class OptionsFlowHandler(OptionsFlow):
                 light_cloud_schema(self.hass, suggested), suggested
             ),
             description_placeholders={
-                "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/How-It-Decides"
+                "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/How-It-Decides",
+                "profile_inherit": self._profile_inherit_note(LIGHT_CLOUD_SENSOR_KEYS),
             },
         )
 
@@ -4163,7 +4657,10 @@ class OptionsFlowHandler(OptionsFlow):
                     ),
                     errors={CONF_TEMP_ENTITY: "Required when climate mode is enabled"},
                     description_placeholders={
-                        "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/Climate-Mode"
+                        "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/Climate-Mode",
+                        "profile_inherit": self._profile_inherit_note(
+                            _TEMPERATURE_PROFILE_KEYS
+                        ),
                     },
                 )
             self.options.update(user_input)
@@ -4174,7 +4671,10 @@ class OptionsFlowHandler(OptionsFlow):
                 temperature_climate_schema(self.hass, suggested), suggested
             ),
             description_placeholders={
-                "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/Climate-Mode"
+                "learn_more": "https://github.com/jrhubott/adaptive-cover-pro/wiki/Climate-Mode",
+                "profile_inherit": self._profile_inherit_note(
+                    _TEMPERATURE_PROFILE_KEYS
+                ),
             },
         )
 
@@ -4241,7 +4741,25 @@ class OptionsFlowHandler(OptionsFlow):
 
     async def _update_options(self) -> FlowResult:
         """Update config entry options."""
+        self._recompute_profile_overrides()
         return self.async_create_entry(title="", data=self.options)  # type: ignore[return-value]
+
+    def _recompute_profile_overrides(self) -> None:
+        """Refresh the cover's local-override list against its profile on save.
+
+        Single, stateless recompute point (inherit/override model): a shared
+        sensor whose value now equals the profile's drops out of the list; a
+        changed one is recorded. Skipped for unlinked covers / profiles.
+        """
+        profile = profile_for_cover(self.hass, self.options)
+        if profile is None:
+            self.options.pop(CONF_PROFILE_SENSOR_OVERRIDES, None)
+            return
+        overrides = compute_override_keys(self.options, profile.options or {})
+        if overrides:
+            self.options[CONF_PROFILE_SENSOR_OVERRIDES] = overrides
+        else:
+            self.options.pop(CONF_PROFILE_SENSOR_OVERRIDES, None)
 
     def optional_entities(self, keys: list, user_input: dict[str, Any]):
         """Set value to None if key does not exist."""

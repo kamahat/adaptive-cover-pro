@@ -12,7 +12,8 @@
     "decision_priority": "**Entscheidungspriorität** (höchste gewinnt, ✅ aktiv ❌ nicht konfiguriert)"
   },
   "cover": {
-    "type_with_entities": "{type_label} steuert {entity_str}"
+    "type_with_entities": "{type_label} steuert {entity_str}",
+    "building_profile": "🏢 Verknüpft mit Gebäudeprofil: {name}"
   },
   "words": {
     "sensor_singular": "Sensor",
@@ -48,7 +49,8 @@
     "condition_default": "Wetterbedingung",
     "condition_join": " oder ",
     "delay": " (wartet {delay}s nach Klärung)",
-    "bypass": " ⚠️ stoppt alle Automatisierung während aktiviert"
+    "bypass": " ⚠️ stoppt alle Automatisierung während aktiviert",
+    "disabled_warning": "🌧️ Wetterschutz: ⚠️ Sensoren konfiguriert, aber die Funktion ist AUSGESCHALTET — Wetter-Overrides werden ignoriert"
   },
   "manual": {
     "pauses_for": "pausiert für {duration}",
@@ -56,7 +58,8 @@
     "resets_on_move": "setzt bei nächster Bewegung zurück",
     "ignore_intermediate": "ignoriert Zwischenpositionen",
     "ignore_external": "Nur ACP (ignoriert externe Bewegungen)",
-    "transit_timeout": "Übergangszeitüberschreitung: {seconds}s"
+    "transit_timeout": "Übergangszeitüberschreitung: {seconds}s",
+    "input_entities": "Eingangssensor-Übersteuerung: {count} Sensor(en)"
   },
   "custom": {
     "tilt_note": ", Neigung {tilt}%",
@@ -72,7 +75,8 @@
     "mode2_min_position": "⚠️ Neigung MODE2 + Min Position {min_pos}% — im MODE2 ist der offene (horizontale) Lamellenwinkel 50%, also jede Min Position ≥ 50 kollabiert jede Klimamodus/Blendungszone-Entscheidung zum Boden und die Beschattung stoppt, Wärme zu blockieren.",
     "somfy_my_unset": "⚠️ Somfy My-Preset ist für ein oder mehrere Ziele aktiviert, aber My Preset Value ist nicht gesetzt — fällt auf konfiguriertes % zurück.",
     "proxy_no_min": "⚠️ Proxy-Beschattung ist aktiviert, aber kein benutzerdefinierter Positionsslot hat Als Minimum verwenden aktiviert — die verwaltete Beschattung wird nicht begrenzt.",
-    "custom_and_no_sensors": "⚠️ Benutzerdefiniert #{slot}: Kombinationsmodus UND ist gesetzt, aber keine Auslösesensoren konfiguriert — das Template allein aktiviert den Slot."
+    "custom_and_no_sensors": "⚠️ Benutzerdefiniert #{slot}: Kombinationsmodus UND ist gesetzt, aber keine Auslösesensoren konfiguriert — das Template allein aktiviert den Slot.",
+    "custom_safety_bypass": "⚠️ Benutzerdefiniert #{slot} hat Sicherheitspriorität ({safety}) – umgeht den Schalter für die automatische Steuerung, die manuelle Übersteuerung und das Start-/Endzeitfenster, kann die Beschattung also auch dann bewegen, wenn die automatische Steuerung AUS ist und außerhalb Ihres Zeitplans. Senken Sie seine Priorität unter {safety}, um diese Gates einzuhalten."
   },
   "motion": {
     "action_hold": "Beschattungen halten aktuelle Position (zurück auf Standard, wenn Sonne FOV verlässt)",
@@ -106,7 +110,8 @@
     "weather": "Wetter: {entity}",
     "presence": "Anwesenheit: {entity}",
     "transparent": "durchsichtige Jalousie",
-    "winter_close": "schließt sich vollständig im Winter für Isolation"
+    "winter_close": "schließt sich vollständig im Winter für Isolation",
+    "summer_full_close": "schließt sich vollständig bei Sommerhitze"
   },
   "glare": {
     "zones": "Zonen: {names}",
@@ -156,7 +161,8 @@
   "blind_spot": {
     "line": "🟥 Blinder Fleck: ignoriert Sonne bei {bs} innen von FOV links (z.B. Baum oder Dachüberhang).",
     "range": "{left}°–{right}°",
-    "elevation": "bis {elev}° Höhe"
+    "elevation": "bis {elev}° Höhe",
+    "elevation_above": "ab {elev}° Höhe"
   },
   "default": {
     "tilt": "  ↳ Standard-Neigung: {tilt}% (explizit; überschreibt sonnenberechnet)",
@@ -193,7 +199,8 @@
     "awning": "Horizontale Markise",
     "tilt": "Jalousie / Neigung",
     "oscillating_awning": "Schwenkmarkise",
-    "venetian": "Jalousie (Zwei-Achsen)"
+    "venetian": "Jalousie (Zwei-Achsen)",
+    "roof_window": "Dachfenster"
   },
   "geometry": {
     "window": {
@@ -227,10 +234,15 @@
       "max_tilt": "max. Neigung {max_tilt}%",
       "min_tilt": "min. Neigung {min_tilt}%",
       "post_settle_hold": "Nach-Stabilisierungshalte {hold}s",
-      "backrotate_lag": "Rück-Rotationsverzögerung {lag}s"
+      "backrotate_lag": "Rück-Rotationsverzögerung {lag}s",
+      "drift_reset": "Drift-Reset alle {threshold}% akkumulierte Neigung (über {direction})"
     },
     "fov": {
       "computed": "Berechnetes Sichtfeld ≈ {deg}°/{deg}° ({w}m Breite, {d}m Laibungstiefe)"
+    },
+    "roof": {
+      "pitch": "Dachneigung {v}° von Horizontal",
+      "height_above": "{v}m Dach über Fenster (First-Gate)"
     }
   }
 }

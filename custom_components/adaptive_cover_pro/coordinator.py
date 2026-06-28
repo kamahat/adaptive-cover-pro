@@ -16,6 +16,7 @@ if TYPE_CHECKING:
 
 import pytz
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import STATE_ON
 from homeassistant.core import (
     Event,
     HomeAssistant,
@@ -319,7 +320,10 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         self._pipeline = self._build_pipeline()
         self._pipeline_result = None
 
-        self._cached_options = None
+        # Snapshot of the last raw config-entry options. The update listener
+        # uses it to distinguish Sun Tracking-only changes from options that
+        # still require a full reload.
+        self._cached_options = dict(self.config_entry.options)
 
         # Initialize configuration service
         self._config_service = ConfigurationService(
@@ -388,6 +392,19 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         # Built once and reused for both the command-service construction
         # (position_tolerance) and the late policy.attach below.
         _rc_attach = RuntimeConfig.from_options(self.config_entry.options)
+        # Seeded here so the live lambda passed to policy.attach reads a value
+        # before the first _update_options cycle; refreshed each cycle (#679).
+        self._enforce_delta_at_endpoints = (
+            _rc_attach.tracking.enforce_delta_at_endpoints
+        )
+        # Seeded here so the live drift-reset lambda passed to policy.attach
+        # reads a value before the first _update_options cycle; refreshed each
+        # cycle (issue #663).
+        self._venetian_tilt_reset_threshold = _rc_attach.venetian.tilt_reset_threshold
+        # Seeded alongside the threshold so the live drift-reset direction lambda
+        # passed to policy.attach reads a value before the first _update_options
+        # cycle; refreshed each cycle (issue #686).
+        self._venetian_tilt_reset_direction = _rc_attach.venetian.tilt_reset_direction
 
         # Cover command service — self-contained: owns positioning, target tracking,
         # and the reconciliation timer (started in async_config_entry_first_refresh).
@@ -401,6 +418,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             open_close_threshold=self.config_entry.options.get(
                 CONF_OPEN_CLOSE_THRESHOLD, 50
             ),
+            endpoint_use_open_close=_rc_attach.tracking.endpoint_use_open_close,
             position_tolerance=_rc_attach.tracking.position_tolerance,
             transit_timeout_seconds=self.config_entry.options.get(CONF_TRANSIT_TIMEOUT)
             or DEFAULT_TRANSIT_TIMEOUT_SECONDS,
@@ -447,6 +465,9 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             ),
             invert_tilt=lambda: self._inverse_tilt,
             get_min_change=lambda: self.min_change,
+            get_enforce_delta_at_endpoints=lambda: self._enforce_delta_at_endpoints,
+            get_tilt_reset_threshold=lambda: self._venetian_tilt_reset_threshold,
+            get_tilt_reset_direction=lambda: self._venetian_tilt_reset_direction,
         )
 
         # Time window manager (start/end time checks)
@@ -875,6 +896,34 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         )
         await self._handle_occupancy_change(source=entity_id)
 
+    async def async_check_manual_override_input_change(
+        self, event: Event[EventStateChangedData]
+    ) -> None:
+        """Engage manual override on the off→on edge of a configured input sensor.
+
+        Wall-switch path (issue #688): a configured input binary sensor (e.g. a
+        Shelly ``binary_sensor.*_cover_input_0``) transitioning off→on means the
+        user physically operated the cover, so ACP engages manual override on
+        every cover in the instance and drops the latched target. Only the
+        rising edge engages — ``on→on`` (no edge), ``None→on`` (a sensor restored
+        already-on at startup), ``unavailable``/``unknown`` (not "on"), and a
+        removed entity (``new_state`` None) all do nothing.
+        """
+        data = event.data
+        old_state = data["old_state"]
+        new_state = data["new_state"]
+        if new_state is None or new_state.state != STATE_ON:
+            return
+        if old_state is None or old_state.state == STATE_ON:
+            return
+        self.logger.debug(
+            "Manual override input %s edge off→on — engaging override on all covers",
+            data["entity_id"],
+        )
+        self.manager.engage_manual_override_from_external(reason="input_sensor")
+        self.state_change = True
+        await self.async_refresh()
+
     async def async_check_motion_template_change(
         self, event: Event | None, updates: list
     ) -> None:
@@ -1235,7 +1284,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         """Run the main coordinator update cycle: calculate position, send commands, build diagnostics."""
         self.logger.debug("Updating data")
         if self.first_refresh:
-            self._cached_options = self.config_entry.options
+            self._cached_options = dict(self.config_entry.options)
 
         # Render any templated threshold options to numbers for this cycle, so
         # every downstream consumer (RuntimeConfig, climate reads) sees a number,
@@ -1915,15 +1964,28 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         self._is_reload = False
         self.logger.debug("First refresh handled")
 
+    async def async_apply_sun_tracking_update(self) -> None:
+        """Rebuild the pipeline after Sun Tracking changes without a reload.
+
+        ``enable_sun_tracking`` changes only pipeline composition; they do not
+        alter entity listeners or cover geometry. The refresh evaluates the new
+        winner immediately while the command path keeps its normal gates.
+        """
+        self._pipeline = self._build_pipeline()
+        self._cached_options = dict(self.config_entry.options)
+        # The Sun Tracking switch renders from config_entry.options; notify
+        # listeners so service/options-flow changes redraw the entity too.
+        self.async_update_listeners()
+        self.state_change = True
+        await self.async_refresh()
+
     def _build_pipeline(self) -> PipelineRegistry:
         """Build the override pipeline from the registry of handler factories.
 
-        Called once at coordinator initialisation.  Because the integration
-        reloads fully on every options change (see ``_async_update_listener``
-        in ``__init__.py``), this always sees the current configuration and
-        there is no need to rebuild at runtime. Handler composition lives in
-        ``pipeline.handlers.build_handlers`` (registry-driven), so adding a
-        handler never touches the coordinator.
+        Called at coordinator initialisation and when Sun Tracking is toggled at
+        runtime. Other options changes still reload the integration.
+        Handler composition lives in ``pipeline.handlers.build_handlers``
+        (registry-driven), so adding a handler never touches the coordinator.
         """
         handlers = build_handlers(self.config_entry.options)
         self.logger.debug(
@@ -1954,6 +2016,11 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         self.manual_reset = rc.manual_override.reset
         self.manual_duration = rc.manual_override.duration
         self.manual_ignore_external = rc.manual_override.ignore_external
+        # Per-cycle snapshot of the input sensors whose off→on edge engages
+        # manual override (issue #688). The HA subscription is (re)registered in
+        # async_setup_entry on every reload; this mirror is the single canonical
+        # coordinator-side read of the option.
+        self.manual_override_input_entities = rc.manual_override.input_entities
         self.manual_threshold = rc.tracking.manual_threshold
         # Mirror the reconciliation tolerance coordinator-side so the cover
         # state-change handler can lower the override-detection threshold when
@@ -1970,8 +2037,21 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         self.new_list = rc.tracking.interp_list_new
 
         self._cmd_svc.update_threshold(rc.open_close_threshold)
+        self._cmd_svc.update_endpoint_use_open_close(
+            rc.tracking.endpoint_use_open_close
+        )
         self._cmd_svc.update_position_tolerance(rc.tracking.position_tolerance)
         self._cmd_svc.enable_position_matching = rc.tracking.enable_position_matching
+        # Mirror the endpoint-delta-enforcement flag (issue #679) so the
+        # venetian tilt-axis gate (wired via a live lambda in policy.attach)
+        # and the position-axis special list pick up mid-session changes.
+        self._enforce_delta_at_endpoints = rc.tracking.enforce_delta_at_endpoints
+        # Mirror the venetian drift-reset threshold (issue #663) so the live
+        # lambda wired into policy.attach picks up mid-session changes.
+        self._venetian_tilt_reset_threshold = rc.venetian.tilt_reset_threshold
+        # Mirror the venetian drift-reset direction (issue #686) so the live
+        # lambda wired into policy.attach picks up mid-session changes.
+        self._venetian_tilt_reset_direction = rc.venetian.tilt_reset_direction
         self._time_mgr.update_config(
             start_time=rc.time_window.start_time,
             start_time_entity=rc.time_window.start_time_entity,
@@ -2004,6 +2084,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             is_windy_template_mode=rc.weather.is_windy_template_mode,
             severe_sensors=rc.weather.severe_sensors,
             timeout_seconds=rc.weather.timeout_seconds,
+            enabled=rc.weather.enabled,
         )
 
         event_buffer = getattr(self, "_event_buffer", None)
@@ -2229,6 +2310,45 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         )
         return await self._cmd_svc.apply_position(entity_id, clamped, trigger, ctx)
 
+    async def async_apply_user_tilt(
+        self,
+        entity_id: str,
+        tilt: int,
+        *,
+        trigger: str,
+        force: bool = False,
+    ) -> tuple[str, str]:
+        """Apply a user-initiated tilt to a single cover (issue #684).
+
+        Dedicated tilt-axis entry point for the opt-in proxy cover, the
+        ``adaptive_cover_pro.set_tilt`` service, and any future user-facing
+        tilt command. Delegates to the cover-type policy's ``apply_user_tilt``
+        hook. Cover types with an independent tilt axis (venetian) drive ONLY
+        the tilt slats — the carriage is left untouched. Cover types whose
+        primary axis already IS the tilt (``cover_tilt``) return not-handled
+        from the base hook, so we fall back to ``async_apply_user_position``
+        (a tilt there is a position move).
+
+        ``force`` (default ``False``) governs manual-override engagement only:
+        when ``False`` (the proxy slider / default service call) manual override
+        is engaged like a dashboard control; when ``True`` engagement is
+        skipped, matching ``set_position``'s force semantics. There is no
+        pipeline-preemption check on the tilt path (by design); ``force`` is
+        threaded through to the ``async_apply_user_position`` fallback so the
+        ``cover_tilt`` case stays consistent. The venetian sequencer's internal
+        force-resend for an explicit command is independent and stays always-on.
+        """
+        if not force:
+            self.manager.mark_user_command(entity_id, reason=trigger)
+        handled = await self._policy.apply_user_tilt(
+            entity_id, tilt=int(tilt), reason=trigger
+        )
+        if handled:
+            return "sent", ""
+        return await self.async_apply_user_position(
+            entity_id, int(tilt), trigger=trigger, force=force
+        )
+
     async def async_apply_user_stop(
         self,
         entity_id: str,
@@ -2313,6 +2433,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             final_state=self.state,
             config_options=dict(self.config_entry.options),
             resolved_options=dict(self._resolved_options),
+            hass=self.hass,
             motion_detected=self.is_motion_detected,
             motion_timeout_active=self._motion_mgr.is_motion_timeout_active,
             motion_template_active=self._motion_mgr.template_active,

@@ -23,10 +23,16 @@ from homeassistant.const import ATTR_ENTITY_ID
 
 from ...const import (
     CONF_DEFAULT_HEIGHT,
+    CONF_ENFORCE_DELTA_AT_ENDPOINTS,
     CONF_MY_POSITION_VALUE,
     CONF_SUNSET_POS,
+    DEFAULT_ENDPOINT_USE_OPEN_CLOSE,
+    DEFAULT_ENFORCE_DELTA_AT_ENDPOINTS,
+    POSITION_CLOSED,
+    POSITION_OPEN,
 )
 from ...cover_types.base import (
+    AXIS_NAME_POSITION,
     CAP_HAS_CLOSE,
     CAP_HAS_OPEN,
     CAP_HAS_STOP,
@@ -73,6 +79,7 @@ def route_service_call(
     axis: CoverAxis,
     use_my_position: bool,
     open_close_threshold: int,
+    endpoint_use_open_close: bool = DEFAULT_ENDPOINT_USE_OPEN_CLOSE,
 ) -> ServiceCallPlan:
     """Pick the HA service to issue for a cover/state, ignoring side effects.
 
@@ -97,12 +104,39 @@ def route_service_call(
             preset when the cover lacks ``set_cover_position`` but has
             ``stop_cover``.
         open_close_threshold: Position cutoff for the open/close fallback.
+        endpoint_use_open_close: When True (issue #697), a position-capable
+            cover commanded to the 100 endpoint is sent ``open_cover`` and the
+            0 endpoint ``close_cover`` instead of ``set_cover_position``. Only
+            applies to the position axis; falls back to ``set_cover_position``
+            when the matching open/close capability is missing.
 
     Returns:
         :class:`ServiceCallPlan` describing what the orchestrator must do.
 
     """
     supports_position = caps.get(axis.capability_key, True)
+
+    if (
+        supports_position
+        and endpoint_use_open_close
+        and axis.name == AXIS_NAME_POSITION
+    ):
+        if state >= POSITION_OPEN and caps_get(caps, CAP_HAS_OPEN):
+            return ServiceCallPlan(
+                service="open_cover",
+                service_data={ATTR_ENTITY_ID: entity},
+                supports_position=False,
+                routed_target=POSITION_OPEN,
+            )
+        if state <= POSITION_CLOSED and caps_get(caps, CAP_HAS_CLOSE):
+            return ServiceCallPlan(
+                service="close_cover",
+                service_data={ATTR_ENTITY_ID: entity},
+                supports_position=False,
+                routed_target=POSITION_CLOSED,
+            )
+        # Endpoint requested but the matching open/close service is missing;
+        # fall through to set_cover_position below.
 
     if supports_position:
         return ServiceCallPlan(
@@ -155,8 +189,17 @@ def build_special_positions(options: dict) -> list[int]:
     added in ``_check_position_delta`` — if the cover is already at the
     target, no command is sent regardless of whether the target is special.
 
+    When ``CONF_ENFORCE_DELTA_AT_ENDPOINTS`` is enabled (issue #679), the 0
+    and 100 endpoints are omitted so the normal delta gate runs for those
+    targets too. Default (off) preserves issue #629's always-send-to-0/100
+    guarantee byte-for-byte. Useful on mechanically coupled covers where
+    commanding a full endpoint disturbs the tilt axis.
+
     """
-    special_positions = [0, 100]
+    enforce_endpoints = options.get(
+        CONF_ENFORCE_DELTA_AT_ENDPOINTS, DEFAULT_ENFORCE_DELTA_AT_ENDPOINTS
+    )
+    special_positions = [] if enforce_endpoints else [0, 100]
     default_height = options.get(CONF_DEFAULT_HEIGHT)
     sunset_pos = options.get(CONF_SUNSET_POS)
     my_position_value = options.get(CONF_MY_POSITION_VALUE)

@@ -733,19 +733,46 @@ class TestBeforePositionCommandTiltFirstOnOpen:
         policy._sequencer._send_tilt_command.assert_not_awaited()
 
     async def test_non_position_service_does_not_send_tilt(self) -> None:
-        """The hook only acts on set_cover_position, not on open/close/stop."""
+        """A non-position-axis service (stop_cover) must not pre-send tilt.
+
+        ``open_cover`` / ``close_cover`` ARE position-axis moves (issue #697
+        endpoint substitution), so only services like ``stop_cover`` are
+        rejected by the guard.
+        """
         policy = self._make_policy_with_send_mock(current_position=20)
 
         await policy.before_position_command(
             cmd_svc=MagicMock(),
             entity_id="cover.venetian_x",
-            service="open_cover",
+            service="stop_cover",
             position=80,
             context=_ctx(policy, tilt=POSITION_OPEN),
             reason="solar",
         )
 
         policy._sequencer._send_tilt_command.assert_not_awaited()
+
+    async def test_open_cover_service_sends_tilt_on_open(self) -> None:
+        """Endpoint open_cover (issue #697) is a position-axis open transition.
+
+        current=20 → open_cover (target 100) must still pre-send tilt with
+        force, exactly like set_cover_position would on an opening move.
+        """
+        policy = self._make_policy_with_send_mock(current_position=20)
+
+        await policy.before_position_command(
+            cmd_svc=MagicMock(),
+            entity_id="cover.venetian_x",
+            service="open_cover",
+            position=100,
+            context=_ctx(policy, tilt=POSITION_OPEN),
+            reason="solar",
+        )
+
+        policy._sequencer._send_tilt_command.assert_awaited_once()
+        kwargs = policy._sequencer._send_tilt_command.await_args.kwargs
+        assert kwargs["position_target"] == 100
+        assert kwargs["force"] is True
 
     async def test_no_tilt_in_context_does_not_send_tilt(self) -> None:
         """Without a tilt target in context, there's nothing to pre-send."""
@@ -786,3 +813,87 @@ class TestBeforePositionCommandTiltFirstOnOpen:
             context=_ctx(policy, tilt=POSITION_OPEN),
             reason="solar",
         )
+
+
+@pytest.mark.asyncio
+class TestVenetianApplyUserTilt:
+    """Issue #684: a user tilt request drives ONLY the tilt axis.
+
+    ``apply_user_tilt`` routes the requested tilt through the sequencer's
+    tilt-only path with the *current* carriage position as a reference — the
+    carriage must never be commanded. ``force=True`` bypasses the
+    target-unchanged dedup so a tilt equal to the last-sent value still fires
+    (a user explicitly re-requesting it is not a no-op).
+    """
+
+    def _policy_with_real_sequencer(self, *, current_position: int, invert_tilt=None):
+        from tests.test_cover_types.test_venetian_sequencer import _build_sequencer
+
+        policy = VenetianPolicy()
+        hass, seq = _build_sequencer(
+            current_positions=[current_position, current_position, current_position],
+            invert_tilt=invert_tilt,
+        )
+        policy._sequencer = seq
+        policy._tilt_skip_above = 95
+        return hass, policy
+
+    async def test_apply_user_tilt_drives_sequencer_with_current_position(self) -> None:
+        hass, policy = self._policy_with_real_sequencer(current_position=50)
+
+        handled = await policy.apply_user_tilt(
+            "cover.venetian_x", tilt=10, reason="proxy_tilt"
+        )
+
+        assert handled is True
+        # Exactly one tilt service call, paired with the current carriage
+        # position as reference — and NO set_cover_position.
+        calls = hass.services.async_call.await_args_list
+        tilt_calls = [c for c in calls if c.args[1] == "set_cover_tilt_position"]
+        position_calls = [c for c in calls if c.args[1] == "set_cover_position"]
+        assert len(tilt_calls) == 1, f"expected one tilt call, got {calls}"
+        assert tilt_calls[0].args[2]["tilt_position"] == 10
+        assert position_calls == [], f"carriage commanded: {position_calls}"
+
+    async def test_force_path_resends_unchanged_tilt(self) -> None:
+        """A tilt equal to the last-sent target still fires (force bypasses dedup)."""
+        hass, policy = self._policy_with_real_sequencer(current_position=50)
+        # Seed the stored target so the dedup would otherwise short-circuit.
+        policy._sequencer._tilt_targets["cover.venetian_x"] = 10
+
+        handled = await policy.apply_user_tilt(
+            "cover.venetian_x", tilt=10, reason="proxy_tilt"
+        )
+
+        assert handled is True
+        tilt_calls = [
+            c
+            for c in hass.services.async_call.await_args_list
+            if c.args[1] == "set_cover_tilt_position"
+        ]
+        assert len(tilt_calls) == 1, "force must bypass the target-unchanged dedup"
+        assert tilt_calls[0].args[2]["tilt_position"] == 10
+
+    async def test_inverse_tilt_lands_wire_value_on_source(self) -> None:
+        """invert_tilt ON: a request of 10 lands the inverted wire value (90).
+
+        The sequencer's ``_send_tilt_command`` applies ``_to_wire`` internally,
+        so routing the user tilt through ``update_tilt_only`` gets inverse
+        handling for free (no parallel transform in the proxy/coordinator).
+        """
+        hass, policy = self._policy_with_real_sequencer(
+            current_position=50, invert_tilt=lambda: True
+        )
+
+        handled = await policy.apply_user_tilt(
+            "cover.venetian_x", tilt=10, reason="proxy_tilt"
+        )
+
+        assert handled is True
+        tilt_calls = [
+            c
+            for c in hass.services.async_call.await_args_list
+            if c.args[1] == "set_cover_tilt_position"
+        ]
+        assert len(tilt_calls) == 1, f"expected one tilt call, got {tilt_calls}"
+        assert tilt_calls[0].args[2]["tilt_position"] == 90

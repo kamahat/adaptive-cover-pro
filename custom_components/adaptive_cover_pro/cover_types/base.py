@@ -155,6 +155,15 @@ class CoverTypePolicy(ABC):
 
     cover_type: ClassVar[str]
 
+    # Whether this policy drives a physical cover (registers platforms, has at
+    # least one controllable axis). The default is ``True`` so every real
+    # cover-type policy is treated as a cover. Virtual entry types — the
+    # building profile, which only stores shared building-level sensor IDs and
+    # registers no platforms — set this ``False`` so cover-contract suites,
+    # cover-only menus, and the setup path can filter them out by capability
+    # rather than by branching on the cover-type string.
+    controls_cover: ClassVar[bool] = True
+
     def __init_subclass__(cls, *, register: bool = False, **kwargs: Any) -> None:
         """Auto-register a concrete policy by its ``cover_type``.
 
@@ -349,6 +358,27 @@ class CoverTypePolicy(ABC):
         overrides this to drive continuous tilt updates.
         """
         return
+
+    async def apply_user_tilt(
+        self,
+        entity_id: str,  # noqa: ARG002
+        *,
+        tilt: int,  # noqa: ARG002
+        reason: str,  # noqa: ARG002
+    ) -> bool:
+        """Apply a user-requested tilt on the dedicated tilt axis.
+
+        Returns ``True`` when the request was handled on a real tilt axis;
+        ``False`` (the default) when the cover type has no independent tilt
+        axis, so the coordinator falls back to its position path.
+
+        This is correct for ``cover_tilt``, whose *primary* axis already IS
+        the tilt slats — a user tilt request there is just a position move and
+        belongs in ``async_apply_user_position``. Only dual-axis covers
+        (venetian) override this to drive tilt without touching the carriage
+        (issue #684).
+        """
+        return False
 
     async def before_position_command(
         self,

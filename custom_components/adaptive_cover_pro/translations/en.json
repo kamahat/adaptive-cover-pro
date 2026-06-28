@@ -5,6 +5,7 @@
       "user": {
         "menu_options": {
           "create_new": "Create new cover",
+          "create_building_profile": "Create building profile",
           "duplicate_existing": "Duplicate from existing cover"
         }
       },
@@ -43,6 +44,8 @@
           "slat_depth": "Slat Depth",
           "slat_distance": "Slat Spacing",
           "venetian_tilt_skip_above": "Skip Tilt Above Position (%)",
+          "venetian_tilt_reset_threshold": "Venetian drift-reset threshold (accumulated tilt %)",
+          "venetian_tilt_reset_direction": "Drift-reset direction",
           "venetian_mode": "Operating Mode",
           "venetian_post_settle_hold": "Post-settle Hold (s)",
           "venetian_backrotate_publish_lag": "Publish-lag window (s)",
@@ -53,7 +56,9 @@
           "awning_min_angle": "Arm Angle When Closed",
           "awning_max_angle": "Arm Angle When Fully Open",
           "awning_housing_offset": "Housing Offset Above Window",
-          "awning_pivot_offset": "Pivot Offset From Window"
+          "awning_pivot_offset": "Pivot Offset From Window",
+          "roof_pitch": "Roof Pitch",
+          "roof_height_above": "Roof Height Above Window"
         },
         "data_description": {
           "window_height": "Height of your window (from bottom to top of the glass area). Shown in the unit Home Assistant is configured for. Examples: Standard door = 2.0 m / 79 in, Small window = 1.5 m / 59 in, Floor-to-ceiling = 2.5 m / 98 in. Measure from where the cover starts to where it ends when fully extended.",
@@ -66,6 +71,8 @@
           "slat_depth": "Width of each slat (measure one slat front to back). Shown in the unit Home Assistant is configured for. Common sizes: Mini blinds = 2.5 cm / 1 in, Standard blinds = 5 cm / 2 in, Wide slats = 6.5–7.5 cm / 2.5–3 in. Measure a single slat with a ruler for precise sun blocking calculation.",
           "slat_distance": "Vertical spacing between slat centres. Shown in the unit Home Assistant is configured for. Measure from the middle of one slat to the middle of the next slat (vertically). Usually slightly more than slat depth to allow overlap when closed. Common: 3–8 cm / 1.2–3 in depending on blind type. Used to calculate optimal tilt angle.",
           "venetian_tilt_skip_above": "When the cover is commanded above this position (0–100%), the tilt command is skipped. At high positions the slats retract into the housing and tilting is physically meaningless. Default 95%. Increase if your blind tilts correctly near the top; decrease if it tries to tilt when fully raised.",
+          "venetian_tilt_reset_threshold": "Drive the slats fully open and back to flush accumulated mechanical drift once this much commanded tilt change has accumulated. 0 disables drift reset.",
+          "venetian_tilt_reset_direction": "Which way the drift-reset drives the slats before returning to the target. **Open** (default): drive fully open, then back — the original behaviour. **Close**: drive fully closed, then back. Choose Close when the cover sits near-closed during tracking (a quieter, faster reset) or when your actuator re-zeroes the slats on a close command.",
           "venetian_mode": "How the venetian blind uses both axes when the sun is in the tracking window. **Position and tilt** (default): the cover lowers to the calculated position and the slats tilt to the optimal angle — best for combined shading and privacy. **Tilt only**: the cover stays closed (position 0%) and only the slat angle tracks the sun — best when you always want full coverage and want continuous glare control via tilt.",
           "venetian_post_settle_hold": "How long (in seconds) to wait after the carriage settles before sending the tilt command. Default 2.0 s suits most actuators. Raise to 4–6 s for KNX FGR223 or other firmware that re-asserts a tilt-to-open shortly after the carriage stops — without the extra hold the tilt command races that re-assert and loses. Range 0.0–10.0 s.",
           "venetian_backrotate_publish_lag": "How long (in seconds) the integration tolerates a late position-state publish from your actuator before treating it as a real user touch. Default 45 s suits Somfy IO via Tahoma. Increase to 60–120 s if your hardware (slow KNX bus, Fibaro/Shelly republish) publishes the post-move current_position long after the cover has physically stopped — symptom is spurious 'manual_override_set' events fired ~30–90 s after a commanded move. Decrease only if you have an unusually fast actuator and want tighter false-touch detection. Range 15–180 s.",
@@ -76,7 +83,9 @@
           "awning_min_angle": "Arm angle when the awning is fully closed/retracted (0–180°). Typically 0° = arm vertical against the wall. Defines the start of the sweep arc.",
           "awning_max_angle": "Arm angle when the awning is fully open (0–180°). The arm sweeps linearly from the closed angle to this value across 0–100% open. Example: a 175° total sweep ≈ 1.75° per 1%.",
           "awning_housing_offset": "Vertical offset of the arm pivot above the top of the window (0–1 m). Combined with window height and arm length to locate the pivot. Set 0 when the housing sits flush with the window top.",
-          "awning_pivot_offset": "Horizontal distance from the awning arm pivot (fabric plane) to the window glass (0–2 m). At low sun this lets the dropped fabric shade lower on the glass, because the fabric stands off the pane. Set this to the housing/arm standoff from the wall plus any window inset/reveal — use 0 when the fabric hangs flush against the glass. Example: 0.7 m / 28 in for an arm mounted well off the wall."
+          "awning_pivot_offset": "Horizontal distance from the awning arm pivot (fabric plane) to the window glass (0–2 m). At low sun this lets the dropped fabric shade lower on the glass, because the fabric stands off the pane. Set this to the housing/arm standoff from the wall plus any window inset/reveal — use 0 when the fabric hangs flush against the glass. Example: 0.7 m / 28 in for an arm mounted well off the wall.",
+          "roof_pitch": "Pitch of the roof glass measured FROM HORIZONTAL (0–90°). 0° = a flat skylight (sun lets in whenever it is above the horizon); 90° = a vertical window (behaves exactly like a vertical blind). Typical Velux-style roof windows are 30–50°. If you are migrating from the vertical-blind workaround that used a max-elevation limit, this pitch is the complement of that angle (e.g. a 35° roof ↔ a ~55° max-elevation workaround).",
+          "roof_height_above": "Along-slope distance from the top of the window up to the roof ridge (0–10 m). When > 0 the roof above the window can hide the sun once it swings past the ridge and drops low (the ridge occlusion gate). Set 0 (default) to disable the gate — e.g. a window sitting right at the ridge with no roof above it. Shown in the unit Home Assistant is configured for."
         }
       },
       "sun_tracking": {
@@ -116,6 +125,8 @@
           "enable_max_position": "Apply max only during sun tracking",
           "min_position": "Minimum Position",
           "enable_min_position": "Apply min only during sun tracking",
+          "enforce_delta_at_endpoints": "Enforce position delta at fully-open/closed endpoints",
+          "endpoint_use_open_close": "Use open/close commands at the fully-open/closed endpoints",
           "min_position_sun_tracking": "Min Position During Sun Tracking",
           "sunset_position": "Sunset Position",
           "end_of_window_position": "End-of-Window Position",
@@ -127,10 +138,12 @@
         },
         "data_description": {
           "default_percentage": "Cover position when sun is not in front of window (0-100%). 0% = closed (blinds lowered / awning retracted), 50% = half open (balanced light and privacy), 100% = open (blinds raised / awning extended). This is the 'rest position' used when sun tracking is not active (sun is behind the window, blocked by obstacles, or outside tracking hours).",
-          "max_position": "Maximum cover position limit (0-100%). 100% = open (blinds raised / awning extended). Cover will never go above this value. Use this to: prevent cover from fully opening (set to 80%), keep some shade at all times (set to 60-70%), protect from jamming at top (set to 95%). This creates an upper boundary for all automatic positions. On venetian blinds this constrains the carriage (vertical) axis only — slat tilt is computed from sun geometry and is not capped here.",
-          "enable_max_position": "Controls WHEN maximum position limit applies. UNCHECKED (default, recommended): Maximum position applies ALL THE TIME - during sun tracking, default position, climate modes, etc. Cover never goes above max value. CHECKED (advanced): Maximum position ONLY applies when sun is directly in front of window. During default/fallback states, cover can go above max value. Most users should leave this UNCHECKED for consistent protection.",
-          "min_position": "Minimum cover position limit (0-99%). 0% = closed (blinds lowered / awning retracted). Cover will never go below this value. Use this to: prevent cover from fully closing (set to 20%), maintain some light (set to 30-40%), protect from jamming at bottom (set to 5%). This creates a lower boundary for all automatic positions. Works with 'Apply min only during sun tracking' toggle below.",
-          "enable_min_position": "Controls WHEN minimum position limit applies. UNCHECKED (default, recommended): Minimum position applies ALL THE TIME - during sun tracking, default position, climate modes, etc. Cover never goes below min value. CHECKED (advanced): Minimum position ONLY applies when sun is directly in front of window. During default/fallback states, cover can go below min value. Most users should leave this UNCHECKED for consistent protection.",
+          "max_position": "Maximum cover position limit (0-100%). 100% = open (blinds raised / awning extended). Use this to: prevent cover from fully opening (set to 80%), keep some shade at all times (set to 60-70%), protect from jamming at top (set to 95%). ACP clamps every CALCULATED position to at most this value (sun tracking, default/rest, climate, cloud suppression, motion timeout, glare, manual-override recovery). Explicitly-configured fixed targets are sent as you set them and are NOT clamped to this ceiling: the Sunset Position (exempt by design), Custom Position slots (exact mode), the Weather Override position, and the My preset. On venetian blinds this constrains the carriage (vertical) axis only — slat tilt is computed from sun geometry and is not capped here.",
+          "enable_max_position": "Controls WHEN the maximum position limit applies to CALCULATED positions. UNCHECKED (default, recommended): Maximum Position applies all the time - sun tracking, default position, climate modes, etc. CHECKED (advanced): Maximum Position only applies when the sun is directly in front of the window; during default/fallback states the cover can go above the max value. Either way, explicitly-configured fixed targets (Sunset Position, Custom Positions, Weather Override, My preset) are sent as you set them and are not capped by this ceiling. Most users should leave this UNCHECKED for consistent protection.",
+          "min_position": "Minimum cover position limit (0-99%). 0% = closed (blinds lowered / awning retracted). Use this to: prevent cover from fully closing (set to 20%), maintain some light (set to 30-40%), protect from jamming at bottom (set to 5%). ACP clamps every CALCULATED position to at least this value (sun tracking, default/rest, climate, cloud suppression, motion timeout, glare, manual-override recovery). Explicitly-configured fixed targets are sent as you set them and are NOT clamped to this floor: the Sunset Position (exempt by design so covers can fully close at night), Custom Position slots (exact mode), the Weather Override position, and the My preset — set those at or above this value (or use their 'minimum position mode') for a hard floor everywhere. On venetian blinds this constrains the carriage (vertical) axis only. Works with 'Apply min only during sun tracking' toggle below.",
+          "enable_min_position": "Controls WHEN the minimum position limit applies to CALCULATED positions. UNCHECKED (default, recommended): Minimum Position applies all the time - sun tracking, default position, climate modes, etc. CHECKED (advanced): Minimum Position only applies when the sun is directly in front of the window; during default/fallback states the cover can go below the min value. Either way, explicitly-configured fixed targets (Sunset Position, Custom Positions, Weather Override, My preset) are sent as you set them and are not capped by this floor. Most users should leave this UNCHECKED for consistent protection.",
+          "enforce_delta_at_endpoints": "Controls whether the minimum-change position delta is respected even for the fully-open (100%) and fully-closed (0%) targets. UNCHECKED (default): commands to 0% and 100% always send, bypassing the delta gate — a full close or open is never silently skipped. CHECKED: the delta gate applies to the 0% and 100% endpoints too, so a move toward a full endpoint smaller than the configured delta is suppressed. Enable this on mechanically coupled covers where commanding a full endpoint disturbs the slat tilt (e.g. a venetian whose carriage and slats share one motor), to stop the cover from repeatedly chasing an unreachable endpoint. Most users should leave this UNCHECKED.",
+          "endpoint_use_open_close": "Controls which Home Assistant service is sent when the cover should go to a full endpoint. CHECKED (default): a final position of 100% sends cover.open_cover and a final position of 0% sends cover.close_cover, instead of cover.set_cover_position(100/0). Targets between 1% and 99% always use set_cover_position. Many motors run a more reliable full traverse from the dedicated open/close command than from a set-position to the very end. If the cover does not expose open/close, the integration falls back to set_cover_position automatically. This setting has no effect on tilt-only covers (the slat axis is never sent open/close). UNCHECKED: always use set_cover_position, including at 0% and 100%.",
           "min_position_sun_tracking": "Optional separate minimum position floor that only applies while the sun is in the field of view. When set, replaces 'Minimum Position' during sun-tracking calculations. Leave blank to use 'Minimum Position' for both sun-tracking and other modes. Use this when your cover has a mechanical dead zone at the bottom of travel (e.g. roller shutters whose slats gap before the bottom lifts) and you want sun-tracking to skip that dead zone while still allowing the cover to fully close at sunset. 0% = closed (blinds lowered), 100% = open (blinds raised).",
           "sunset_position": "Cover position to set after sunset. Clear the slider (leave empty) to use the Default Position instead — no special sunset behavior. 0% = closed (blinds lowered / awning retracted), 100% = open (blinds raised / awning extended). Common uses: Privacy (0%), Open for night air (100%), Partial privacy (30-50%). When set, this overrides the default position after sun sets.",
           "end_of_window_position": "Cover position to set at the operational end time, regardless of astronomical sunset. Clear the slider (leave empty) to disable. Requires 'Move covers to current default position when end time is reached' to be on. When both this and Sunset Position are set, this applies from the end time until astronomical sunset, then the Sunset Position takes over. 0% = closed (blinds lowered / awning retracted), 100% = open (blinds raised / awning extended). Useful when your end time is well before sunset (e.g. 19:30 in summer) and you want covers closed for the evening.",
@@ -204,6 +217,7 @@
           "manual_threshold": "Manual override threshold",
           "manual_ignore_intermediate": "Ignore intermediate positions during manual override (opening and closing)",
           "manual_ignore_external": "Only engage manual override from Adaptive Cover Pro commands",
+          "manual_override_input_entities": "Input sensors that trigger manual override",
           "transit_timeout": "Transit timeout (seconds)"
         },
         "data_description": {
@@ -212,12 +226,13 @@
           "manual_threshold": "Position difference (%) that counts as 'manual override' (default: 1%). If you manually move cover by this amount, override detection triggers. Typical values: 1-2% (sensitive, detects small adjustments), 5% (less sensitive, recommended), 10% (only large manual changes count). Prevents accidental override detection from small motor drifts or position reporting variations.",
           "manual_ignore_intermediate": "Ignore intermediate positions during manual opening and closing operations. Enable this to prevent override detection from transitional positions while the cover is moving to your target position. Useful if your cover reports many intermediate values during movement.",
           "manual_ignore_external": "When enabled, only position changes sent through the Adaptive Cover Pro proxy entity or the adaptive_cover_pro.set_position service engage manual override. Position changes from other sources (other automations, the default Home Assistant cover card, physical or RF remotes) are ignored and automatic control continues uninterrupted. Useful when you only ever drive the cover via ACP itself and want noisy external state changes to not pause automation. Default: off.",
+          "manual_override_input_entities": "Binary sensors (or switches/input_booleans) whose off-to-on transition engages manual override on every cover in this instance. Intended for a physical wall switch wired to an input (e.g. a Shelly 2PM exposing binary_sensor.*_cover_input_0): pressing it pauses automatic control for the override duration instead of inferring a manual move from the cover's position. Combine with 'Only engage manual override from Adaptive Cover Pro commands' to make these sensors the sole override trigger. Default: none.",
           "transit_timeout": "How long ACP waits after a cover stops reporting forward progress before treating the next position report as a user-initiated manual override. The timer resets each time the cover moves closer to its commanded target, so slow-but-moving covers are protected for the full transit. Increase this value for covers that take longer than 45 seconds to complete a full traverse. Default: 45 seconds."
         }
       },
       "custom_position": {
         "title": "Custom Positions",
-        "description": "Configure trigger sensors and/or condition templates that set the cover to specific positions when active. Each slot has its own triggers (multiple sensors combine with OR logic), optional template, target position, and pipeline priority (1-100). Each active slot is evaluated independently — the highest-priority active slot wins. Priority 100 gives a slot safety semantics: it acts outside the start/end time window and bypasses the delta gates (this replaces the former Force Override feature). Use Home Assistant automations to toggle these sensors for scene-based or schedule-based cover control.\n\n[Learn more]({learn_more})\n\n**Decision priority** — where each configured slot's priority lands against the fixed handlers (highest wins). This reflects the last saved priorities; it refreshes when the form re-renders, not live as you drag the slider:\n{priority_scale}",
+        "description": "Configure trigger sensors and/or condition templates that set the cover to specific positions when active. Each slot has its own triggers (multiple sensors combine with OR logic), optional template, target position, and pipeline priority (1-100). Each active slot is evaluated independently — the highest-priority active slot wins. Priority 100 gives a slot safety semantics: it bypasses the automatic-control toggle, manual override, and the start/end time window (so it can move the cover even when automatic control is OFF), and bypasses the delta gates (this replaces the former Force Override feature). Use Home Assistant automations to toggle these sensors for scene-based or schedule-based cover control.\n\n[Learn more]({learn_more})\n\n**Decision priority** — where each configured slot's priority lands against the fixed handlers (highest wins). This reflects the last saved priorities; it refreshes when the form re-renders, not live as you drag the slider:\n{priority_scale}",
         "data": {
           "custom_position_sensors_1": "Sensors 1",
           "custom_position_template_1": "Condition template 1",
@@ -264,6 +279,51 @@
           "custom_position_use_my_5": "Slot 5: use My position",
           "custom_position_tilt_5": "Slot 5: tilt",
           "custom_position_tilt_only_5": "Slot 5: tilt only",
+          "custom_position_sensors_6": "Sensors 6",
+          "custom_position_template_6": "Condition template 6",
+          "custom_position_template_mode_6": "Template combine mode 6",
+          "custom_position_6": "Position for Slot 6",
+          "custom_position_priority_6": "Priority for Slot 6",
+          "custom_position_min_mode_6": "Minimum mode for Slot 6",
+          "custom_position_use_my_6": "Slot 6: use My position",
+          "custom_position_tilt_6": "Slot 6: tilt",
+          "custom_position_tilt_only_6": "Slot 6: tilt only",
+          "custom_position_sensors_7": "Sensors 7",
+          "custom_position_template_7": "Condition template 7",
+          "custom_position_template_mode_7": "Template combine mode 7",
+          "custom_position_7": "Position for Slot 7",
+          "custom_position_priority_7": "Priority for Slot 7",
+          "custom_position_min_mode_7": "Minimum mode for Slot 7",
+          "custom_position_use_my_7": "Slot 7: use My position",
+          "custom_position_tilt_7": "Slot 7: tilt",
+          "custom_position_tilt_only_7": "Slot 7: tilt only",
+          "custom_position_sensors_8": "Sensors 8",
+          "custom_position_template_8": "Condition template 8",
+          "custom_position_template_mode_8": "Template combine mode 8",
+          "custom_position_8": "Position for Slot 8",
+          "custom_position_priority_8": "Priority for Slot 8",
+          "custom_position_min_mode_8": "Minimum mode for Slot 8",
+          "custom_position_use_my_8": "Slot 8: use My position",
+          "custom_position_tilt_8": "Slot 8: tilt",
+          "custom_position_tilt_only_8": "Slot 8: tilt only",
+          "custom_position_sensors_9": "Sensors 9",
+          "custom_position_template_9": "Condition template 9",
+          "custom_position_template_mode_9": "Template combine mode 9",
+          "custom_position_9": "Position for Slot 9",
+          "custom_position_priority_9": "Priority for Slot 9",
+          "custom_position_min_mode_9": "Minimum mode for Slot 9",
+          "custom_position_use_my_9": "Slot 9: use My position",
+          "custom_position_tilt_9": "Slot 9: tilt",
+          "custom_position_tilt_only_9": "Slot 9: tilt only",
+          "custom_position_sensors_10": "Sensors 10",
+          "custom_position_template_10": "Condition template 10",
+          "custom_position_template_mode_10": "Template combine mode 10",
+          "custom_position_10": "Position for Slot 10",
+          "custom_position_priority_10": "Priority for Slot 10",
+          "custom_position_min_mode_10": "Minimum mode for Slot 10",
+          "custom_position_use_my_10": "Slot 10: use My position",
+          "custom_position_tilt_10": "Slot 10: tilt",
+          "custom_position_tilt_only_10": "Slot 10: tilt only",
           "default_tilt": "Default Tilt",
           "sunset_tilt": "Sunset Tilt"
         },
@@ -272,7 +332,7 @@
           "custom_position_template_1": "Optional Jinja2 template; when it renders truthy it activates the slot. Combined with the sensors per the combine mode below.",
           "custom_position_template_mode_1": "How the template combines with the sensors: 'or' (default) — the template OR any sensor activates the slot; 'and' — the template must be truthy AND a sensor on.",
           "custom_position_1": "Position (0-100%) to move covers to when Slot 1 is active. 0% = closed, 100% = open.",
-          "custom_position_priority_1": "Pipeline priority (1-100). Higher = evaluated before lower-priority handlers. Default 77 sits between Manual Override (80) and Motion Timeout (75). Set above 80 to override manual moves; set below 40 to only apply when sun tracking is inactive. 100 = safety: the slot acts outside the time window and bypasses delta gates (the former Force Override behavior).",
+          "custom_position_priority_1": "Pipeline priority (1-100). Higher = evaluated before lower-priority handlers. Default 77 sits between Manual Override (80) and Motion Timeout (75). Set above 80 to override manual moves; set below 40 to only apply when sun tracking is inactive. 100 = safety: the slot bypasses the automatic-control toggle, manual override, and the start/end time window — it can move the cover even when automatic control is OFF — and also bypasses the delta gates (the former Force Override behavior).",
           "custom_position_min_mode_1": "When enabled, the position acts as a minimum floor — higher positions from sun tracking or other calculations are allowed through. When disabled (default), the cover is always set to the exact configured position.",
           "custom_position_use_my_1": "When slot 1's trigger is active, trigger the cover's My preset instead of the slot's numeric position. Requires My position value to be set.",
           "custom_position_tilt_1": "Tilt angle (0-100%) to set when Slot 1's sensor is active. Venetian covers only — ignored for other cover types. Leave unset to let the engine calculate tilt automatically.",
@@ -281,7 +341,7 @@
           "custom_position_template_2": "Optional Jinja2 condition template for slot 2.",
           "custom_position_template_mode_2": "Template combine mode for slot 2 ('or'/'and').",
           "custom_position_2": "Position (0-100%) for slot 2.",
-          "custom_position_priority_2": "Pipeline priority for slot 2 (1-100, default 77; 100 = safety).",
+          "custom_position_priority_2": "Pipeline priority for slot 2 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
           "custom_position_min_mode_2": "Treat slot 2's position as a minimum floor.",
           "custom_position_use_my_2": "Use the My preset for slot 2 instead of its numeric position.",
           "custom_position_tilt_2": "Tilt angle (0-100%) to set when Slot 2's sensor is active. Venetian covers only. Leave unset to let the engine calculate tilt automatically.",
@@ -290,7 +350,7 @@
           "custom_position_template_3": "Optional Jinja2 condition template for slot 3.",
           "custom_position_template_mode_3": "Template combine mode for slot 3 ('or'/'and').",
           "custom_position_3": "Position (0-100%) for slot 3.",
-          "custom_position_priority_3": "Pipeline priority for slot 3 (1-100, default 77; 100 = safety).",
+          "custom_position_priority_3": "Pipeline priority for slot 3 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
           "custom_position_min_mode_3": "Treat slot 3's position as a minimum floor.",
           "custom_position_use_my_3": "Use the My preset for slot 3 instead of its numeric position.",
           "custom_position_tilt_3": "Tilt angle (0-100%) to set when Slot 3's sensor is active. Venetian covers only. Leave unset to let the engine calculate tilt automatically.",
@@ -299,7 +359,7 @@
           "custom_position_template_4": "Optional Jinja2 condition template for slot 4.",
           "custom_position_template_mode_4": "Template combine mode for slot 4 ('or'/'and').",
           "custom_position_4": "Position (0-100%) for slot 4.",
-          "custom_position_priority_4": "Pipeline priority for slot 4 (1-100, default 77; 100 = safety).",
+          "custom_position_priority_4": "Pipeline priority for slot 4 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
           "custom_position_min_mode_4": "Treat slot 4's position as a minimum floor.",
           "custom_position_use_my_4": "Use the My preset for slot 4 instead of its numeric position.",
           "custom_position_tilt_4": "Tilt angle (0-100%) to set when Slot 4's sensor is active. Venetian covers only. Leave unset to let the engine calculate tilt automatically.",
@@ -308,11 +368,56 @@
           "custom_position_template_5": "Optional Jinja2 condition template for slot 5.",
           "custom_position_template_mode_5": "Template combine mode for slot 5 ('or'/'and').",
           "custom_position_5": "Position (0-100%) for slot 5.",
-          "custom_position_priority_5": "Pipeline priority for slot 5 (1-100, default 77; 100 = safety).",
+          "custom_position_priority_5": "Pipeline priority for slot 5 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
           "custom_position_min_mode_5": "Treat slot 5's position as a minimum floor.",
           "custom_position_use_my_5": "Use the My preset for slot 5 instead of its numeric position.",
           "custom_position_tilt_5": "Explicit slat angle (0-100%) for slot 5 on venetian covers.",
           "custom_position_tilt_only_5": "Slot 5 fixes only the slat angle; sun tracking drives the position.",
+          "custom_position_sensors_6": "Trigger sensors for slot 6 (OR logic). Leave empty to skip.",
+          "custom_position_template_6": "Optional Jinja2 condition template for slot 6.",
+          "custom_position_template_mode_6": "Template combine mode for slot 6 ('or'/'and').",
+          "custom_position_6": "Position (0-100%) for slot 6.",
+          "custom_position_priority_6": "Pipeline priority for slot 6 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
+          "custom_position_min_mode_6": "Treat slot 6's position as a minimum floor.",
+          "custom_position_use_my_6": "Use the My preset for slot 6 instead of its numeric position.",
+          "custom_position_tilt_6": "Explicit slat angle (0-100%) for slot 6 on venetian covers.",
+          "custom_position_tilt_only_6": "Slot 6 fixes only the slat angle; sun tracking drives the position.",
+          "custom_position_sensors_7": "Trigger sensors for slot 7 (OR logic). Leave empty to skip.",
+          "custom_position_template_7": "Optional Jinja2 condition template for slot 7.",
+          "custom_position_template_mode_7": "Template combine mode for slot 7 ('or'/'and').",
+          "custom_position_7": "Position (0-100%) for slot 7.",
+          "custom_position_priority_7": "Pipeline priority for slot 7 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
+          "custom_position_min_mode_7": "Treat slot 7's position as a minimum floor.",
+          "custom_position_use_my_7": "Use the My preset for slot 7 instead of its numeric position.",
+          "custom_position_tilt_7": "Explicit slat angle (0-100%) for slot 7 on venetian covers.",
+          "custom_position_tilt_only_7": "Slot 7 fixes only the slat angle; sun tracking drives the position.",
+          "custom_position_sensors_8": "Trigger sensors for slot 8 (OR logic). Leave empty to skip.",
+          "custom_position_template_8": "Optional Jinja2 condition template for slot 8.",
+          "custom_position_template_mode_8": "Template combine mode for slot 8 ('or'/'and').",
+          "custom_position_8": "Position (0-100%) for slot 8.",
+          "custom_position_priority_8": "Pipeline priority for slot 8 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
+          "custom_position_min_mode_8": "Treat slot 8's position as a minimum floor.",
+          "custom_position_use_my_8": "Use the My preset for slot 8 instead of its numeric position.",
+          "custom_position_tilt_8": "Explicit slat angle (0-100%) for slot 8 on venetian covers.",
+          "custom_position_tilt_only_8": "Slot 8 fixes only the slat angle; sun tracking drives the position.",
+          "custom_position_sensors_9": "Trigger sensors for slot 9 (OR logic). Leave empty to skip.",
+          "custom_position_template_9": "Optional Jinja2 condition template for slot 9.",
+          "custom_position_template_mode_9": "Template combine mode for slot 9 ('or'/'and').",
+          "custom_position_9": "Position (0-100%) for slot 9.",
+          "custom_position_priority_9": "Pipeline priority for slot 9 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
+          "custom_position_min_mode_9": "Treat slot 9's position as a minimum floor.",
+          "custom_position_use_my_9": "Use the My preset for slot 9 instead of its numeric position.",
+          "custom_position_tilt_9": "Explicit slat angle (0-100%) for slot 9 on venetian covers.",
+          "custom_position_tilt_only_9": "Slot 9 fixes only the slat angle; sun tracking drives the position.",
+          "custom_position_sensors_10": "Trigger sensors for slot 10 (OR logic). Leave empty to skip.",
+          "custom_position_template_10": "Optional Jinja2 condition template for slot 10.",
+          "custom_position_template_mode_10": "Template combine mode for slot 10 ('or'/'and').",
+          "custom_position_10": "Position (0-100%) for slot 10.",
+          "custom_position_priority_10": "Pipeline priority for slot 10 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
+          "custom_position_min_mode_10": "Treat slot 10's position as a minimum floor.",
+          "custom_position_use_my_10": "Use the My preset for slot 10 instead of its numeric position.",
+          "custom_position_tilt_10": "Explicit slat angle (0-100%) for slot 10 on venetian covers.",
+          "custom_position_tilt_only_10": "Slot 10 fixes only the slat angle; sun tracking drives the position.",
           "default_tilt": "Default tilt angle (0-100%) for venetian covers when no other handler overrides tilt. Applied whenever the default position handler is active. Leave unset to let the engine calculate tilt from sun geometry.",
           "sunset_tilt": "Tilt angle (0-100%) for venetian covers during the sunset window. Overrides default_tilt when the sunset time window is active. Leave unset to fall back to default_tilt."
         }
@@ -341,6 +446,7 @@
         "title": "Weather Override",
         "description": "Configure weather-based safety overrides. Any configured condition triggers cover retraction. Unconfigured inputs are ignored.\n\n[Learn more]({learn_more})",
         "data": {
+          "weather_enabled": "Enable weather override",
           "weather_bypass_auto_control": "Active when Automatic Control is off",
           "weather_wind_speed_sensor": "Wind speed sensor",
           "weather_wind_direction_sensor": "Wind direction sensor (optional)",
@@ -360,13 +466,14 @@
           "weather_timeout": "Clear delay"
         },
         "data_description": {
+          "weather_enabled": "Master switch for weather safety overrides (wind, rain, severe conditions). When off, configured weather sensors are ignored. Existing covers keep this on after upgrade; new covers start off.",
           "weather_bypass_auto_control": "When enabled, weather override will still move covers to the configured position even when the Automatic Control switch is turned off. This ensures wind, rain, and severe weather protection is always active regardless of the automation state. Disable this only if you want weather override to follow the Automatic Control switch.",
           "weather_wind_speed_sensor": "Numeric sensor reporting wind speed. Override activates when the value meets or exceeds the threshold. Leave empty to ignore wind speed.",
           "weather_wind_direction_sensor": "Optional: only trigger wind override when wind blows toward this window's azimuth (within the direction tolerance). Leave empty to trigger on wind speed alone regardless of direction.",
-          "weather_wind_speed_threshold": "Wind speed threshold that activates the override. **Value is interpreted in the configured wind-speed sensor's unit, not Home Assistant's display unit.** Accepts a fixed number or a Home Assistant Jinja2 template that evaluates to a number, re-evaluated each update cycle.",
+          "weather_wind_speed_threshold": "Wind speed threshold that activates the override, expressed in **{wind_unit}** — the configured wind-speed sensor's unit (not Home Assistant's display unit). Accepts a fixed number or a Home Assistant Jinja2 template that evaluates to a number, re-evaluated each update cycle.",
           "weather_wind_direction_tolerance": "How many degrees from the window azimuth to consider wind as 'hitting' this window. Example: window faces south (180°), tolerance 45° → wind from 135°-225° triggers override. Accepts a fixed number or a Home Assistant Jinja2 template that evaluates to a number, re-evaluated each update cycle.",
           "weather_rain_sensor": "Numeric sensor reporting rain rate. Override activates when the value meets or exceeds the threshold. Leave empty to ignore rain rate.",
-          "weather_rain_threshold": "Rain rate threshold that activates the override. **Value is interpreted in the configured rain sensor's unit, not Home Assistant's display unit.** Accepts a fixed number or a Home Assistant Jinja2 template that evaluates to a number, re-evaluated each update cycle.",
+          "weather_rain_threshold": "Rain rate threshold that activates the override, expressed in **{rain_unit}** — the configured rain sensor's unit (not Home Assistant's display unit). Accepts a fixed number or a Home Assistant Jinja2 template that evaluates to a number, re-evaluated each update cycle.",
           "weather_is_raining_sensor": "Binary sensor for rain detection. Override activates when this sensor is 'on'. Leave empty to ignore.",
           "weather_is_raining_template": "Optional Home Assistant Jinja2 template that decides whether it is raining. When it renders truthy (on/true/1) the override engages. How it combines with the Is Raining binary sensor above (OR or AND) is set by 'Is Raining template logic' below; it can stand alone with no sensor and reacts the instant the template flips. Example: derive 'raining' from a numeric rain-rate threshold. A template that is empty or fails to render gives no opinion (no retract). Leave empty to disable.",
           "weather_is_raining_template_mode": "How the Is Raining template combines with the Is Raining binary sensor above. 'OR' (default) — raining when the template is truthy OR the sensor is ON. 'AND' — raining only when the template is truthy AND the sensor is ON. With no sensor configured, the template alone decides in either mode. Only has an effect when an Is Raining template is set above.",
@@ -393,15 +500,33 @@
         "data": {
           "blind_spot_left": "Blind spot left edge (from FOV left)",
           "blind_spot_right": "Blind spot right edge (from FOV left)",
-          "blind_spot_elevation": "Blindspot elevation"
+          "blind_spot_elevation": "Blindspot elevation",
+          "blind_spot_elevation_mode": "Blind spot elevation mode",
+          "blind_spot_left_2": "Blind spot 2 left edge (from FOV left)",
+          "blind_spot_right_2": "Blind spot 2 right edge (from FOV left)",
+          "blind_spot_elevation_2": "Blind spot 2 elevation",
+          "blind_spot_elevation_mode_2": "Blind spot 2 elevation mode",
+          "blind_spot_left_3": "Blind spot 3 left edge (from FOV left)",
+          "blind_spot_right_3": "Blind spot 3 right edge (from FOV left)",
+          "blind_spot_elevation_3": "Blind spot 3 elevation",
+          "blind_spot_elevation_mode_3": "Blind spot 3 elevation mode"
         },
         "data_description": {
           "blind_spot_left": "Left edge of the blind spot zone (horizontal angle in degrees from your FOV left boundary). Where 0 = at the leftmost FOV edge. Example: If your FOV left is 45° and a tree blocks sun from 10-20° relative to that edge, set this to 10. This marks where the obstruction begins horizontally. Use sun position sensor or observe when sun is blocked to find this value.",
           "blind_spot_right": "Right edge of the blind spot zone (horizontal angle in degrees from your FOV left boundary, must be > left edge). Example: If your FOV left is 45° and a tree blocks sun from 10-20° relative to that edge, set this to 20. This marks where the obstruction ends horizontally. Creates a 'don't track sun here' zone between left and right edges.",
-          "blind_spot_elevation": "Maximum sun elevation (degrees above horizon) where blind spot applies. Example: Roof overhang blocks sun only when low (< 30°) so set to 30. Higher elevation sun clears the obstacle, so blind spot doesn't apply. If obstacle blocks all elevations (tall building), set to 90 or leave high. Sun elevation: 0°=horizon, 45°=halfway up, 90°=directly overhead. Measure or estimate based on obstacle height and distance."
+          "blind_spot_elevation": "Sun elevation (degrees above horizon) threshold where the blind spot applies. Pair with the elevation mode: in 'below' mode the spot blocks sun at or below this angle (e.g. a roof overhang that only blocks low sun — set to 30); in 'above' mode it blocks sun at or above this angle (e.g. a balcony overhead — set to 50). Sun elevation: 0°=horizon, 45°=halfway up, 90°=directly overhead.",
+          "blind_spot_elevation_mode": "Which side of the elevation threshold the blind spot covers. 'Below' (default) blocks LOW sun (a tree or roof overhang); 'Above' blocks HIGH sun (an overhead obstacle like a balcony or deep recess). Only matters when an elevation is set.",
+          "blind_spot_left_2": "Optional second blind-spot slot. Left edge in degrees from your FOV left boundary. Leave this and the right edge unset to disable slot 2.",
+          "blind_spot_right_2": "Right edge of the second blind-spot slot (degrees from FOV left, must be greater than slot 2's left edge).",
+          "blind_spot_elevation_2": "Sun elevation threshold where slot 2 applies (paired with slot 2's elevation mode). Leave unset to apply at all elevations.",
+          "blind_spot_elevation_mode_2": "Which side of slot 2's elevation threshold it covers: 'Below' blocks low sun, 'Above' blocks high sun. Only matters when slot 2's elevation is set.",
+          "blind_spot_left_3": "Optional third blind-spot slot. Left edge in degrees from your FOV left boundary. Leave this and the right edge unset to disable slot 3.",
+          "blind_spot_right_3": "Right edge of the third blind-spot slot (degrees from FOV left, must be greater than slot 3's left edge).",
+          "blind_spot_elevation_3": "Sun elevation threshold where slot 3 applies (paired with slot 3's elevation mode). Leave unset to apply at all elevations.",
+          "blind_spot_elevation_mode_3": "Which side of slot 3's elevation threshold it covers: 'Below' blocks low sun, 'Above' blocks high sun. Only matters when slot 3's elevation is set."
         },
         "title": "Blind Spot",
-        "description": "Define areas where obstacles block the sun (trees, buildings, roof overhangs). These angular values are relative degrees within your field of view, where 0 is the leftmost FOV boundary. The cover will ignore sun position when it falls within this blind spot zone.\n\n[Learn more]({learn_more})"
+        "description": "Define up to 3 independent areas where obstacles block the sun (trees, buildings, roof overhangs). The sun is ignored when it falls inside any one of them. These angular values are relative degrees within your field of view, where 0 is the leftmost FOV boundary. Leave a slot's left and right edges unset to skip it.\n\n[Learn more]({learn_more})"
       },
       "glare_zones": {
         "title": "Glare Zones",
@@ -545,7 +670,8 @@
           "presence_template": "Presence template (optional)",
           "presence_template_mode": "Presence template logic",
           "transparent_blind": "Transparent blind",
-          "winter_close_insulation": "Winter insulation mode"
+          "winter_close_insulation": "Winter insulation mode",
+          "summer_close_bypass_sun_floor": "Full close in summer heat"
         },
         "data_description": {
           "climate_mode": "Turn on to enable all climate-based cover control. When off, all settings on this screen are ignored and the cover follows normal sun/glare tracking.",
@@ -558,7 +684,66 @@
           "presence_template": "Optional Home Assistant Jinja2 template that reports occupancy. When it renders truthy (on/true/1) the space counts as occupied; when falsy it is treated as empty. How it combines with the Presence entity above (OR or AND) is set by 'Presence template logic' below; it can stand alone with no entity. Use this for composite occupancy (e.g. anyone home AND awake). A template that is empty or fails to render gives no opinion, so the Presence entity logic decides. Leave empty to disable.",
           "presence_template_mode": "How the Presence template combines with the Presence entity above. 'OR' (default) — occupied when the template is truthy OR the entity is active. 'AND' — occupied only when the template is truthy AND the entity is active. With no entity configured, the template alone decides in either mode. Only has an effect when a Presence template is set above.",
           "transparent_blind": "Closes the blind fully in summer even when occupants are present. Without this, an opaque blind follows glare-control sun tracking in summer instead of closing. Enable it for sheer or translucent material — or for any blind you want fully closed for heat protection when people are home.",
-          "winter_close_insulation": "When enabled, the cover closes fully (0%) during winter when the sun is not directly hitting the window, helping to trap heat indoors. Has no effect when the sun is on the window (the cover opens to capture solar heat)."
+          "winter_close_insulation": "When enabled, the cover closes fully (0%) during winter when the sun is not directly hitting the window, helping to trap heat indoors. Has no effect when the sun is on the window (the cover opens to capture solar heat).",
+          "summer_close_bypass_sun_floor": "When enabled, summer heat-blocking closes the cover all the way to the global minimum position, ignoring the higher 'minimum position when sun is in view' floor. Use this for full heat protection in summer even while the sun is directly on the window. Has no effect outside summer, and the maximum-position limit still applies."
+        }
+      },
+      "create_building_profile": {
+        "title": "Create Building Profile",
+        "description": "Name the profile and select the shared building-level sensors it provides. Linked covers copy these sensor entities into their own configuration. Leave a field blank to let each cover keep its own local sensor.\n\n[Learn more]({learn_more})",
+        "data": {
+          "name": "Name",
+          "cloud_coverage_entity": "Cloud coverage sensor (optional)",
+          "daytime_gate_sensors": "Daytime gate sensors",
+          "daytime_gate_template": "Daytime gate template (optional)",
+          "irradiance_entity": "Irradiance sensor (optional)",
+          "is_sunny_sensor": "Is Sunny binary sensor (optional)",
+          "is_sunny_template": "Is Sunny template (optional)",
+          "lux_entity": "Lux sensor (optional)",
+          "outside_temp": "Outside temperature sensor (optional)",
+          "sunrise_time_entity": "Sunrise Time Entity",
+          "sunset_time_entity": "Sunset Time Entity",
+          "weather_entity": "Weather entity (optional)",
+          "weather_is_raining_sensor": "Is Raining binary sensor",
+          "weather_is_raining_template": "Is Raining template (optional)",
+          "weather_is_windy_sensor": "Is Windy binary sensor",
+          "weather_is_windy_template": "Is Windy template (optional)",
+          "weather_rain_sensor": "Rain rate sensor",
+          "weather_severe_sensors": "Severe weather sensors (hail, frost, storm, etc.)",
+          "weather_wind_direction_sensor": "Wind direction sensor (optional)",
+          "weather_wind_speed_sensor": "Wind speed sensor"
+        },
+        "data_description": {
+          "name": "A friendly name for this building profile.",
+          "cloud_coverage_entity": "Optional cloud coverage sensor reporting 0–100% (e.g. from a weather integration). When the reading reaches the threshold, glare control is suppressed and the cover returns to its default position. Leave empty if you don't have this sensor.",
+          "daytime_gate_sensors": "Optional binary sensors (or input_boolean / switch / schedule) that decide when it is 'daytime' for sun tracking. When ON the integration sun-tracks; when OFF it applies the Sunset Position. Use a lux 'bright enough' binary sensor so real light — not the clock — opens and closes the tracking window: covers keep tracking on bright evenings past astronomical sunset, and stay at the sunset position on dark, overcast mornings. When set, this REPLACES the astronomical sunset/sunrise boundary (Sunset/Sunrise Offset are ignored). An unavailable or unknown sensor is treated as daytime, so tracking never stops just because a sensor hasn't reported. Leave empty to use the astronomical sunset/sunrise calculation.",
+          "daytime_gate_template": "Optional Home Assistant Jinja2 template that decides 'daytime' for sun tracking. When it renders truthy (on/true/1) the integration sun-tracks; when falsy it applies the Sunset Position. How it combines with the gate sensors above (OR or AND) is set by 'Daytime gate template logic' below. It can stand alone with no sensors. Example: a Sun2 elevation template, or a lux comparison. A template that fails to render is treated as daytime, so a broken template never forces a premature sunset. When set (alone or with sensors), this REPLACES the astronomical sunset/sunrise boundary. Leave empty to disable.",
+          "irradiance_entity": "Optional solar irradiance sensor (outdoor) for precise sun detection. Measures solar power in W/m². When the sensor reads below the threshold, direct sun is absent and glare control is suppressed. Leave empty if you don't have this sensor.",
+          "is_sunny_sensor": "Optional binary sensor, input_boolean, switch, or schedule that authoritatively reports whether the sun is hitting the window. When ON, sun is assumed present; when OFF, sun is assumed absent and cloud suppression fires regardless of weather state. When unavailable or unknown, the integration falls back to the Weather Entity / Weather Conditions logic below. Use this when you compute sun-on-window upstream (e.g. azimuth-gated irradiance) and want to feed Adaptive Cover Pro a clean boolean.",
+          "is_sunny_template": "Optional Home Assistant Jinja2 template that decides whether the sun is on the window. When it renders truthy (on/true/1) sun is assumed present; when falsy it is assumed absent and cloud suppression fires. How it combines with the Is Sunny binary sensor above (OR or AND) is set by 'Is Sunny template logic' below; it can stand alone with no sensor. Example: an azimuth/elevation comparison, or a lux threshold. A template that is empty or fails to render gives no opinion, so the integration falls back to the sensor and then the Weather Entity / Weather Conditions logic. Leave empty to disable.",
+          "lux_entity": "Optional illuminance sensor (indoor or outdoor) for precise sun detection. When the sensor reads below the threshold, direct sun is absent and glare control is suppressed. Typical direct-sun values: 5,000–10,000 lux. Leave empty if you don't have this sensor.",
+          "outside_temp": "Optional outdoor temperature sensor. When provided, this reading (rather than the indoor sensor) determines the current season, and the outside threshold guard is applied to prevent summer-close behavior on cold days.",
+          "sunrise_time_entity": "Optional entity whose state is a datetime (e.g. Sun2 'sunrise at -4° elevation'). When set, replaces the astral-computed sunrise time as the morning window-close boundary. Accepts sensor or input_datetime entities. Sunrise Offset still applies on top. Falls back to astral if the entity is unavailable.",
+          "sunset_time_entity": "Optional entity whose state is a datetime (e.g. Sun2 'sunset at -4° elevation'). When set, replaces the astral-computed sunset time as the window boundary. Accepts sensor or input_datetime entities reporting an ISO-8601 datetime. Sunset Offset still applies on top. Falls back to astral if the entity is unavailable.",
+          "weather_entity": "Optional weather integration used to detect cloud cover. When the current weather state is not in the selected list below, direct sun is assumed absent and glare control is suppressed. Leave empty to ignore weather state.",
+          "weather_is_raining_sensor": "Binary sensor for rain detection. Override activates when this sensor is 'on'. Leave empty to ignore.",
+          "weather_is_raining_template": "Optional Home Assistant Jinja2 template that decides whether it is raining. When it renders truthy (on/true/1) the override engages. How it combines with the Is Raining binary sensor above (OR or AND) is set by 'Is Raining template logic' below; it can stand alone with no sensor and reacts the instant the template flips. Example: derive 'raining' from a numeric rain-rate threshold. A template that is empty or fails to render gives no opinion (no retract). Leave empty to disable.",
+          "weather_is_windy_sensor": "Binary sensor for wind detection. Override activates when this sensor is 'on'. Leave empty to ignore.",
+          "weather_is_windy_template": "Optional Home Assistant Jinja2 template that decides whether it is windy. When it renders truthy (on/true/1) the override engages. How it combines with the Is Windy binary sensor above (OR or AND) is set by 'Is Windy template logic' below; it can stand alone with no sensor and reacts the instant the template flips. Example: derive 'windy' from a numeric wind-speed threshold. A template that is empty or fails to render gives no opinion (no retract). Leave empty to disable.",
+          "weather_rain_sensor": "Numeric sensor reporting rain rate. Override activates when the value meets or exceeds the threshold. Leave empty to ignore rain rate.",
+          "weather_severe_sensors": "Binary sensors for severe conditions (hail, frost, thunderstorm, etc.). Override activates when ANY sensor is 'on'. Leave empty to ignore.",
+          "weather_wind_direction_sensor": "Optional: only trigger wind override when wind blows toward this window's azimuth (within the direction tolerance). Leave empty to trigger on wind speed alone regardless of direction.",
+          "weather_wind_speed_sensor": "Numeric sensor reporting wind speed. Override activates when the value meets or exceeds the threshold. Leave empty to ignore wind speed."
+        }
+      },
+      "building_profile": {
+        "title": "Building Profile",
+        "description": "Link this cover to a Building Profile to share building-level sensors across covers. Linking copies the profile's sensors into this cover; blank profile fields keep this cover's own values.\n\n[Learn more]({learn_more})",
+        "data": {
+          "building_profile_id": "Building Profile"
+        },
+        "data_description": {
+          "building_profile_id": "Link this cover to a Building Profile to inherit its shared building-level sensors. Select 'None (unlinked)' to skip profile linking and manage this cover's sensors locally."
         }
       }
     },
@@ -570,7 +755,7 @@
   "options": {
     "step": {
       "init": {
-        "description": "Configuring: **{instance_name}**\n\nIf Adaptive Cover Pro has been useful, you can [☕ Buy Me a Coffee]({coffee_url}).",
+        "description": "Configuring: **{instance_name}**{profile_line}\n\nIf Adaptive Cover Pro has been useful, you can [☕ Buy Me a Coffee]({coffee_url}).",
         "menu_options": {
           "cover_entities": "🪟 Covers & Device",
           "geometry": "📐 Cover Geometry",
@@ -592,7 +777,11 @@
           "debug": "🔍 Debug & Diagnostics",
           "done": "✅ Save & Close",
           "light_cloud": "☁️ Light Sensors & Cloud",
-          "temperature_climate": "🌡️ Temperature & Climate"
+          "temperature_climate": "🌡️ Temperature & Climate",
+          "building_profile": "🏢 Building Profile",
+          "profile_sensors": "📡 Shared Sensors",
+          "profile_overview": "🏢 Profile Overview",
+          "profile_overrides": "🧹 Local Overrides"
         }
       },
       "pipeline_priorities": {
@@ -669,6 +858,8 @@
           "slat_depth": "Slat Depth",
           "slat_distance": "Slat Spacing",
           "venetian_tilt_skip_above": "Skip Tilt Above Position (%)",
+          "venetian_tilt_reset_threshold": "Venetian drift-reset threshold (accumulated tilt %)",
+          "venetian_tilt_reset_direction": "Drift-reset direction",
           "venetian_mode": "Operating Mode",
           "venetian_post_settle_hold": "Post-settle Hold (s)",
           "venetian_backrotate_publish_lag": "Publish-lag window (s)",
@@ -679,7 +870,9 @@
           "awning_min_angle": "Arm Angle When Closed",
           "awning_max_angle": "Arm Angle When Fully Open",
           "awning_housing_offset": "Housing Offset Above Window",
-          "awning_pivot_offset": "Pivot Offset From Window"
+          "awning_pivot_offset": "Pivot Offset From Window",
+          "roof_pitch": "Roof Pitch",
+          "roof_height_above": "Roof Height Above Window"
         },
         "data_description": {
           "window_height": "Height of your window (from bottom to top of the glass area). Shown in the unit Home Assistant is configured for. Examples: Standard door = 2.0 m / 79 in, Small window = 1.5 m / 59 in, Floor-to-ceiling = 2.5 m / 98 in. Measure from where the cover starts to where it ends when fully extended.",
@@ -692,6 +885,8 @@
           "slat_depth": "Width of each slat (measure one slat front to back). Shown in the unit Home Assistant is configured for. Common sizes: Mini blinds = 2.5 cm / 1 in, Standard blinds = 5 cm / 2 in, Wide slats = 6.5–7.5 cm / 2.5–3 in. Measure a single slat with a ruler for precise sun blocking calculation.",
           "slat_distance": "Vertical spacing between slat centres. Shown in the unit Home Assistant is configured for. Measure from the middle of one slat to the middle of the next slat (vertically). Usually slightly more than slat depth to allow overlap when closed. Common: 3–8 cm / 1.2–3 in depending on blind type. Used to calculate optimal tilt angle.",
           "venetian_tilt_skip_above": "When the cover is commanded above this position (0–100%), the tilt command is skipped. At high positions the slats retract into the housing and tilting is physically meaningless. Default 95%. Increase if your blind tilts correctly near the top; decrease if it tries to tilt when fully raised.",
+          "venetian_tilt_reset_threshold": "Drive the slats fully open and back to flush accumulated mechanical drift once this much commanded tilt change has accumulated. 0 disables drift reset.",
+          "venetian_tilt_reset_direction": "Which way the drift-reset drives the slats before returning to the target. **Open** (default): drive fully open, then back — the original behaviour. **Close**: drive fully closed, then back. Choose Close when the cover sits near-closed during tracking (a quieter, faster reset) or when your actuator re-zeroes the slats on a close command.",
           "venetian_mode": "How the venetian blind uses both axes when the sun is in the tracking window. **Position and tilt** (default): the cover lowers to the calculated position and the slats tilt to the optimal angle — best for combined shading and privacy. **Tilt only**: the cover stays closed (position 0%) and only the slat angle tracks the sun — best when you always want full coverage and want continuous glare control via tilt.",
           "venetian_post_settle_hold": "How long (in seconds) to wait after the carriage settles before sending the tilt command. Default 2.0 s suits most actuators. Raise to 4–6 s for KNX FGR223 or other firmware that re-asserts a tilt-to-open shortly after the carriage stops — without the extra hold the tilt command races that re-assert and loses. Range 0.0–10.0 s.",
           "venetian_backrotate_publish_lag": "How long (in seconds) the integration tolerates a late position-state publish from your actuator before treating it as a real user touch. Default 45 s suits Somfy IO via Tahoma. Increase to 60–120 s if your hardware (slow KNX bus, Fibaro/Shelly republish) publishes the post-move current_position long after the cover has physically stopped — symptom is spurious 'manual_override_set' events fired ~30–90 s after a commanded move. Decrease only if you have an unusually fast actuator and want tighter false-touch detection. Range 15–180 s.",
@@ -702,7 +897,9 @@
           "awning_min_angle": "Arm angle when the awning is fully closed/retracted (0–180°). Typically 0° = arm vertical against the wall. Defines the start of the sweep arc.",
           "awning_max_angle": "Arm angle when the awning is fully open (0–180°). The arm sweeps linearly from the closed angle to this value across 0–100% open. Example: a 175° total sweep ≈ 1.75° per 1%.",
           "awning_housing_offset": "Vertical offset of the arm pivot above the top of the window (0–1 m). Combined with window height and arm length to locate the pivot. Set 0 when the housing sits flush with the window top.",
-          "awning_pivot_offset": "Horizontal distance from the awning arm pivot (fabric plane) to the window glass (0–2 m). At low sun this lets the dropped fabric shade lower on the glass, because the fabric stands off the pane. Set this to the housing/arm standoff from the wall plus any window inset/reveal — use 0 when the fabric hangs flush against the glass. Example: 0.7 m / 28 in for an arm mounted well off the wall."
+          "awning_pivot_offset": "Horizontal distance from the awning arm pivot (fabric plane) to the window glass (0–2 m). At low sun this lets the dropped fabric shade lower on the glass, because the fabric stands off the pane. Set this to the housing/arm standoff from the wall plus any window inset/reveal — use 0 when the fabric hangs flush against the glass. Example: 0.7 m / 28 in for an arm mounted well off the wall.",
+          "roof_pitch": "Pitch of the roof glass measured FROM HORIZONTAL (0–90°). 0° = a flat skylight (sun lets in whenever it is above the horizon); 90° = a vertical window (behaves exactly like a vertical blind). Typical Velux-style roof windows are 30–50°. If you are migrating from the vertical-blind workaround that used a max-elevation limit, this pitch is the complement of that angle (e.g. a 35° roof ↔ a ~55° max-elevation workaround).",
+          "roof_height_above": "Along-slope distance from the top of the window up to the roof ridge (0–10 m). When > 0 the roof above the window can hide the sun once it swings past the ridge and drops low (the ridge occlusion gate). Set 0 (default) to disable the gate — e.g. a window sitting right at the ridge with no roof above it. Shown in the unit Home Assistant is configured for."
         }
       },
       "sun_tracking": {
@@ -742,6 +939,8 @@
           "enable_max_position": "Apply max only during sun tracking",
           "min_position": "Minimum Position",
           "enable_min_position": "Apply min only during sun tracking",
+          "enforce_delta_at_endpoints": "Enforce position delta at fully-open/closed endpoints",
+          "endpoint_use_open_close": "Use open/close commands at the fully-open/closed endpoints",
           "min_position_sun_tracking": "Min Position During Sun Tracking",
           "sunset_position": "Sunset Position",
           "end_of_window_position": "End-of-Window Position",
@@ -753,10 +952,12 @@
         },
         "data_description": {
           "default_percentage": "Cover position when sun is not in front of window (0-100%). 0% = closed (blinds lowered / awning retracted), 50% = half open (balanced light and privacy), 100% = open (blinds raised / awning extended). This is the 'rest position' used when sun tracking is not active (sun is behind the window, blocked by obstacles, or outside tracking hours).",
-          "max_position": "Maximum cover position limit (0-100%). 100% = open (blinds raised / awning extended). Cover will never go above this value. Use this to: prevent cover from fully opening (set to 80%), keep some shade at all times (set to 60-70%), protect from jamming at top (set to 95%). This creates an upper boundary for all automatic positions. On venetian blinds this constrains the carriage (vertical) axis only — slat tilt is computed from sun geometry and is not capped here.",
-          "enable_max_position": "Controls WHEN maximum position limit applies. UNCHECKED (default, recommended): Maximum position applies ALL THE TIME - during sun tracking, default position, climate modes, etc. Cover never goes above max value. CHECKED (advanced): Maximum position ONLY applies when sun is directly in front of window. During default/fallback states, cover can go above max value. Most users should leave this UNCHECKED for consistent protection.",
-          "min_position": "Minimum cover position limit (0-99%). 0% = closed (blinds lowered / awning retracted). Cover will never go below this value. Use this to: prevent cover from fully closing (set to 20%), maintain some light (set to 30-40%), protect from jamming at bottom (set to 5%). This creates a lower boundary for all automatic positions. Works with 'Apply min only during sun tracking' toggle below.",
-          "enable_min_position": "Controls WHEN minimum position limit applies. UNCHECKED (default, recommended): Minimum position applies ALL THE TIME - during sun tracking, default position, climate modes, etc. Cover never goes below min value. CHECKED (advanced): Minimum position ONLY applies when sun is directly in front of window. During default/fallback states, cover can go below min value. Most users should leave this UNCHECKED for consistent protection.",
+          "max_position": "Maximum cover position limit (0-100%). 100% = open (blinds raised / awning extended). Use this to: prevent cover from fully opening (set to 80%), keep some shade at all times (set to 60-70%), protect from jamming at top (set to 95%). ACP clamps every CALCULATED position to at most this value (sun tracking, default/rest, climate, cloud suppression, motion timeout, glare, manual-override recovery). Explicitly-configured fixed targets are sent as you set them and are NOT clamped to this ceiling: the Sunset Position (exempt by design), Custom Position slots (exact mode), the Weather Override position, and the My preset. On venetian blinds this constrains the carriage (vertical) axis only — slat tilt is computed from sun geometry and is not capped here.",
+          "enable_max_position": "Controls WHEN the maximum position limit applies to CALCULATED positions. UNCHECKED (default, recommended): Maximum Position applies all the time - sun tracking, default position, climate modes, etc. CHECKED (advanced): Maximum Position only applies when the sun is directly in front of the window; during default/fallback states the cover can go above the max value. Either way, explicitly-configured fixed targets (Sunset Position, Custom Positions, Weather Override, My preset) are sent as you set them and are not capped by this ceiling. Most users should leave this UNCHECKED for consistent protection.",
+          "min_position": "Minimum cover position limit (0-99%). 0% = closed (blinds lowered / awning retracted). Use this to: prevent cover from fully closing (set to 20%), maintain some light (set to 30-40%), protect from jamming at bottom (set to 5%). ACP clamps every CALCULATED position to at least this value (sun tracking, default/rest, climate, cloud suppression, motion timeout, glare, manual-override recovery). Explicitly-configured fixed targets are sent as you set them and are NOT clamped to this floor: the Sunset Position (exempt by design so covers can fully close at night), Custom Position slots (exact mode), the Weather Override position, and the My preset — set those at or above this value (or use their 'minimum position mode') for a hard floor everywhere. On venetian blinds this constrains the carriage (vertical) axis only. Works with 'Apply min only during sun tracking' toggle below.",
+          "enable_min_position": "Controls WHEN the minimum position limit applies to CALCULATED positions. UNCHECKED (default, recommended): Minimum Position applies all the time - sun tracking, default position, climate modes, etc. CHECKED (advanced): Minimum Position only applies when the sun is directly in front of the window; during default/fallback states the cover can go below the min value. Either way, explicitly-configured fixed targets (Sunset Position, Custom Positions, Weather Override, My preset) are sent as you set them and are not capped by this floor. Most users should leave this UNCHECKED for consistent protection.",
+          "enforce_delta_at_endpoints": "Controls whether the minimum-change position delta is respected even for the fully-open (100%) and fully-closed (0%) targets. UNCHECKED (default): commands to 0% and 100% always send, bypassing the delta gate — a full close or open is never silently skipped. CHECKED: the delta gate applies to the 0% and 100% endpoints too, so a move toward a full endpoint smaller than the configured delta is suppressed. Enable this on mechanically coupled covers where commanding a full endpoint disturbs the slat tilt (e.g. a venetian whose carriage and slats share one motor), to stop the cover from repeatedly chasing an unreachable endpoint. Most users should leave this UNCHECKED.",
+          "endpoint_use_open_close": "Controls which Home Assistant service is sent when the cover should go to a full endpoint. CHECKED (default): a final position of 100% sends cover.open_cover and a final position of 0% sends cover.close_cover, instead of cover.set_cover_position(100/0). Targets between 1% and 99% always use set_cover_position. Many motors run a more reliable full traverse from the dedicated open/close command than from a set-position to the very end. If the cover does not expose open/close, the integration falls back to set_cover_position automatically. This setting has no effect on tilt-only covers (the slat axis is never sent open/close). UNCHECKED: always use set_cover_position, including at 0% and 100%.",
           "min_position_sun_tracking": "Optional separate minimum position floor that only applies while the sun is in the field of view. When set, replaces 'Minimum Position' during sun-tracking calculations. Leave blank to use 'Minimum Position' for both sun-tracking and other modes. Use this when your cover has a mechanical dead zone at the bottom of travel (e.g. roller shutters whose slats gap before the bottom lifts) and you want sun-tracking to skip that dead zone while still allowing the cover to fully close at sunset. 0% = closed (blinds lowered), 100% = open (blinds raised).",
           "sunset_position": "Cover position to set after sunset. Clear the slider (leave empty) to use the Default Position instead — no special sunset behavior. 0% = closed (blinds lowered / awning retracted), 100% = open (blinds raised / awning extended). Common uses: Privacy (0%), Open for night air (100%), Partial privacy (30-50%). When set, this overrides the default position after sun sets.",
           "end_of_window_position": "Cover position to set at the operational end time, regardless of astronomical sunset. Clear the slider (leave empty) to disable. Requires 'Move covers to current default position when end time is reached' to be on. When both this and Sunset Position are set, this applies from the end time until astronomical sunset, then the Sunset Position takes over. 0% = closed (blinds lowered / awning retracted), 100% = open (blinds raised / awning extended). Useful when your end time is well before sunset (e.g. 19:30 in summer) and you want covers closed for the evening.",
@@ -769,7 +970,7 @@
       },
       "behavior": {
         "title": "Behaviour (Timing & Thresholds)",
-        "description": "Tune how the cover behaves once a position is chosen: sunset/sunrise timing adjustments, the position-match tolerance and matching toggle, and inverse-state. These are not target positions — every percentage value lives on the Position Settings step; this step holds only the timing and threshold knobs.\n\n[Learn more]({learn_more})",
+        "description": "Tune how the cover behaves once a position is chosen: sunset/sunrise timing adjustments, the position-match tolerance and matching toggle, and inverse-state. These are not target positions — every percentage value lives on the Position Settings step; this step holds only the timing and threshold knobs.\n\n[Learn more]({learn_more})\n\n{profile_inherit}",
         "data": {
           "sunset_time_entity": "Sunset Time Entity",
           "sunrise_time_entity": "Sunrise Time Entity",
@@ -806,6 +1007,7 @@
           "manual_threshold": "Manual override threshold",
           "manual_ignore_intermediate": "Ignore intermediate positions during manual override (opening and closing)",
           "manual_ignore_external": "Only engage manual override from Adaptive Cover Pro commands",
+          "manual_override_input_entities": "Input sensors that trigger manual override",
           "transit_timeout": "Transit timeout (seconds)"
         },
         "data_description": {
@@ -814,12 +1016,13 @@
           "manual_threshold": "Position difference (%) that counts as 'manual override' (default: 1%). If you manually move cover by this amount, override detection triggers. Typical values: 1-2% (sensitive, detects small adjustments), 5% (less sensitive, recommended), 10% (only large manual changes count). Prevents accidental override detection from small motor drifts or position reporting variations.",
           "manual_ignore_intermediate": "Ignore intermediate positions during manual opening and closing operations. Enable this to prevent override detection from transitional positions while the cover is moving to your target position. Useful if your cover reports many intermediate values during movement.",
           "manual_ignore_external": "When enabled, only position changes sent through the Adaptive Cover Pro proxy entity or the adaptive_cover_pro.set_position service engage manual override. Position changes from other sources (other automations, the default Home Assistant cover card, physical or RF remotes) are ignored and automatic control continues uninterrupted. Useful when you only ever drive the cover via ACP itself and want noisy external state changes to not pause automation. Default: off.",
+          "manual_override_input_entities": "Binary sensors (or switches/input_booleans) whose off-to-on transition engages manual override on every cover in this instance. Intended for a physical wall switch wired to an input (e.g. a Shelly 2PM exposing binary_sensor.*_cover_input_0): pressing it pauses automatic control for the override duration instead of inferring a manual move from the cover's position. Combine with 'Only engage manual override from Adaptive Cover Pro commands' to make these sensors the sole override trigger. Default: none.",
           "transit_timeout": "How long ACP waits after a cover stops reporting forward progress before treating the next position report as a user-initiated manual override. The timer resets each time the cover moves closer to its commanded target, so slow-but-moving covers are protected for the full transit. Increase this value for covers that take longer than 45 seconds to complete a full traverse. Default: 45 seconds."
         }
       },
       "custom_position": {
         "title": "Custom Positions",
-        "description": "Configure trigger sensors and/or condition templates that set the cover to specific positions when active. Each slot has its own triggers (multiple sensors combine with OR logic), optional template, target position, and pipeline priority (1-100). Each active slot is evaluated independently — the highest-priority active slot wins. Priority 100 gives a slot safety semantics: it acts outside the start/end time window and bypasses the delta gates (this replaces the former Force Override feature). Use Home Assistant automations to toggle these sensors for scene-based or schedule-based cover control.\n\n[Learn more]({learn_more})\n\n**Decision priority** — where each configured slot's priority lands against the fixed handlers (highest wins). This reflects the last saved priorities; it refreshes when the form re-renders, not live as you drag the slider:\n{priority_scale}",
+        "description": "Configure trigger sensors and/or condition templates that set the cover to specific positions when active. Each slot has its own triggers (multiple sensors combine with OR logic), optional template, target position, and pipeline priority (1-100). Each active slot is evaluated independently — the highest-priority active slot wins. Priority 100 gives a slot safety semantics: it bypasses the automatic-control toggle, manual override, and the start/end time window (so it can move the cover even when automatic control is OFF), and bypasses the delta gates (this replaces the former Force Override feature). Use Home Assistant automations to toggle these sensors for scene-based or schedule-based cover control.\n\n[Learn more]({learn_more})\n\n**Decision priority** — where each configured slot's priority lands against the fixed handlers (highest wins). This reflects the last saved priorities; it refreshes when the form re-renders, not live as you drag the slider:\n{priority_scale}",
         "data": {
           "custom_position_sensors_1": "Sensors 1",
           "custom_position_template_1": "Condition template 1",
@@ -866,6 +1069,51 @@
           "custom_position_use_my_5": "Slot 5: use My position",
           "custom_position_tilt_5": "Slot 5: tilt",
           "custom_position_tilt_only_5": "Slot 5: tilt only",
+          "custom_position_sensors_6": "Sensors 6",
+          "custom_position_template_6": "Condition template 6",
+          "custom_position_template_mode_6": "Template combine mode 6",
+          "custom_position_6": "Position for Slot 6",
+          "custom_position_priority_6": "Priority for Slot 6",
+          "custom_position_min_mode_6": "Minimum mode for Slot 6",
+          "custom_position_use_my_6": "Slot 6: use My position",
+          "custom_position_tilt_6": "Slot 6: tilt",
+          "custom_position_tilt_only_6": "Slot 6: tilt only",
+          "custom_position_sensors_7": "Sensors 7",
+          "custom_position_template_7": "Condition template 7",
+          "custom_position_template_mode_7": "Template combine mode 7",
+          "custom_position_7": "Position for Slot 7",
+          "custom_position_priority_7": "Priority for Slot 7",
+          "custom_position_min_mode_7": "Minimum mode for Slot 7",
+          "custom_position_use_my_7": "Slot 7: use My position",
+          "custom_position_tilt_7": "Slot 7: tilt",
+          "custom_position_tilt_only_7": "Slot 7: tilt only",
+          "custom_position_sensors_8": "Sensors 8",
+          "custom_position_template_8": "Condition template 8",
+          "custom_position_template_mode_8": "Template combine mode 8",
+          "custom_position_8": "Position for Slot 8",
+          "custom_position_priority_8": "Priority for Slot 8",
+          "custom_position_min_mode_8": "Minimum mode for Slot 8",
+          "custom_position_use_my_8": "Slot 8: use My position",
+          "custom_position_tilt_8": "Slot 8: tilt",
+          "custom_position_tilt_only_8": "Slot 8: tilt only",
+          "custom_position_sensors_9": "Sensors 9",
+          "custom_position_template_9": "Condition template 9",
+          "custom_position_template_mode_9": "Template combine mode 9",
+          "custom_position_9": "Position for Slot 9",
+          "custom_position_priority_9": "Priority for Slot 9",
+          "custom_position_min_mode_9": "Minimum mode for Slot 9",
+          "custom_position_use_my_9": "Slot 9: use My position",
+          "custom_position_tilt_9": "Slot 9: tilt",
+          "custom_position_tilt_only_9": "Slot 9: tilt only",
+          "custom_position_sensors_10": "Sensors 10",
+          "custom_position_template_10": "Condition template 10",
+          "custom_position_template_mode_10": "Template combine mode 10",
+          "custom_position_10": "Position for Slot 10",
+          "custom_position_priority_10": "Priority for Slot 10",
+          "custom_position_min_mode_10": "Minimum mode for Slot 10",
+          "custom_position_use_my_10": "Slot 10: use My position",
+          "custom_position_tilt_10": "Slot 10: tilt",
+          "custom_position_tilt_only_10": "Slot 10: tilt only",
           "default_tilt": "Default Tilt",
           "sunset_tilt": "Sunset Tilt"
         },
@@ -874,7 +1122,7 @@
           "custom_position_template_1": "Optional Jinja2 template; when it renders truthy it activates the slot. Combined with the sensors per the combine mode below.",
           "custom_position_template_mode_1": "How the template combines with the sensors: 'or' (default) — the template OR any sensor activates the slot; 'and' — the template must be truthy AND a sensor on.",
           "custom_position_1": "Position (0-100%) to move covers to when Slot 1 is active. 0% = closed, 100% = open.",
-          "custom_position_priority_1": "Pipeline priority (1-100). Higher = evaluated before lower-priority handlers. Default 77 sits between Manual Override (80) and Motion Timeout (75). Set above 80 to override manual moves; set below 40 to only apply when sun tracking is inactive. 100 = safety: the slot acts outside the time window and bypasses delta gates (the former Force Override behavior).",
+          "custom_position_priority_1": "Pipeline priority (1-100). Higher = evaluated before lower-priority handlers. Default 77 sits between Manual Override (80) and Motion Timeout (75). Set above 80 to override manual moves; set below 40 to only apply when sun tracking is inactive. 100 = safety: the slot bypasses the automatic-control toggle, manual override, and the start/end time window — it can move the cover even when automatic control is OFF — and also bypasses the delta gates (the former Force Override behavior).",
           "custom_position_min_mode_1": "When enabled, the position acts as a minimum floor — higher positions from sun tracking or other calculations are allowed through. When disabled (default), the cover is always set to the exact configured position.",
           "custom_position_use_my_1": "When slot 1's trigger is active, trigger the cover's My preset instead of the slot's numeric position. Requires My position value to be set.",
           "custom_position_tilt_1": "Tilt angle (0-100%) to set when Slot 1's sensor is active. Venetian covers only — ignored for other cover types. Leave unset to let the engine calculate tilt automatically.",
@@ -883,7 +1131,7 @@
           "custom_position_template_2": "Optional Jinja2 condition template for slot 2.",
           "custom_position_template_mode_2": "Template combine mode for slot 2 ('or'/'and').",
           "custom_position_2": "Position (0-100%) for slot 2.",
-          "custom_position_priority_2": "Pipeline priority for slot 2 (1-100, default 77; 100 = safety).",
+          "custom_position_priority_2": "Pipeline priority for slot 2 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
           "custom_position_min_mode_2": "Treat slot 2's position as a minimum floor.",
           "custom_position_use_my_2": "Use the My preset for slot 2 instead of its numeric position.",
           "custom_position_tilt_2": "Tilt angle (0-100%) to set when Slot 2's sensor is active. Venetian covers only. Leave unset to let the engine calculate tilt automatically.",
@@ -892,7 +1140,7 @@
           "custom_position_template_3": "Optional Jinja2 condition template for slot 3.",
           "custom_position_template_mode_3": "Template combine mode for slot 3 ('or'/'and').",
           "custom_position_3": "Position (0-100%) for slot 3.",
-          "custom_position_priority_3": "Pipeline priority for slot 3 (1-100, default 77; 100 = safety).",
+          "custom_position_priority_3": "Pipeline priority for slot 3 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
           "custom_position_min_mode_3": "Treat slot 3's position as a minimum floor.",
           "custom_position_use_my_3": "Use the My preset for slot 3 instead of its numeric position.",
           "custom_position_tilt_3": "Tilt angle (0-100%) to set when Slot 3's sensor is active. Venetian covers only. Leave unset to let the engine calculate tilt automatically.",
@@ -901,7 +1149,7 @@
           "custom_position_template_4": "Optional Jinja2 condition template for slot 4.",
           "custom_position_template_mode_4": "Template combine mode for slot 4 ('or'/'and').",
           "custom_position_4": "Position (0-100%) for slot 4.",
-          "custom_position_priority_4": "Pipeline priority for slot 4 (1-100, default 77; 100 = safety).",
+          "custom_position_priority_4": "Pipeline priority for slot 4 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
           "custom_position_min_mode_4": "Treat slot 4's position as a minimum floor.",
           "custom_position_use_my_4": "Use the My preset for slot 4 instead of its numeric position.",
           "custom_position_tilt_4": "Tilt angle (0-100%) to set when Slot 4's sensor is active. Venetian covers only. Leave unset to let the engine calculate tilt automatically.",
@@ -910,11 +1158,56 @@
           "custom_position_template_5": "Optional Jinja2 condition template for slot 5.",
           "custom_position_template_mode_5": "Template combine mode for slot 5 ('or'/'and').",
           "custom_position_5": "Position (0-100%) for slot 5.",
-          "custom_position_priority_5": "Pipeline priority for slot 5 (1-100, default 77; 100 = safety).",
+          "custom_position_priority_5": "Pipeline priority for slot 5 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
           "custom_position_min_mode_5": "Treat slot 5's position as a minimum floor.",
           "custom_position_use_my_5": "Use the My preset for slot 5 instead of its numeric position.",
           "custom_position_tilt_5": "Explicit slat angle (0-100%) for slot 5 on venetian covers.",
           "custom_position_tilt_only_5": "Slot 5 fixes only the slat angle; sun tracking drives the position.",
+          "custom_position_sensors_6": "Trigger sensors for slot 6 (OR logic). Leave empty to skip.",
+          "custom_position_template_6": "Optional Jinja2 condition template for slot 6.",
+          "custom_position_template_mode_6": "Template combine mode for slot 6 ('or'/'and').",
+          "custom_position_6": "Position (0-100%) for slot 6.",
+          "custom_position_priority_6": "Pipeline priority for slot 6 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
+          "custom_position_min_mode_6": "Treat slot 6's position as a minimum floor.",
+          "custom_position_use_my_6": "Use the My preset for slot 6 instead of its numeric position.",
+          "custom_position_tilt_6": "Explicit slat angle (0-100%) for slot 6 on venetian covers.",
+          "custom_position_tilt_only_6": "Slot 6 fixes only the slat angle; sun tracking drives the position.",
+          "custom_position_sensors_7": "Trigger sensors for slot 7 (OR logic). Leave empty to skip.",
+          "custom_position_template_7": "Optional Jinja2 condition template for slot 7.",
+          "custom_position_template_mode_7": "Template combine mode for slot 7 ('or'/'and').",
+          "custom_position_7": "Position (0-100%) for slot 7.",
+          "custom_position_priority_7": "Pipeline priority for slot 7 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
+          "custom_position_min_mode_7": "Treat slot 7's position as a minimum floor.",
+          "custom_position_use_my_7": "Use the My preset for slot 7 instead of its numeric position.",
+          "custom_position_tilt_7": "Explicit slat angle (0-100%) for slot 7 on venetian covers.",
+          "custom_position_tilt_only_7": "Slot 7 fixes only the slat angle; sun tracking drives the position.",
+          "custom_position_sensors_8": "Trigger sensors for slot 8 (OR logic). Leave empty to skip.",
+          "custom_position_template_8": "Optional Jinja2 condition template for slot 8.",
+          "custom_position_template_mode_8": "Template combine mode for slot 8 ('or'/'and').",
+          "custom_position_8": "Position (0-100%) for slot 8.",
+          "custom_position_priority_8": "Pipeline priority for slot 8 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
+          "custom_position_min_mode_8": "Treat slot 8's position as a minimum floor.",
+          "custom_position_use_my_8": "Use the My preset for slot 8 instead of its numeric position.",
+          "custom_position_tilt_8": "Explicit slat angle (0-100%) for slot 8 on venetian covers.",
+          "custom_position_tilt_only_8": "Slot 8 fixes only the slat angle; sun tracking drives the position.",
+          "custom_position_sensors_9": "Trigger sensors for slot 9 (OR logic). Leave empty to skip.",
+          "custom_position_template_9": "Optional Jinja2 condition template for slot 9.",
+          "custom_position_template_mode_9": "Template combine mode for slot 9 ('or'/'and').",
+          "custom_position_9": "Position (0-100%) for slot 9.",
+          "custom_position_priority_9": "Pipeline priority for slot 9 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
+          "custom_position_min_mode_9": "Treat slot 9's position as a minimum floor.",
+          "custom_position_use_my_9": "Use the My preset for slot 9 instead of its numeric position.",
+          "custom_position_tilt_9": "Explicit slat angle (0-100%) for slot 9 on venetian covers.",
+          "custom_position_tilt_only_9": "Slot 9 fixes only the slat angle; sun tracking drives the position.",
+          "custom_position_sensors_10": "Trigger sensors for slot 10 (OR logic). Leave empty to skip.",
+          "custom_position_template_10": "Optional Jinja2 condition template for slot 10.",
+          "custom_position_template_mode_10": "Template combine mode for slot 10 ('or'/'and').",
+          "custom_position_10": "Position (0-100%) for slot 10.",
+          "custom_position_priority_10": "Pipeline priority for slot 10 (1-100, default 77; 100 = safety: bypasses auto-control, manual override, and the time window).",
+          "custom_position_min_mode_10": "Treat slot 10's position as a minimum floor.",
+          "custom_position_use_my_10": "Use the My preset for slot 10 instead of its numeric position.",
+          "custom_position_tilt_10": "Explicit slat angle (0-100%) for slot 10 on venetian covers.",
+          "custom_position_tilt_only_10": "Slot 10 fixes only the slat angle; sun tracking drives the position.",
           "default_tilt": "Default tilt angle (0-100%) for venetian covers when no other handler overrides tilt. Applied whenever the default position handler is active. Leave unset to let the engine calculate tilt from sun geometry.",
           "sunset_tilt": "Tilt angle (0-100%) for venetian covers during the sunset window. Overrides default_tilt when the sunset time window is active. Leave unset to fall back to default_tilt."
         }
@@ -941,8 +1234,9 @@
       },
       "weather_override": {
         "title": "Weather Override",
-        "description": "Configure weather-based safety overrides. Any configured condition triggers cover retraction. Unconfigured inputs are ignored.\n\n[Learn more]({learn_more})",
+        "description": "Configure weather-based safety overrides. Any configured condition triggers cover retraction. Unconfigured inputs are ignored.\n\n[Learn more]({learn_more})\n\n{profile_inherit}",
         "data": {
+          "weather_enabled": "Enable weather override",
           "weather_bypass_auto_control": "Active when Automatic Control is off",
           "weather_wind_speed_sensor": "Wind speed sensor",
           "weather_wind_direction_sensor": "Wind direction sensor (optional)",
@@ -962,13 +1256,14 @@
           "weather_timeout": "Clear delay"
         },
         "data_description": {
+          "weather_enabled": "Master switch for weather safety overrides (wind, rain, severe conditions). When off, configured weather sensors are ignored. Existing covers keep this on after upgrade; new covers start off.",
           "weather_bypass_auto_control": "When enabled, weather override will still move covers to the configured position even when the Automatic Control switch is turned off. This ensures wind, rain, and severe weather protection is always active regardless of the automation state. Disable this only if you want weather override to follow the Automatic Control switch.",
           "weather_wind_speed_sensor": "Numeric sensor reporting wind speed. Override activates when the value meets or exceeds the threshold. Leave empty to ignore wind speed.",
           "weather_wind_direction_sensor": "Optional: only trigger wind override when wind blows toward this window's azimuth (within the direction tolerance). Leave empty to trigger on wind speed alone regardless of direction.",
-          "weather_wind_speed_threshold": "Wind speed threshold that activates the override. **Value is interpreted in the configured wind-speed sensor's unit, not Home Assistant's display unit.** Accepts a fixed number or a Home Assistant Jinja2 template that evaluates to a number, re-evaluated each update cycle.",
+          "weather_wind_speed_threshold": "Wind speed threshold that activates the override, expressed in **{wind_unit}** — the configured wind-speed sensor's unit (not Home Assistant's display unit). Accepts a fixed number or a Home Assistant Jinja2 template that evaluates to a number, re-evaluated each update cycle.",
           "weather_wind_direction_tolerance": "How many degrees from the window azimuth to consider wind as 'hitting' this window. Example: window faces south (180°), tolerance 45° → wind from 135°-225° triggers override. Accepts a fixed number or a Home Assistant Jinja2 template that evaluates to a number, re-evaluated each update cycle.",
           "weather_rain_sensor": "Numeric sensor reporting rain rate. Override activates when the value meets or exceeds the threshold. Leave empty to ignore rain rate.",
-          "weather_rain_threshold": "Rain rate threshold that activates the override. **Value is interpreted in the configured rain sensor's unit, not Home Assistant's display unit.** Accepts a fixed number or a Home Assistant Jinja2 template that evaluates to a number, re-evaluated each update cycle.",
+          "weather_rain_threshold": "Rain rate threshold that activates the override, expressed in **{rain_unit}** — the configured rain sensor's unit (not Home Assistant's display unit). Accepts a fixed number or a Home Assistant Jinja2 template that evaluates to a number, re-evaluated each update cycle.",
           "weather_is_raining_sensor": "Binary sensor for rain detection. Override activates when this sensor is 'on'. Leave empty to ignore.",
           "weather_is_raining_template": "Optional Home Assistant Jinja2 template that decides whether it is raining. When it renders truthy (on/true/1) the override engages. How it combines with the Is Raining binary sensor above (OR or AND) is set by 'Is Raining template logic' below; it can stand alone with no sensor and reacts the instant the template flips. Example: derive 'raining' from a numeric rain-rate threshold. A template that is empty or fails to render gives no opinion (no retract). Leave empty to disable.",
           "weather_is_raining_template_mode": "How the Is Raining template combines with the Is Raining binary sensor above. 'OR' (default) — raining when the template is truthy OR the sensor is ON. 'AND' — raining only when the template is truthy AND the sensor is ON. With no sensor configured, the template alone decides in either mode. Only has an effect when an Is Raining template is set above.",
@@ -995,15 +1290,33 @@
         "data": {
           "blind_spot_left": "Blind spot left edge (from FOV left)",
           "blind_spot_right": "Blind spot right edge (from FOV left)",
-          "blind_spot_elevation": "Blindspot elevation"
+          "blind_spot_elevation": "Blindspot elevation",
+          "blind_spot_elevation_mode": "Blind spot elevation mode",
+          "blind_spot_left_2": "Blind spot 2 left edge (from FOV left)",
+          "blind_spot_right_2": "Blind spot 2 right edge (from FOV left)",
+          "blind_spot_elevation_2": "Blind spot 2 elevation",
+          "blind_spot_elevation_mode_2": "Blind spot 2 elevation mode",
+          "blind_spot_left_3": "Blind spot 3 left edge (from FOV left)",
+          "blind_spot_right_3": "Blind spot 3 right edge (from FOV left)",
+          "blind_spot_elevation_3": "Blind spot 3 elevation",
+          "blind_spot_elevation_mode_3": "Blind spot 3 elevation mode"
         },
         "data_description": {
           "blind_spot_left": "Left edge of the blind spot zone (horizontal angle in degrees from your FOV left boundary). Where 0 = at the leftmost FOV edge. Example: If your FOV left is 45° and a tree blocks sun from 10-20° relative to that edge, set this to 10. This marks where the obstruction begins horizontally. Use sun position sensor or observe when sun is blocked to find this value.",
           "blind_spot_right": "Right edge of the blind spot zone (horizontal angle in degrees from your FOV left boundary, must be > left edge). Example: If your FOV left is 45° and a tree blocks sun from 10-20° relative to that edge, set this to 20. This marks where the obstruction ends horizontally. Creates a 'don't track sun here' zone between left and right edges.",
-          "blind_spot_elevation": "Maximum sun elevation (degrees above horizon) where blind spot applies. Example: Roof overhang blocks sun only when low (< 30°) so set to 30. Higher elevation sun clears the obstacle, so blind spot doesn't apply. If obstacle blocks all elevations (tall building), set to 90 or leave high. Sun elevation: 0°=horizon, 45°=halfway up, 90°=directly overhead. Measure or estimate based on obstacle height and distance."
+          "blind_spot_elevation": "Sun elevation (degrees above horizon) threshold where the blind spot applies. Pair with the elevation mode: in 'below' mode the spot blocks sun at or below this angle (e.g. a roof overhang that only blocks low sun — set to 30); in 'above' mode it blocks sun at or above this angle (e.g. a balcony overhead — set to 50). Sun elevation: 0°=horizon, 45°=halfway up, 90°=directly overhead.",
+          "blind_spot_elevation_mode": "Which side of the elevation threshold the blind spot covers. 'Below' (default) blocks LOW sun (a tree or roof overhang); 'Above' blocks HIGH sun (an overhead obstacle like a balcony or deep recess). Only matters when an elevation is set.",
+          "blind_spot_left_2": "Optional second blind-spot slot. Left edge in degrees from your FOV left boundary. Leave this and the right edge unset to disable slot 2.",
+          "blind_spot_right_2": "Right edge of the second blind-spot slot (degrees from FOV left, must be greater than slot 2's left edge).",
+          "blind_spot_elevation_2": "Sun elevation threshold where slot 2 applies (paired with slot 2's elevation mode). Leave unset to apply at all elevations.",
+          "blind_spot_elevation_mode_2": "Which side of slot 2's elevation threshold it covers: 'Below' blocks low sun, 'Above' blocks high sun. Only matters when slot 2's elevation is set.",
+          "blind_spot_left_3": "Optional third blind-spot slot. Left edge in degrees from your FOV left boundary. Leave this and the right edge unset to disable slot 3.",
+          "blind_spot_right_3": "Right edge of the third blind-spot slot (degrees from FOV left, must be greater than slot 3's left edge).",
+          "blind_spot_elevation_3": "Sun elevation threshold where slot 3 applies (paired with slot 3's elevation mode). Leave unset to apply at all elevations.",
+          "blind_spot_elevation_mode_3": "Which side of slot 3's elevation threshold it covers: 'Below' blocks low sun, 'Above' blocks high sun. Only matters when slot 3's elevation is set."
         },
         "title": "Blind Spot",
-        "description": "Define areas where obstacles block the sun (trees, buildings, roof overhangs). These angular values are relative degrees within your field of view, where 0 is the leftmost FOV boundary. The cover will ignore sun position when it falls within this blind spot zone.\n\n[Learn more]({learn_more})"
+        "description": "Define up to 3 independent areas where obstacles block the sun (trees, buildings, roof overhangs). The sun is ignored when it falls inside any one of them. These angular values are relative degrees within your field of view, where 0 is the leftmost FOV boundary. Leave a slot's left and right edges unset to skip it.\n\n[Learn more]({learn_more})"
       },
       "interp": {
         "data": {
@@ -1108,7 +1421,7 @@
       },
       "light_cloud": {
         "title": "Light Sensors & Cloud Suppression",
-        "description": "**Glare suppression in low light.** The first toggle below is the master on/off for this feature — leave it off and the rest of this screen is ignored. When on, set the optional **Cloudy position** the cover parks at when suppression fires (leave blank to use the default position).\n\nThe remaining sensors tell the integration *when* the sun is absent — any one of weather state, lux, solar irradiance, or cloud coverage will trigger suppression. Configure only the sensors you actually have; any single match is enough.\n\n[Learn more]({learn_more})",
+        "description": "**Glare suppression in low light.** The first toggle below is the master on/off for this feature — leave it off and the rest of this screen is ignored. When on, set the optional **Cloudy position** the cover parks at when suppression fires (leave blank to use the default position).\n\nThe remaining sensors tell the integration *when* the sun is absent — any one of weather state, lux, solar irradiance, or cloud coverage will trigger suppression. Configure only the sensors you actually have; any single match is enough.\n\n[Learn more]({learn_more})\n\n{profile_inherit}",
         "data": {
           "weather_entity": "Weather entity (optional)",
           "is_sunny_sensor": "Is Sunny binary sensor (optional)",
@@ -1142,7 +1455,7 @@
       },
       "temperature_climate": {
         "title": "Temperature & Climate Mode",
-        "description": "Climate mode adjusts cover position based on indoor/outdoor temperature, presence, and whether the sun is actually hitting the window. When disabled, the cover follows normal sun/glare tracking.\n\n**How the season is chosen** — The current temperature is the outside sensor if provided, otherwise the inside sensor.\n- **Winter** — current temp is below the low threshold.\n- **Summer** — current temp is above the high threshold **and** outside temp is above the outside threshold (prevents summer behavior on a cold day).\n- **Intermediate** — neither of the above; normal solar/glare tracking runs.\n\n**What each mode does**\n- **Winter + sun on window** → open fully (100%) to capture free solar heat.\n- **Winter, sun not on window**, *Winter insulation mode* on → close fully (0%) to trap heat.\n- **Summer** → close fully (0%) to block heat gain. For blinds, this only happens with presence if *Transparent blind* is on; without presence it always closes.\n- **Low light** (cloudy / dark / not sunny) → returns to the default position, overriding summer-close so covers don't close needlessly.\n- **Intermediate / sun valid with presence** → normal glare-control tracking.\n\n**Presence** gates the behavior: with nobody home, a simpler summer-closed / winter-open rule applies; with occupants present, glare tracking runs in intermediate conditions and transparent blinds still close in summer.\n\n**Tilt covers** follow the same seasonal logic but use slat angles instead of open/closed positions.\n\nLeave *Outside temperature sensor* and *Presence entity* blank to skip those checks. Climate mode runs after force/weather/manual/custom overrides but before normal solar tracking.\n\n[Learn more]({learn_more})",
+        "description": "Climate mode adjusts cover position based on indoor/outdoor temperature, presence, and whether the sun is actually hitting the window. When disabled, the cover follows normal sun/glare tracking.\n\n**How the season is chosen** — The current temperature is the outside sensor if provided, otherwise the inside sensor.\n- **Winter** — current temp is below the low threshold.\n- **Summer** — current temp is above the high threshold **and** outside temp is above the outside threshold (prevents summer behavior on a cold day).\n- **Intermediate** — neither of the above; normal solar/glare tracking runs.\n\n**What each mode does**\n- **Winter + sun on window** → open fully (100%) to capture free solar heat.\n- **Winter, sun not on window**, *Winter insulation mode* on → close fully (0%) to trap heat.\n- **Summer** → close fully (0%) to block heat gain. For blinds, this only happens with presence if *Transparent blind* is on; without presence it always closes.\n- **Low light** (cloudy / dark / not sunny) → returns to the default position, overriding summer-close so covers don't close needlessly.\n- **Intermediate / sun valid with presence** → normal glare-control tracking.\n\n**Presence** gates the behavior: with nobody home, a simpler summer-closed / winter-open rule applies; with occupants present, glare tracking runs in intermediate conditions and transparent blinds still close in summer.\n\n**Tilt covers** follow the same seasonal logic but use slat angles instead of open/closed positions.\n\nLeave *Outside temperature sensor* and *Presence entity* blank to skip those checks. Climate mode runs after force/weather/manual/custom overrides but before normal solar tracking.\n\n[Learn more]({learn_more})\n\n{profile_inherit}",
         "data": {
           "climate_mode": "Enable climate mode",
           "temp_entity": "Inside temperature entity",
@@ -1154,7 +1467,8 @@
           "presence_template": "Presence template (optional)",
           "presence_template_mode": "Presence template logic",
           "transparent_blind": "Transparent blind",
-          "winter_close_insulation": "Winter insulation mode"
+          "winter_close_insulation": "Winter insulation mode",
+          "summer_close_bypass_sun_floor": "Full close in summer heat"
         },
         "data_description": {
           "climate_mode": "Turn on to enable all climate-based cover control. When off, all settings on this screen are ignored and the cover follows normal sun/glare tracking.",
@@ -1167,7 +1481,75 @@
           "presence_template": "Optional Home Assistant Jinja2 template that reports occupancy. When it renders truthy (on/true/1) the space counts as occupied; when falsy it is treated as empty. How it combines with the Presence entity above (OR or AND) is set by 'Presence template logic' below; it can stand alone with no entity. Use this for composite occupancy (e.g. anyone home AND awake). A template that is empty or fails to render gives no opinion, so the Presence entity logic decides. Leave empty to disable.",
           "presence_template_mode": "How the Presence template combines with the Presence entity above. 'OR' (default) — occupied when the template is truthy OR the entity is active. 'AND' — occupied only when the template is truthy AND the entity is active. With no entity configured, the template alone decides in either mode. Only has an effect when a Presence template is set above.",
           "transparent_blind": "Closes the blind fully in summer even when occupants are present. Without this, an opaque blind follows glare-control sun tracking in summer instead of closing. Enable it for sheer or translucent material — or for any blind you want fully closed for heat protection when people are home.",
-          "winter_close_insulation": "When enabled, the cover closes fully (0%) during winter when the sun is not directly hitting the window, helping to trap heat indoors. Has no effect when the sun is on the window (the cover opens to capture solar heat)."
+          "winter_close_insulation": "When enabled, the cover closes fully (0%) during winter when the sun is not directly hitting the window, helping to trap heat indoors. Has no effect when the sun is on the window (the cover opens to capture solar heat).",
+          "summer_close_bypass_sun_floor": "When enabled, summer heat-blocking closes the cover all the way to the global minimum position, ignoring the higher 'minimum position when sun is in view' floor. Use this for full heat protection in summer even while the sun is directly on the window. Has no effect outside summer, and the maximum-position limit still applies."
+        }
+      },
+      "building_profile": {
+        "title": "Building Profile",
+        "description": "Link this cover to a Building Profile to share building-level sensors across covers. Linking copies the profile's sensors into this cover; blank profile fields keep this cover's own values.\n\n[Learn more]({learn_more})",
+        "data": {
+          "building_profile_id": "Building Profile"
+        },
+        "data_description": {
+          "building_profile_id": "Link this cover to a Building Profile to inherit its shared building-level sensors. Select 'None (unlinked)' to manage this cover's sensors locally."
+        }
+      },
+      "profile_sensors": {
+        "title": "Building Profile — Shared Sensors",
+        "description": "Edit the building-level sensor entity IDs shared across linked covers. Linked covers inherit these sensors; leave a field blank to let each cover keep its own local value.\n\n[Learn more]({learn_more})",
+        "data": {
+          "cloud_coverage_entity": "Cloud coverage sensor (optional)",
+          "daytime_gate_sensors": "Daytime gate sensors",
+          "daytime_gate_template": "Daytime gate template (optional)",
+          "irradiance_entity": "Irradiance sensor (optional)",
+          "is_sunny_sensor": "Is Sunny binary sensor (optional)",
+          "is_sunny_template": "Is Sunny template (optional)",
+          "lux_entity": "Lux sensor (optional)",
+          "outside_temp": "Outside temperature sensor (optional)",
+          "sunrise_time_entity": "Sunrise Time Entity",
+          "sunset_time_entity": "Sunset Time Entity",
+          "weather_entity": "Weather entity (optional)",
+          "weather_is_raining_sensor": "Is Raining binary sensor",
+          "weather_is_raining_template": "Is Raining template (optional)",
+          "weather_is_windy_sensor": "Is Windy binary sensor",
+          "weather_is_windy_template": "Is Windy template (optional)",
+          "weather_rain_sensor": "Rain rate sensor",
+          "weather_severe_sensors": "Severe weather sensors (hail, frost, storm, etc.)",
+          "weather_wind_direction_sensor": "Wind direction sensor (optional)",
+          "weather_wind_speed_sensor": "Wind speed sensor"
+        },
+        "data_description": {
+          "cloud_coverage_entity": "Optional cloud coverage sensor reporting 0–100% (e.g. from a weather integration). When the reading reaches the threshold, glare control is suppressed and the cover returns to its default position. Leave empty if you don't have this sensor.",
+          "daytime_gate_sensors": "Optional binary sensors (or input_boolean / switch / schedule) that decide when it is 'daytime' for sun tracking. When ON the integration sun-tracks; when OFF it applies the Sunset Position. Leave empty to use the astronomical sunset/sunrise calculation.",
+          "daytime_gate_template": "Optional Home Assistant Jinja2 template that decides 'daytime' for sun tracking. Leave empty to disable.",
+          "irradiance_entity": "Optional solar irradiance sensor (outdoor) for precise sun detection. Measures solar power in W/m². Leave empty if you don't have this sensor.",
+          "is_sunny_sensor": "Optional binary sensor, input_boolean, switch, or schedule that authoritatively reports whether the sun is hitting the window. Leave empty to use weather/lux logic.",
+          "is_sunny_template": "Optional Home Assistant Jinja2 template that decides whether the sun is on the window. Leave empty to disable.",
+          "lux_entity": "Optional illuminance sensor (indoor or outdoor) for precise sun detection. Leave empty if you don't have this sensor.",
+          "outside_temp": "Optional outdoor temperature sensor. When provided, this reading determines the current season for all linked covers.",
+          "sunrise_time_entity": "Optional entity whose state is a datetime (e.g. Sun2 'sunrise at -4° elevation'). Falls back to astral if unavailable.",
+          "sunset_time_entity": "Optional entity whose state is a datetime (e.g. Sun2 'sunset at -4° elevation'). Falls back to astral if unavailable.",
+          "weather_entity": "Optional weather integration used to detect cloud cover. Leave empty to ignore weather state.",
+          "weather_is_raining_sensor": "Binary sensor for rain detection. Override activates when this sensor is 'on'. Leave empty to ignore.",
+          "weather_is_raining_template": "Optional Home Assistant Jinja2 template that decides whether it is raining. Leave empty to disable.",
+          "weather_is_windy_sensor": "Binary sensor for wind detection. Override activates when this sensor is 'on'. Leave empty to ignore.",
+          "weather_is_windy_template": "Optional Home Assistant Jinja2 template that decides whether it is windy. Leave empty to disable.",
+          "weather_rain_sensor": "Numeric sensor reporting rain rate. Override activates when the value meets or exceeds the threshold. Leave empty to ignore rain rate.",
+          "weather_severe_sensors": "Binary sensors for severe conditions (hail, frost, thunderstorm, etc.). Override activates when ANY sensor is 'on'. Leave empty to ignore.",
+          "weather_wind_direction_sensor": "Optional: only trigger wind override when wind blows toward this window's azimuth. Leave empty to trigger on wind speed alone.",
+          "weather_wind_speed_sensor": "Numeric sensor reporting wind speed. Override activates when the value meets or exceeds the threshold. Leave empty to ignore wind speed."
+        }
+      },
+      "profile_overview": {
+        "title": "Building Profile — Overview",
+        "description": "{overview}"
+      },
+      "profile_overrides": {
+        "title": "Building Profile — Local Overrides",
+        "description": "Sensors a linked cover has overridden, or set locally where this profile leaves them blank. Select any to reset — an overridden sensor re-inherits the profile value; a local sensor is cleared.\n\n{overrides}",
+        "data": {
+          "clear_overrides": "Clear selected overrides"
         }
       }
     },
@@ -1181,6 +1563,9 @@
   },
   "entity": {
     "sensor": {
+      "solar_calculation": {
+        "name": "Solar Calculation"
+      },
       "control_status": {
         "state": {
           "force_override_active": "Force override active",
@@ -1251,6 +1636,13 @@
           "off": "Off"
         }
       },
+      "sun_tracking": {
+        "name": "Sun Tracking",
+        "state": {
+          "on": "On",
+          "off": "Off"
+        }
+      },
       "motion_control": {
         "name": "Motion Control",
         "state": {
@@ -1284,7 +1676,8 @@
         "cover_awning": "Horizontal blind",
         "cover_tilt": "Tilted blind",
         "cover_venetian": "Venetian blind (dual-axis)",
-        "cover_oscillating_awning": "Oscillating awning (drop-arm)"
+        "cover_oscillating_awning": "Oscillating awning (drop-arm)",
+        "cover_roof_window": "Roof window"
       }
     },
     "tilt_mode": {
@@ -1297,6 +1690,12 @@
       "options": {
         "or": "OR — occupied if the template is true or a sensor is active (default)",
         "and": "AND — require the template to be true and a sensor active"
+      }
+    },
+    "blind_spot_elevation_mode": {
+      "options": {
+        "below": "Below — blocks low sun (tree or roof overhang)",
+        "above": "Above — blocks high sun (overhead obstacle, e.g. balcony)"
       }
     },
     "debug_categories": {
@@ -1664,6 +2063,10 @@
         "winter_close_insulation": {
           "name": "Close for winter insulation",
           "description": "If true, fully close the cover on cold days to improve insulation."
+        },
+        "summer_close_bypass_sun_floor": {
+          "name": "Full close in summer heat",
+          "description": "If true, summer climate-close ignores the sun-in-FOV minimum floor and reaches the global minimum position."
         }
       }
     },
@@ -1785,7 +2188,11 @@
         },
         "blind_spot_elevation": {
           "name": "Elevation limit",
-          "description": "Maximum sun elevation (°) for the blind spot to apply. Null = always apply."
+          "description": "Sun elevation (°) threshold for the blind spot. Null = always apply."
+        },
+        "blind_spot_elevation_mode": {
+          "name": "Elevation mode",
+          "description": "Which side of the elevation threshold the blind spot covers: 'below' (default) blocks low sun (a tree or roof overhang); 'above' blocks high sun (an overhead obstacle like a balcony or deep recess)."
         }
       }
     },
@@ -1908,6 +2315,20 @@
         "force": {
           "name": "Force",
           "description": "When true, bypass the priority pipeline check and skip manual-override engagement. Default false — service calls respect force_override / weather and engage manual override like a dashboard slider."
+        }
+      }
+    },
+    "set_tilt": {
+      "name": "Set tilt",
+      "description": "Sets the slat/tilt axis of the cover. On venetian (dual-axis) covers this drives only the tilt slats and leaves the carriage untouched; on cover types whose primary axis already is the tilt it behaves like a tilt move. By default the call engages manual override; set force=true to skip manual-override engagement (matching set_position's force semantics).",
+      "fields": {
+        "tilt": {
+          "name": "Tilt",
+          "description": "Target tilt (0–100%)."
+        },
+        "force": {
+          "name": "Force",
+          "description": "When true, skip manual-override engagement. Default false — service calls engage manual override like a dashboard slider."
         }
       }
     }

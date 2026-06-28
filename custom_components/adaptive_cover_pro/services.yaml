@@ -89,6 +89,39 @@ set_position:
       selector:
         boolean:
 
+set_tilt:
+  name: Set tilt
+  description: >-
+    Set the slat/tilt axis of the targeted covers. On venetian (dual-axis)
+    covers this drives ONLY the tilt slats and leaves the carriage untouched;
+    on cover types whose primary axis already is the tilt it behaves like a
+    tilt move. By default the call engages manual override; set force=true to
+    skip manual-override engagement (matching set_position's force semantics).
+  target:
+    entity:
+      integration: adaptive_cover_pro
+  fields:
+    tilt:
+      name: Tilt
+      description: "Target tilt (0–100%)."
+      required: true
+      selector:
+        number:
+          min: 0
+          max: 100
+          step: 1
+          mode: slider
+          unit_of_measurement: "%"
+    force:
+      name: Force
+      description: >-
+        When true, skip manual-override engagement. Default false — service
+        calls engage manual override like a dashboard slider.
+      required: false
+      default: false
+      selector:
+        boolean:
+
 set_position_limits:
   name: Set position limits
   description: >-
@@ -349,7 +382,7 @@ set_force_override:
 set_custom_position:
   name: Set custom position slot
   description: >-
-    Update one custom position slot (1–5). A slot is active when it has a
+    Update one custom position slot (1–10). A slot is active when it has a
     trigger (sensors and/or template) and a position. Pass an empty list and
     null position to clear the slot. Priority 100 gives the slot safety
     semantics: it acts outside the time window and bypasses delta gates.
@@ -620,6 +653,11 @@ set_climate:
       description: "If true, fully close the cover on cold days to improve insulation."
       selector:
         boolean:
+    summer_close_bypass_sun_floor:
+      name: Full close in summer heat
+      description: "If true, summer climate-close ignores the sun-in-FOV minimum floor and reaches the global minimum position."
+      selector:
+        boolean:
 
 set_weather_safety:
   name: Set weather safety settings
@@ -847,7 +885,7 @@ set_blind_spot:
           unit_of_measurement: "°"
     blind_spot_elevation:
       name: Blind spot elevation
-      description: "Maximum sun elevation (°) for the blind spot to apply. Null = always apply."
+      description: "Sun elevation (°) threshold for the blind spot. Null = always apply."
       selector:
         number:
           min: 0
@@ -855,6 +893,18 @@ set_blind_spot:
           step: 1
           mode: slider
           unit_of_measurement: "°"
+    blind_spot_elevation_mode:
+      name: Blind spot elevation mode
+      description: >-
+        Which side of the elevation threshold the blind spot covers. 'below'
+        (default) blocks LOW sun (sol_elev ≤ threshold) — a tree or roof
+        overhang. 'above' blocks HIGH sun (sol_elev ≥ threshold) — an overhead
+        obstacle like a balcony or deep recess.
+      selector:
+        select:
+          options:
+            - below
+            - above
 
 set_interpolation:
   name: Set interpolation

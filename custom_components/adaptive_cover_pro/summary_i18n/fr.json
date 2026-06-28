@@ -12,7 +12,8 @@
     "decision_priority": "**Priorité de décision** (la plus élevée gagne, ✅ actif ❌ non configuré)"
   },
   "cover": {
-    "type_with_entities": "{type_label} contrôlant {entity_str}"
+    "type_with_entities": "{type_label} contrôlant {entity_str}",
+    "building_profile": "🏢 Lié au profil de bâtiment : {name}"
   },
   "words": {
     "sensor_singular": "détecteur",
@@ -48,7 +49,8 @@
     "condition_default": "condition météorologique",
     "condition_join": " ou ",
     "delay": " (attend {delay}s après dégagement)",
-    "bypass": " ⚠️ arrête toute automatisation pendant l'activation"
+    "bypass": " ⚠️ arrête toute automatisation pendant l'activation",
+    "disabled_warning": "🌧️ Sécurité météo : ⚠️ capteurs configurés mais la fonction est DÉSACTIVÉE — les surcharges météo sont ignorées"
   },
   "manual": {
     "pauses_for": "pause pendant {duration}",
@@ -56,7 +58,8 @@
     "resets_on_move": "réinitialise au prochain mouvement",
     "ignore_intermediate": "ignore les positions intermédiaires",
     "ignore_external": "ACP uniquement (ignore les mouvements externes)",
-    "transit_timeout": "délai d'attente de transit : {seconds}s"
+    "transit_timeout": "délai d'attente de transit : {seconds}s",
+    "input_entities": "dérogation capteur d'entrée : {count} capteur(s)"
   },
   "custom": {
     "tilt_note": ", inclinaison {tilt}%",
@@ -72,7 +75,8 @@
     "mode2_min_position": "⚠️ Inclinaison MODE2 + position min {min_pos}% — en MODE2 l'angle de lamelle ouvert (horizontal) EST 50%, donc toute position min ≥ 50 réduit à néant chaque décision de contrôle climatique/éblouissement au plancher et le store cesse de bloquer la chaleur.",
     "somfy_my_unset": "⚠️ Préréglage Somfy My est activé pour une ou plusieurs cibles mais Valeur du préréglage My n'est pas définie — revient au % configuré.",
     "proxy_no_min": "⚠️ Store mandataire est activé mais aucun emplacement de position personnalisée n'a Utiliser comme minimum activé — le store géré ne limitera pas.",
-    "custom_and_no_sensors": "⚠️ Personnalisé #{slot} : le mode de combinaison ET est défini mais aucun capteur déclencheur n'est configuré — le template seul active le slot."
+    "custom_and_no_sensors": "⚠️ Personnalisé #{slot} : le mode de combinaison ET est défini mais aucun capteur déclencheur n'est configuré — le template seul active le slot.",
+    "custom_safety_bypass": "⚠️ L'emplacement personnalisé #{slot} est à la priorité de sécurité ({safety}) — il contourne l'interrupteur de contrôle automatique, la dérogation manuelle et la fenêtre horaire de début/fin, pour que le store puisse se déplacer même quand le contrôle automatique est DÉSACTIVÉ et en dehors de votre horaire. Réduisez sa priorité en dessous de {safety} pour qu'elle respecte ces seuils."
   },
   "motion": {
     "action_hold": "stores maintiennent la position actuelle (reviennent au défaut quand le soleil quitte le FOV)",
@@ -106,7 +110,8 @@
     "weather": "météo : {entity}",
     "presence": "présence : {entity}",
     "transparent": "store transparent",
-    "winter_close": "ferme complètement en hiver pour l'isolation"
+    "winter_close": "ferme complètement en hiver pour l'isolation",
+    "summer_full_close": "ferme complètement en cas de chaleur estivale"
   },
   "glare": {
     "zones": "zones : {names}",
@@ -156,7 +161,8 @@
   "blind_spot": {
     "line": "🟥 Zone aveugle : ignore le soleil à {bs} vers l'intérieur depuis la gauche FOV (par ex. arbre ou avant-toit).",
     "range": "{left}°–{right}°",
-    "elevation": "jusqu'à {elev}° élévation"
+    "elevation": "jusqu'à {elev}° élévation",
+    "elevation_above": "au-dessus de {elev}° élévation"
   },
   "default": {
     "tilt": "  ↳ Inclinaison par défaut : {tilt}% (explicite ; remplace calculé solaire)",
@@ -193,7 +199,8 @@
     "awning": "Store banne horizontal",
     "tilt": "Store vénitien / inclinaison",
     "oscillating_awning": "Store oscillant",
-    "venetian": "Store vénitien (deux axes)"
+    "venetian": "Store vénitien (deux axes)",
+    "roof_window": "Fenêtre de toit"
   },
   "geometry": {
     "window": {
@@ -227,10 +234,15 @@
       "max_tilt": "inclinaison max {max_tilt}%",
       "min_tilt": "inclinaison min {min_tilt}%",
       "post_settle_hold": "maintien post-stabilisation {hold}s",
-      "backrotate_lag": "délai de publication back-rotate {lag}s"
+      "backrotate_lag": "délai de publication back-rotate {lag}s",
+      "drift_reset": "réinitialisation de dérive tous les {threshold}% d'inclinaison cumulée (via {direction})"
     },
     "fov": {
       "computed": "FOV calculé ≈ {deg}°/{deg}° (largeur {w}m, profondeur tableau {d}m)"
+    },
+    "roof": {
+      "pitch": "pente de toit {v}° depuis l'horizontale",
+      "height_above": "{v}m de toit au-dessus de la fenêtre (porte de faîtage)"
     }
   }
 }

@@ -9,11 +9,36 @@ never accesses the coordinator directly.
 from __future__ import annotations
 
 import datetime as dt
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any
 
 from ..const import ControlStatus
 from ..const import ClimateStrategy, ControlMethod, FORECAST_STEP_MINUTES, SunState
+
+# Sensor state classifications (issue #693, Q3).
+_SENSOR_STATE_NOT_CONFIGURED = "not_configured"
+_SENSOR_STATE_UNAVAILABLE = "unavailable"
+_SENSOR_STATE_AVAILABLE = "available"
+# HA state strings that count as "no real value" for a configured entity.
+_UNAVAILABLE_HA_STATES = ("unavailable", "unknown")
+
+
+@dataclass(frozen=True, slots=True)
+class SensorSource:
+    """One shared sensor key's provenance and live availability (issue #693, Q3).
+
+    ``source`` is "local" (configured on the cover) or "profile" (inherited
+    from a linked Building Profile). ``state`` is one of
+    ``not_configured`` / ``unavailable`` / ``available``. ``entity_id`` holds
+    the raw option value — a string for most keys, a list for the multi-entity
+    keys (gate/severe sensors), or ``None`` when unset.
+    """
+
+    key: str
+    entity_id: Any  # str | list | None — the raw option value
+    source: str
+    state: str
+
 
 # ---------------------------------------------------------------------------
 # Context dataclass – the coordinator populates this before calling build()
@@ -68,6 +93,12 @@ class DiagnosticContext:
     # but with TEMPLATABLE_KEYS rendered to numbers (issue #577). Used to show
     # raw template alongside its resolved value in diagnostics.
     resolved_options: dict = field(default_factory=dict)
+
+    # HA core handle — the sole boundary the builder uses to resolve live entity
+    # states and to read a linked Building Profile's options for the sensor
+    # source/state subsections (issue #693, Q3). Optional: when absent the
+    # profile lookup is skipped and configured entities classify as unavailable.
+    hass: Any = None
 
     # Motion manager state
     motion_detected: bool = True
@@ -179,6 +210,7 @@ class DiagnosticsBuilder:
         diagnostics.update(self._build_forecast(ctx))
         diagnostics.update(self._build_manual_override_state(ctx))
         diagnostics.update(self._build_configuration(ctx))
+        diagnostics.update(self._build_sensor_sources(ctx))
         diagnostics.update(self._build_debug_info(ctx))
 
         explanation = diagnostics.get("position_explanation", "")
@@ -366,14 +398,71 @@ class DiagnosticsBuilder:
         return diagnostics
 
     @staticmethod
-    def _build_position_calc_details(ctx: DiagnosticContext) -> dict:
-        """Surface the cover's per-cycle calc trace when one was recorded."""
+    def _round_trace_value(key: str, value: Any) -> Any:
+        """Round one raw trace leaf at the presentation boundary (issue #682).
+
+        Convention (issue #140 §Display Rounding): degrees/ratios that aren't
+        positions → 1 decimal for angles, ~3 decimals for unit-less ratios;
+        distances (``_m``) → 3 decimals; positions/percent → integer; everything
+        else (bools, strings, lists, None) passes through untouched. Rounding
+        happens here — never inside the calc engines.
+        """
+        if not isinstance(value, int | float) or isinstance(value, bool):
+            return value
+        if key.endswith("_pct") or key.endswith("_position") or key == "max_degrees":
+            return int(round(value))
+        if key.endswith("_deg"):
+            return round(value, 1)
+        if key.endswith("_m"):
+            return round(value, 3)
+        # Unit-less ratios (cos_gamma, safety_margin, discriminant, beta_rad, …).
+        return round(value, 3)
+
+    @classmethod
+    def _round_trace(cls, trace: dict) -> dict:
+        """Return a rounded copy of a trace dict, recursing into nested sub-traces.
+
+        Copies rather than mutating so the engine's ``_last_calc_details`` keeps
+        full precision for any other reader.
+        """
+        rounded: dict = {}
+        for key, value in trace.items():
+            if isinstance(value, dict):
+                rounded[key] = cls._round_trace(value)
+            else:
+                rounded[key] = cls._round_trace_value(key, value)
+        return rounded
+
+    @classmethod
+    def _build_position_calc_details(cls, ctx: DiagnosticContext) -> dict:
+        """Surface the cover's per-cycle calc trace.
+
+        Stamps the ``cover_type`` discriminator from ``ctx.cover_type`` (config
+        data — engines never branch on their own type string), the
+        ``status`` reason string, and rounds every numeric leaf at this
+        presentation boundary.
+
+        When no engine trace was recorded this cycle — the sun is outside the
+        window (sunset/elevation/FOV/blind-spot), so the solar handler never
+        ran — a minimal fallback trace carrying just the sun inputs is emitted
+        with ``position_pct`` None. This keeps the live ``solar_calculation``
+        sensor's attributes populated (explaining the geometry and the reason)
+        even though its state stays None — there is no solar target to report
+        (issue #682 follow-up).
+        """
         if not ctx.cover:
             return {}
         calc_details = getattr(ctx.cover, "_last_calc_details", None)
         if calc_details is None:
-            return {}
-        return {"calculation_details": calc_details}
+            calc_details = {
+                "sol_elev_deg": getattr(ctx.cover, "sol_elev", None),
+                "gamma_deg": getattr(ctx.cover, "gamma", None),
+                "position_pct": None,
+            }
+        details = cls._round_trace(calc_details)
+        details["cover_type"] = ctx.cover_type
+        details["status"] = getattr(ctx.cover, "control_state_reason", None)
+        return {"calculation_details": details}
 
     @staticmethod
     def _build_time_window(ctx: DiagnosticContext) -> dict:
@@ -681,10 +770,8 @@ class DiagnosticsBuilder:
     def _build_configuration(ctx: DiagnosticContext) -> dict:
         """Build configuration diagnostics."""
         from ..const import (
+            BLIND_SPOT_SLOTS,
             CONF_AZIMUTH,
-            CONF_BLIND_SPOT_ELEVATION,
-            CONF_BLIND_SPOT_LEFT,
-            CONF_BLIND_SPOT_RIGHT,
             CONF_CLOUD_SUPPRESSION,
             CONF_CLOUDY_POSITION,
             CONF_ENABLE_BLIND_SPOT,
@@ -725,9 +812,13 @@ class DiagnosticsBuilder:
                 "min_elevation": options.get(CONF_MIN_ELEVATION),
                 "max_elevation": options.get(CONF_MAX_ELEVATION),
                 "enable_blind_spot": options.get(CONF_ENABLE_BLIND_SPOT, False),
-                "blind_spot_elevation": options.get(CONF_BLIND_SPOT_ELEVATION),
-                "blind_spot_left": options.get(CONF_BLIND_SPOT_LEFT),
-                "blind_spot_right": options.get(CONF_BLIND_SPOT_RIGHT),
+                # Per-slot blind-spot keys (issue #701). Slot 1 reuses the
+                # legacy unsuffixed keys; slots 2/3 are suffixed.
+                **{
+                    keys[sub]: options.get(keys[sub])
+                    for keys in BLIND_SPOT_SLOTS.values()
+                    for sub in ("left", "right", "elevation", "elevation_mode")
+                },
                 "min_position": options.get(CONF_MIN_POSITION),
                 "min_position_sun_tracking": options.get(
                     CONF_MIN_POSITION_SUN_TRACKING
@@ -781,6 +872,92 @@ class DiagnosticsBuilder:
                 "templated_thresholds": DiagnosticsBuilder._templated_thresholds(ctx),
             }
         }
+
+    @classmethod
+    def _build_sensor_sources(cls, ctx: DiagnosticContext) -> dict:
+        """Build the two shared-sensor source/state subsections (issue #693, Q3).
+
+        Every key in ``BUILDING_PROFILE_SENSOR_KEYS`` is classified per cover via
+        the three-way ``classify_profile_sensor_source``: ``"profile"`` (inherited
+        from the profile), ``"override"`` (profile defines it but the cover
+        overrides it locally), or ``"local"`` (profile leaves it blank, cover keeps
+        its own). ``profile`` entries go in the building-profile block; ``override``
+        and ``local`` entries go in the local block, distinguished by ``source`` —
+        so a diagnostics download shows exactly which sensors a cover has overridden.
+
+        Emits a top-level ``local_sensors`` list always, plus a
+        ``building_profile_sensors`` list only when the cover is linked
+        (``CONF_BUILDING_PROFILE_ID`` set). The profile block is omitted
+        entirely for an unlinked cover. Both lists are additive — the existing
+        flat ``configuration`` dict is untouched so current consumers keep
+        working.
+        """
+        from ..const import BUILDING_PROFILE_SENSOR_KEYS, CONF_BUILDING_PROFILE_ID
+        from ..profile_link import classify_profile_sensor_source
+
+        options = ctx.config_options or {}
+        profile_id = options.get(CONF_BUILDING_PROFILE_ID)
+        linked = bool(profile_id)
+        profile_options = cls._linked_profile_options(ctx, profile_id)
+
+        profile_block: list[dict] = []
+        local_block: list[dict] = []
+        for key in sorted(BUILDING_PROFILE_SENSOR_KEYS):
+            source, entity_id = classify_profile_sensor_source(
+                key, options, profile_options
+            )
+            bucket = profile_block if source == "profile" else local_block
+            descriptor = SensorSource(
+                key=key,
+                entity_id=entity_id,
+                source=source,
+                state=cls._classify_sensor_state(ctx.hass, entity_id),
+            )
+            bucket.append(asdict(descriptor))
+
+        diagnostics: dict = {"local_sensors": local_block}
+        if linked:
+            diagnostics["building_profile_sensors"] = profile_block
+        return diagnostics
+
+    @staticmethod
+    def _linked_profile_options(ctx: DiagnosticContext, profile_id: Any) -> dict:
+        """Return the linked Building Profile entry's options (empty when none).
+
+        Looks the profile up by ``entry_id`` among the integration's config
+        entries — the same surface ``profile_link`` uses — without importing
+        the cover-type discriminator (any ACP entry with the id is the profile).
+        """
+        from ..const import DOMAIN
+
+        if not profile_id or ctx.hass is None:
+            return {}
+        try:
+            entries = ctx.hass.config_entries.async_entries(DOMAIN)
+        except AttributeError:
+            return {}
+        for entry in entries:
+            if entry.entry_id == profile_id:
+                return entry.options or {}
+        return {}
+
+    @staticmethod
+    def _classify_sensor_state(hass: Any, entity_id: Any) -> str:
+        """Classify a sensor entity's live availability.
+
+        Falsy/empty value → ``not_configured``. A configured entity whose HA
+        state is missing/``unavailable``/``unknown`` → ``unavailable``; one that
+        resolves to a real state → ``available``. List-valued keys (gate/severe
+        sensors) resolve to ``available`` when at least one member resolves.
+        """
+        if not entity_id:
+            return _SENSOR_STATE_NOT_CONFIGURED
+        entity_ids = entity_id if isinstance(entity_id, list) else [entity_id]
+        for eid in entity_ids:
+            state = hass.states.get(eid) if hass is not None else None
+            if state is not None and state.state not in _UNAVAILABLE_HA_STATES:
+                return _SENSOR_STATE_AVAILABLE
+        return _SENSOR_STATE_UNAVAILABLE
 
     @staticmethod
     def _templated_thresholds(ctx: DiagnosticContext) -> dict:

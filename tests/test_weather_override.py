@@ -486,3 +486,44 @@ async def test_recover_on_restart_not_called_on_subsequent_refresh():
     assert (
         "recover" not in call_order
     ), "_recover_weather_override_on_restart must NOT run when first_refresh=False"
+
+
+# --- weather_override_schema: conditional retraction-picker inclusion ---
+
+
+_RETRACTION_PICKER_KEYS = (
+    "weather_wind_speed_sensor",
+    "weather_wind_direction_sensor",
+    "weather_rain_sensor",
+    "weather_is_raining_sensor",
+    "weather_is_raining_template",
+    "weather_is_windy_sensor",
+    "weather_is_windy_template",
+    "weather_severe_sensors",
+)
+
+_ALWAYS_PRESENT_KEYS = (
+    "weather_wind_speed_threshold",
+    "weather_override_position",
+    "weather_timeout",
+)
+
+
+def _schema_keys(schema):
+    return {str(marker.schema) for marker in schema.schema}
+
+
+def test_schema_always_includes_retraction_pickers():
+    """The retraction pickers are unconditionally present (pre-PR-700 behavior),
+    and the removed ``show_weather_retraction`` toggle is gone.
+    """
+    from custom_components.adaptive_cover_pro.config_dynamic import (
+        weather_override_schema,
+    )
+
+    keys = _schema_keys(weather_override_schema())
+    for picker in _RETRACTION_PICKER_KEYS:
+        assert picker in keys, picker
+    for always in _ALWAYS_PRESENT_KEYS:
+        assert always in keys, always
+    assert "show_weather_retraction" not in keys

@@ -33,13 +33,13 @@ from custom_components.adaptive_cover_pro.cover_types.venetian.sequencer import 
 def _zero_post_tilt_delay(monkeypatch):
     """Skip real-motor delays in unit tests.
 
-    Zeroes the post-tilt rebase delay (1.5 s) and the verify-retry poll
-    interval (1.0 s) so the test suite doesn't spend real time waiting on
-    asyncio.sleep. The post-settle hold is a per-instance parameter
-    (``post_settle_hold_seconds``) defaulting to 0 in ``_build_sequencer``
-    — no monkeypatching needed for that delay. The retry sample COUNT
-    (``VENETIAN_TILT_VERIFY_MAX_SAMPLES``) is left at its production value
-    because it is the behaviour under test.
+    Zeroes the post-tilt rebase delay (1.5 s), the verify-retry poll
+    interval (1.0 s), and the drift-retry delay (2.0 s) so the test suite
+    doesn't spend real time waiting on asyncio.sleep. The post-settle hold
+    is a per-instance parameter (``post_settle_hold_seconds``) defaulting to
+    0 in ``_build_sequencer`` — no monkeypatching needed for that delay. The
+    retry sample COUNT (``VENETIAN_TILT_VERIFY_MAX_SAMPLES``) is left at its
+    production value because it is the behaviour under test.
     """
     monkeypatch.setattr(
         "custom_components.adaptive_cover_pro.cover_types.venetian.sequencer."
@@ -49,6 +49,11 @@ def _zero_post_tilt_delay(monkeypatch):
     monkeypatch.setattr(
         "custom_components.adaptive_cover_pro.cover_types.venetian.sequencer."
         "VENETIAN_TILT_VERIFY_POLL_SECONDS",
+        0,
+    )
+    monkeypatch.setattr(
+        "custom_components.adaptive_cover_pro.cover_types.venetian.sequencer."
+        "VENETIAN_DRIFT_RETRY_DELAY_SECONDS",
         0,
     )
 
@@ -63,6 +68,7 @@ def _build_sequencer(
     event_buffer=None,
     invert_tilt=None,
     get_min_change=None,
+    get_enforce_delta_at_endpoints=None,
     post_settle_hold_seconds: float = 0,
 ):
     hass = MagicMock()
@@ -87,6 +93,7 @@ def _build_sequencer(
             event_buffer=event_buffer,
             invert_tilt=invert_tilt,
             get_min_change=get_min_change,
+            get_enforce_delta_at_endpoints=get_enforce_delta_at_endpoints,
             post_settle_hold_seconds=post_settle_hold_seconds,
         ),
     )
@@ -1398,15 +1405,16 @@ class TestSendTiltCommandDedup:
         )
         assert hass.services.async_call.call_count == 2
 
-    async def test_dedup_after_unverified_send_still_runs_verify(self):
-        """Issue #33: dedup must not silence drift detection on an unverified target.
+    async def test_dedup_after_unverified_send_still_recovers_on_drift(self):
+        """Issue #33 / #679: a drifted actuator must not silence recovery.
 
         ``before_position_command`` sends tilt pre-position with ``verify=False,
         force=True``; the post-settle ``run_sequence`` reaches the dedup gate
-        with the same target stored. The service-call dedup is preserved
-        (count stays at 1), but verify still runs against the actuator —
-        otherwise a wrong landing is never noticed and ``_tilt_targets``
-        is never popped to re-arm the next cycle's retry.
+        with the same target stored. With the actual-aware dedup (issue #679),
+        the live actuator reads a drifted value (0 vs stored 60), so the dedup
+        does NOT short-circuit — it re-sends the tilt command. The re-send's
+        verify still sees drift and fires one bounded retry (#500), so a wrong
+        landing is noticed and ``_tilt_targets`` is popped to re-arm recovery.
         """
         buf = EventBuffer(maxlen=16)
         hass, seq = _build_sequencer(
@@ -1424,12 +1432,19 @@ class TestSendTiltCommandDedup:
         await seq._send_tilt_command(
             "cover.x", tilt_target=60, position_target=17, reason="solar"
         )
-        # Second send dedups (preserves the tilt-first opening service-call
-        # count) but the verify path runs because the prior send was
-        # unverified. The verify sees drift, fires one bounded retry through
-        # _send_tilt_command — that retry adds one service call and emits a
-        # second drift event before _retry_depth=1 stops recursion (#500).
-        assert hass.services.async_call.call_count == 2
+        # Live tilt drifted from the stored target → the dedup re-sends rather
+        # than swallowing recovery (issue #679). The re-send's verify sees the
+        # wrong landing and fires one bounded retry (#500): re-send (1) + retry
+        # (1) on top of the pre-tilt send = 3 total service calls.
+        assert hass.services.async_call.call_count == 3
+        # No target_unchanged skip — the dedup did not short-circuit.
+        skipped = [
+            e
+            for e in buf.snapshot()
+            if e["event"] == "tilt_command_skipped"
+            and e.get("reason") == "target_unchanged"
+        ]
+        assert not skipped
         drift = [e for e in buf.snapshot() if e["event"] == "tilt_command_drift"]
         assert len(drift) == 2
         # Drift clears the stored target so the next update_tilt_only retries.
@@ -1437,24 +1452,99 @@ class TestSendTiltCommandDedup:
 
 
 @pytest.mark.asyncio
+class TestActualAwareDedup:
+    """Dedup must consult the live actuator tilt, not just the stored target.
+
+    Issue #679: on a mechanically coupled venetian, a ``set_cover_position``
+    command back-drives the tilt actuator. The stored target still reads 100
+    (the last verified send) but the live actuator now reports 0 — the dedup
+    used to trust the stored target forever after one verify, swallowing the
+    legitimate recovery send. The fix makes both ``_send_tilt_command`` and
+    ``update_tilt_only`` re-send when the live tilt has drifted out of
+    ``VENETIAN_TILT_VERIFY_TOLERANCE`` of the stored target.
+    """
+
+    async def test_send_tilt_command_resends_when_live_tilt_drifted_from_stored_target(
+        self,
+    ):
+        # Stored target 100 + verified, but the live actuator reads 0 because a
+        # coupled position command back-drove the tilt. The dedup must NOT skip:
+        # a fresh tilt command fires (the swallowed-recovery defect is gone).
+        buf = EventBuffer(maxlen=16)
+        hass, seq = _build_sequencer(
+            get_current_tilt_position=lambda _eid: 0, event_buffer=buf
+        )
+        seq._tilt_targets["cover.x"] = 100
+        seq._tilt_targets_verified.add("cover.x")
+        hass.services.async_call.reset_mock()
+        await seq._send_tilt_command(
+            "cover.x", tilt_target=100, position_target=3, reason="solar"
+        )
+        assert hass.services.async_call.call_count >= 1
+        sent = [e for e in buf.snapshot() if e["event"] == "tilt_command_sent"]
+        assert sent, "expected a tilt_command_sent — dedup must not swallow recovery"
+        skipped = [
+            e
+            for e in buf.snapshot()
+            if e["event"] == "tilt_command_skipped"
+            and e.get("reason") == "target_unchanged"
+        ]
+        assert not skipped, "dedup must not short-circuit when live tilt drifted"
+
+    async def test_update_tilt_only_resends_when_live_tilt_drifted(self):
+        buf = EventBuffer(maxlen=16)
+        hass, seq = _build_sequencer(
+            get_current_tilt_position=lambda _eid: 0, event_buffer=buf
+        )
+        seq._tilt_targets["cover.x"] = 100
+        seq._tilt_targets_verified.add("cover.x")
+        hass.services.async_call.reset_mock()
+        await seq.update_tilt_only(
+            "cover.x", tilt_target=100, current_position=3, reason="solar"
+        )
+        assert hass.services.async_call.call_count >= 1
+        sent = [e for e in buf.snapshot() if e["event"] == "tilt_command_sent"]
+        assert sent, "expected a tilt_command_sent — dedup must not swallow recovery"
+        skipped = [
+            e
+            for e in buf.snapshot()
+            if e["event"] == "tilt_command_skipped"
+            and e.get("reason") == "target_unchanged"
+        ]
+        assert not skipped, "dedup must not short-circuit when live tilt drifted"
+
+    async def test_target_already_satisfied_skips_when_live_tilt_matches(self):
+        # Stored 100, live 98 (within VENETIAN_TILT_VERIFY_TOLERANCE=5) → still
+        # treated as satisfied; no service call.
+        hass, seq = _build_sequencer(get_current_tilt_position=lambda _eid: 98)
+        seq._tilt_targets["cover.x"] = 100
+        seq._tilt_targets_verified.add("cover.x")
+        hass.services.async_call.reset_mock()
+        await seq._send_tilt_command(
+            "cover.x", tilt_target=100, position_target=3, reason="solar"
+        )
+        assert hass.services.async_call.call_count == 0
+
+
+@pytest.mark.asyncio
 class TestTiltFirstThenSequenceVerify:
-    """Integration-shaped guard for the tilt-first opening path (issue #33).
+    """Integration-shaped guard for the tilt-first opening path (issue #33 / #679).
 
     Report 2 timeline: ``before_position_command`` fires tilt=60 pre-position
     (``verify=False, force=True``); the carriage opens; ``run_sequence`` waits
     for settle, then re-enters ``_send_tilt_command(verify=True)`` with the
-    same target. Service-call dedup is preserved (cycle stays at 2 tilt+pos
-    calls) but verify MUST run on the deduped branch — otherwise a wrong
-    landing is never noticed and the cover sits at the wrong tilt forever.
+    same target. With the actual-aware dedup (issue #679), when the live
+    actuator has drifted from the stored target the dedup re-sends rather than
+    short-circuiting — so a wrong landing is recovered, not silently trusted.
     """
 
-    async def test_run_sequence_after_tilt_first_runs_verify_on_dedup(self):
+    async def test_run_sequence_after_tilt_first_recovers_on_drift(self):
         """End-to-end: tilt-first then run_sequence with divergent actuator.
 
-        Issue #500: the verify on the dedup branch sees the wrong landing
-        and triggers one bounded drift retry, which adds a second service
-        call and a second drift event before ``_retry_depth=1`` stops
-        recursion.
+        Issue #679: the live actuator reads a drifted value, so the dedup
+        re-sends the tilt instead of short-circuiting. The re-send's verify
+        then sees the wrong landing and triggers one bounded drift retry
+        (#500) before ``_retry_depth=1`` stops recursion.
         """
         buf = EventBuffer(maxlen=32)
         # Actuator reports the wrong tilt (0) for every verify sample — the
@@ -1485,22 +1575,22 @@ class TestTiltFirstThenSequenceVerify:
             reason="solar",
         )
 
-        # Pre-tilt call (1) + drift-retry call from the dedup verify (1) = 2.
-        assert hass.services.async_call.call_count == 2
+        # Pre-tilt (1) + actual-aware re-send (1) + drift retry (1) = 3.
+        assert hass.services.async_call.call_count == 3
 
         events = buf.snapshot()
-        # The dedup branch DID run verify, and verify saw the wrong landing.
-        # Both the verify and the still-drifting retry emit drift events.
+        # The re-send's verify saw the wrong landing; both the verify and the
+        # still-drifting retry emit drift events.
         drift = [e for e in events if e["event"] == "tilt_command_drift"]
         assert len(drift) == 2
-        # Dedup itself was recorded.
+        # The dedup did NOT short-circuit — no target_unchanged skip recorded.
         skipped = [
             e
             for e in events
             if e["event"] == "tilt_command_skipped"
             and e.get("reason") == "target_unchanged"
         ]
-        assert len(skipped) == 1
+        assert not skipped
         # Drift cleared the stored target so update_tilt_only re-fires next cycle.
         assert seq.last_tilt_target("cover.x") is None
 
@@ -1884,6 +1974,65 @@ class TestTiltDeltaGate:
 
 
 @pytest.mark.asyncio
+class TestTiltEndpointDeltaEnforcement:
+    """``enforce_delta_at_endpoints`` (issue #679) gates the 0/100 tilt endpoints.
+
+    When the injected ``get_enforce_delta_at_endpoints`` callable returns True
+    the tilt min-delta gate stops treating 0/100 as special, so a sub-min_change
+    move toward a full endpoint is suppressed. When it returns False (or is not
+    wired) the endpoints keep their issue #629 always-send bypass.
+    """
+
+    async def test_tilt_delta_gate_respects_endpoints_when_enforced(self):
+        # Callable True → tilt→100 from actuator 95 (delta 5 < min_change 12) is
+        # gated because the endpoints are no longer special.
+        buf = EventBuffer(maxlen=20)
+        hass, seq = _build_sequencer(
+            get_min_change=lambda: 12,
+            get_current_tilt_position=lambda _eid: 95,
+            event_buffer=buf,
+            get_enforce_delta_at_endpoints=lambda: True,
+        )
+        seq._tilt_targets["cover.x"] = 80
+        await seq._send_tilt_command(
+            "cover.x", tilt_target=100, position_target=0, reason="solar"
+        )
+        assert hass.services.async_call.call_count == 0
+        skipped_delta = [
+            e
+            for e in buf.snapshot()
+            if e["event"] == "tilt_command_skipped"
+            and e.get("reason") == "delta_too_small"
+        ]
+        assert len(skipped_delta) == 1
+
+    async def test_tilt_delta_gate_keeps_endpoint_bypass_when_not_enforced(self):
+        # Callable False → tilt→100 still bypasses the gate (issue #629).
+        hass, seq = _build_sequencer(
+            get_min_change=lambda: 12,
+            get_current_tilt_position=lambda _eid: 95,
+            get_enforce_delta_at_endpoints=lambda: False,
+        )
+        seq._tilt_targets["cover.x"] = 80
+        await seq._send_tilt_command(
+            "cover.x", tilt_target=100, position_target=0, reason="solar"
+        )
+        assert hass.services.async_call.call_count == 1
+
+    async def test_tilt_endpoint_bypass_when_callable_unwired(self):
+        # No callable → today's behavior preserved: endpoints bypass the gate.
+        hass, seq = _build_sequencer(
+            get_min_change=lambda: 12,
+            get_current_tilt_position=lambda _eid: 95,
+        )
+        seq._tilt_targets["cover.x"] = 80
+        await seq._send_tilt_command(
+            "cover.x", tilt_target=100, position_target=0, reason="solar"
+        )
+        assert hass.services.async_call.call_count == 1
+
+
+@pytest.mark.asyncio
 class TestTiltSpecialPositionBypass:
     """Tilt commands to 0 or 100 must bypass the min-delta gate (issue #629).
 
@@ -2224,3 +2373,66 @@ class TestClearTiltTargets:
         seq.clear_tilt_targets()
 
         assert seq._suppression_at == before
+
+
+@pytest.mark.asyncio
+class TestRunSequenceReverifiesTiltAfterPositionMove:
+    """``run_sequence`` must re-assert tilt after a close that back-rotates slats.
+
+    Real motors (Somfy IO via Tahoma, KNX) drag the slats shut when the
+    carriage bottoms out at POSITION_CLOSED. If a prior cycle marked the
+    stored tilt target ``verified``, the target-unchanged dedup in
+    ``_send_tilt_command`` would short-circuit AND skip the verify, leaving
+    the slats wherever the motor parked them — an intermittent blackout that
+    only self-corrected when a later open happened to clear the verified flag.
+
+    ``run_sequence`` therefore discards the verified flag before the
+    post-settle send so the actuator is always re-read after the carriage has
+    moved.
+    """
+
+    async def test_reasserts_tilt_when_motor_backrotated_slats_on_close(self):
+        """Verified target 100, but the close left actual tilt at 1 → must re-send.
+
+        Without the fix the dedup short-circuits on (target unchanged + already
+        verified) and emits zero service calls, so the slats stay shut.
+        """
+        # Actuator reads back 1 (slats dragged shut by the close to 0).
+        hass, seq = _build_sequencer(get_current_tilt_position=lambda _eid: 1)
+        seq._wait_for_position_settle = AsyncMock(return_value=(True, 0))
+        # Prior cycle left a verified tilt target of 100 (slats open).
+        seq._tilt_targets["cover.x"] = 100
+        seq._tilt_targets_verified.add("cover.x")
+
+        await seq.run_sequence(
+            "cover.x", position_target=0, tilt_target=100, reason="solar"
+        )
+
+        # The post-settle verify sees actual=1 vs target=100, detects drift,
+        # and the bounded drift-retry force-resends the tilt command.
+        assert hass.services.async_call.call_count >= 1
+        last_call = hass.services.async_call.call_args.args
+        assert last_call[1] == "set_cover_tilt_position"
+        assert last_call[2]["tilt_position"] == 100
+        # Drift never clears on this still-shut mock, so the stale target is gone.
+        assert seq.last_tilt_target("cover.x") is None
+
+    async def test_no_redundant_command_when_slats_already_correct(self):
+        """Verified target 100 and actual already 100 → no spurious relay click.
+
+        Discarding the verified flag must not turn every close into an extra
+        service call: when the actuator confirms the tilt already landed, the
+        re-verify passes and re-marks the target verified without re-sending.
+        """
+        hass, seq = _build_sequencer(get_current_tilt_position=lambda _eid: 100)
+        seq._wait_for_position_settle = AsyncMock(return_value=(True, 0))
+        seq._tilt_targets["cover.x"] = 100
+        seq._tilt_targets_verified.add("cover.x")
+
+        await seq.run_sequence(
+            "cover.x", position_target=0, tilt_target=100, reason="solar"
+        )
+
+        assert hass.services.async_call.call_count == 0
+        assert seq.last_tilt_target("cover.x") == 100
+        assert "cover.x" in seq._tilt_targets_verified

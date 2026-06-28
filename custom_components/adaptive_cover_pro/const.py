@@ -51,6 +51,7 @@ Section index
 """
 
 import logging
+from dataclasses import dataclass
 from enum import Enum, StrEnum
 
 # =============================================================================
@@ -78,6 +79,13 @@ CONF_BLUEPRINT = "blueprint"
 
 CONF_SENSOR_TYPE = "sensor_type"  # one of CoverType.* (see section 27)
 CONF_DEVICE_ID = "linked_device_id"  # HA device_id to link this instance to
+CONF_BUILDING_PROFILE_ID = (
+    "building_profile_id"  # entry_id of a linked Building Profile
+)
+# Shared-sensor keys a linked cover has overridden locally (inherit/override
+# model). Keys NOT in this list track the profile; keys in it keep the cover's
+# own value and are skipped by profile propagation. Absent = no overrides.
+CONF_PROFILE_SENSOR_OVERRIDES = "profile_sensor_overrides"
 
 
 # =============================================================================
@@ -92,6 +100,15 @@ CONF_WINDOW_WIDTH = "window_width"  # window width, metres (0.1-50.0)
 CONF_WINDOW_DEPTH = "window_depth"  # window recess depth, metres (0.0-5.0)
 CONF_SILL_HEIGHT = "sill_height"  # sill height above floor, metres (0.0-50.0)
 CONF_DISTANCE = "distance_shaded_area"  # blind→shaded distance, m (0.0-50.0)
+# Roof / skylight window geometry (#212). A roof window is a vertical-style
+# blind travelling down-slope across pitched glass; it reuses the window
+# width/height/depth/sill/distance fields above and adds these two.
+CONF_ROOF_PITCH = "roof_pitch"  # glass pitch from horizontal, deg (0=flat, 90=vertical)
+CONF_ROOF_HEIGHT_ABOVE = (
+    "roof_height_above"  # along-slope roof above window, m (0=no ridge gate)
+)
+DEFAULT_ROOF_PITCH = 40  # degrees — typical Velux roof window pitch
+DEFAULT_ROOF_HEIGHT_ABOVE = 0.0  # metres — 0 disables the ridge occlusion gate
 CONF_FOV_LEFT = "fov_left"  # left half-FOV from azimuth, degrees 0-180
 CONF_FOV_RIGHT = "fov_right"  # right half-FOV from azimuth, degrees 0-180
 DEFAULT_FOV_LEFT = 90  # degrees; matches config flow default
@@ -184,6 +201,20 @@ CONF_MIN_POSITION_SUN_TRACKING = "min_position_sun_tracking"
 CONF_ENABLE_MAX_POSITION = "enable_max_position"
 # If True, min_position is only enforced during active sun tracking.
 CONF_ENABLE_MIN_POSITION = "enable_min_position"
+# If True, the position/tilt delta (min_change) gate is also enforced for the
+# fully-open (100) and fully-closed (0) endpoints. Default False preserves the
+# issue #629 "always send to 0/100" guarantee. Useful on mechanically coupled
+# covers where commanding a full endpoint disturbs tilt (issue #679).
+CONF_ENFORCE_DELTA_AT_ENDPOINTS = "enforce_delta_at_endpoints"
+DEFAULT_ENFORCE_DELTA_AT_ENDPOINTS = False
+# If True, a final post-inverse target of 100 is sent via cover.open_cover and a
+# final target of 0 via cover.close_cover, instead of set_cover_position(100/0).
+# Targets 1-99 still use set_cover_position. Falls back to set_cover_position
+# when the cover lacks open/close, and never applies to a tilt-only axis.
+# Default True (issue #697): open/close drives a full traverse more reliably on
+# many actuators than set_position to an endpoint.
+CONF_ENDPOINT_USE_OPEN_CLOSE = "endpoint_use_open_close"
+DEFAULT_ENDPOINT_USE_OPEN_CLOSE = True
 # Fallback position when no override applies, % (range 0-100).
 CONF_DEFAULT_HEIGHT = "default_percentage"
 # Effective default position when no `default_percentage` is configured.
@@ -280,6 +311,70 @@ CONF_BLIND_SPOT_RIGHT = "blind_spot_right"  # right edge, azimuth deg 0-360
 # Sun elevation below which the blind-spot wedge applies, degrees 0-90.
 CONF_BLIND_SPOT_ELEVATION = "blind_spot_elevation"
 
+# --- Multiple blind-spot slots (issue #701) ---------------------------------
+# The single wedge above generalizes to UP TO 3 independent slots. The sun is
+# treated as blocked when it falls inside ANY active slot. A slot is *active*
+# when its left AND right are both set; the master CONF_ENABLE_BLIND_SPOT still
+# gates the whole feature. Slot 1 REUSES the legacy unsuffixed keys above so
+# existing installs need no migration; slots 2/3 use ``_2``/``_3`` suffixes.
+
+# Per-slot elevation modes (issue #702). "below" (default) keeps today's
+# ``sol_elev <= elevation`` — an obstacle that blocks LOW sun (tree, overhang).
+# "above" flips to ``sol_elev >= elevation`` — an overhead obstacle that blocks
+# HIGH sun (balcony, deep recess). The vocabulary is slot-independent: it lives
+# here ONCE and is never re-suffixed per slot.
+BLIND_SPOT_ELEV_MODE_BELOW = "below"  # wedge applies when sun is at/below elev
+BLIND_SPOT_ELEV_MODE_ABOVE = "above"  # wedge applies when sun is at/above elev
+DEFAULT_BLIND_SPOT_ELEVATION_MODE = BLIND_SPOT_ELEV_MODE_BELOW
+BLIND_SPOT_ELEVATION_MODES: tuple[str, ...] = (
+    BLIND_SPOT_ELEV_MODE_BELOW,
+    BLIND_SPOT_ELEV_MODE_ABOVE,
+)
+# Slot-1 flat wire key for the elevation mode (mirrors CONF_BLIND_SPOT_ELEVATION).
+CONF_BLIND_SPOT_ELEVATION_MODE = "blind_spot_elevation_mode"
+
+BLIND_SPOT_SLOT_NUMBERS: tuple[int, ...] = (1, 2, 3)  # slot 1 = legacy keys
+
+
+@dataclass(frozen=True, slots=True)
+class BlindSpot:
+    """One blind-spot wedge.
+
+    ``elevation`` (None = applies at all elevations). ``elevation_mode``
+    (issue #702) selects which side of ``elevation`` the wedge applies to:
+    ``BLIND_SPOT_ELEV_MODE_BELOW`` (default) blocks LOW sun
+    (``sol_elev <= elevation``); ``BLIND_SPOT_ELEV_MODE_ABOVE`` blocks HIGH sun
+    (``sol_elev >= elevation``). The single comparison lives in
+    ``SunGeometry._sun_in_blind_spot``.
+    """
+
+    left: int
+    right: int
+    elevation: int | None = None
+    elevation_mode: str = BLIND_SPOT_ELEV_MODE_BELOW
+
+
+def _blind_spot_slot_keys(n: int) -> dict[str, str]:
+    """Return the wire-format option keys for blind-spot slot *n*.
+
+    Slot 1 keeps the legacy unsuffixed keys (no data migration); slots 2+ are
+    suffixed ``_<n>``.
+    """
+    s = "" if n == 1 else f"_{n}"
+    return {
+        "left": f"blind_spot_left{s}",
+        "right": f"blind_spot_right{s}",
+        "elevation": f"blind_spot_elevation{s}",
+        # Per-slot below/above elevation selector (issue #702).
+        "elevation_mode": f"blind_spot_elevation_mode{s}",
+    }
+
+
+# {slot_number: {sub_key: wire_key}}
+BLIND_SPOT_SLOTS: dict[int, dict[str, str]] = {
+    n: _blind_spot_slot_keys(n) for n in BLIND_SPOT_SLOT_NUMBERS
+}
+
 
 # =============================================================================
 # 10. Glare Zones
@@ -313,6 +408,9 @@ CONF_WEATHER_ENTITY = "weather_entity"  # weather. integration entity_id
 CONF_WEATHER_STATE = "weather_state"  # states that trigger climate handler
 # True to close covers at night in winter for added insulation.
 CONF_WINTER_CLOSE_INSULATION = "winter_close_insulation"
+# True to let summer climate-close ignore the sun-in-FOV min floor
+# (min_position_sun_tracking) and reach the global min_position instead.
+CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR = "summer_close_bypass_sun_floor"
 
 STRATEGY_MODE_BASIC = "basic"  # geometry only, no climate inputs
 STRATEGY_MODE_CLIMATE = "climate"  # climate-aware (temps/presence/weather)
@@ -379,14 +477,16 @@ CONF_FORCE_OVERRIDE_MIN_MODE = "force_override_min_mode"
 # =============================================================================
 # 14. Custom Position Slots
 # =============================================================================
-# Up to five independently-configurable position slots, each with its own
+# Up to ten independently-configurable position slots, each with its own
 # trigger sensors (OR logic), optional condition template, position, priority
 # (1-100), min-mode flag, and "use my position" flag. Each slot's wire-format
 # keys are generated below to keep them DRY. The numbered per-slot CONF_*
 # aliases are retained for callers that prefer named constants over dict
 # lookup.
 
-CUSTOM_POSITION_SLOT_NUMBERS: tuple[int, ...] = (1, 2, 3, 4, 5)  # supported indices
+CUSTOM_POSITION_SLOT_NUMBERS: tuple[int, ...] = tuple(
+    range(1, 11)
+)  # slots 1–10 (issue #703)
 
 # Slots at (or above) this priority inherit the old force-override safety
 # semantics: they command the cover outside the start/end time window and
@@ -541,6 +641,12 @@ CONF_WEATHER_OVERRIDE_MIN_MODE = "weather_override_min_mode"
 CONF_WEATHER_TIMEOUT = "weather_timeout"  # resume delay after clear, s (0-3600)
 # If True, weather override fires even when auto control is off.
 CONF_WEATHER_BYPASS_AUTO_CONTROL = "weather_bypass_auto_control"
+# Master on/off toggle for the whole weather-override feature (issue #719). When
+# False, every configured weather sensor/template is ignored — both the
+# priority-90 override handler and the min-mode floor are disabled at the single
+# WeatherManager.is_feature_configured chokepoint. New covers default OFF via the
+# config-flow schema; pre-existing covers are migrated to ON (v3.5 → v3.6).
+CONF_WEATHER_ENABLED = "weather_enabled"
 
 # Threshold unit must match the sensor (no conversion applied).
 DEFAULT_WEATHER_WIND_SPEED_THRESHOLD = 50.0
@@ -549,6 +655,9 @@ DEFAULT_WEATHER_WIND_DIRECTION_TOLERANCE = 45
 # Threshold unit must match the sensor (no conversion applied).
 DEFAULT_WEATHER_RAIN_THRESHOLD = 1.0
 DEFAULT_WEATHER_TIMEOUT = 300  # seconds before resuming after clear
+# New covers start with the weather override OFF (issue #719). Pre-existing
+# covers are migrated to True so upgrades keep firing weather safety overrides.
+DEFAULT_WEATHER_ENABLED = False
 
 
 # =============================================================================
@@ -625,6 +734,11 @@ CONF_MANUAL_IGNORE_INTERMEDIATE = "manual_ignore_intermediate"
 # If True, only commands routed through ACP (proxy entity or set_position
 # service) engage manual override; all other position changes are ignored.
 CONF_MANUAL_IGNORE_EXTERNAL = "manual_ignore_external"
+# Binary-sensor-like entities whose off→on edge engages manual override on every
+# cover in the instance (issue #688). Lets a physical wall switch wired to an
+# input (e.g. Shelly binary_sensor.*_cover_input_0) act as the manual-override
+# trigger instead of inferring intent from cover state/position changes.
+CONF_MANUAL_OVERRIDE_INPUT_ENTITIES = "manual_override_input_entities"
 # Which manual-override detection strategy to use. Maps to a registered
 # OverrideDetector via managers.manual_override.get_detector. Changing this
 # selects a different detection pattern; takes effect on config-entry reload.
@@ -844,6 +958,31 @@ DEFAULT_VENETIAN_TILT_SKIP_ABOVE = 95  # percent — default skip-tilt threshold
 MIN_VENETIAN_TILT_SKIP_ABOVE = 50  # UI lower bound
 MAX_VENETIAN_TILT_SKIP_ABOVE = 100  # UI upper bound
 
+# Accumulated commanded tilt-% change that triggers a mechanical drift reset
+# (issue #663). Each real (non-deduped, non-dry-run, non-gated) tilt send adds
+# ``abs(new_target - prior_anchor)`` to a per-entity accumulator; when it
+# crosses this threshold the sequencer drives the slats fully open and back to
+# the target to flush accumulated actuator drift. 0 disables the feature. The
+# value is configurable per-instance; venetian-only.
+CONF_VENETIAN_TILT_RESET_THRESHOLD = "venetian_tilt_reset_threshold"  # % accum
+DEFAULT_VENETIAN_TILT_RESET_THRESHOLD = 0  # 0 = disabled (no reset)
+MIN_VENETIAN_TILT_RESET_THRESHOLD = 0  # UI lower bound (0 disables)
+MAX_VENETIAN_TILT_RESET_THRESHOLD = 5000  # UI upper bound (accumulated %)
+
+# Direction the drift-reset drives the slats before re-sending the target
+# (issue #686). ``open`` keeps the original behaviour (drive to the fully-open
+# mechanical endpoint); ``close`` drives to the fully-closed endpoint instead —
+# useful on covers that sit near-closed during tracking (faster, quieter reset)
+# or whose actuator re-zeroes the slats on a close command. Venetian-only.
+CONF_VENETIAN_TILT_RESET_DIRECTION = "venetian_tilt_reset_direction"  # one of below
+VENETIAN_TILT_RESET_OPEN = "open"  # drive to POSITION_OPEN then back (default)
+VENETIAN_TILT_RESET_CLOSE = "close"  # drive to POSITION_CLOSED then back
+DEFAULT_VENETIAN_TILT_RESET_DIRECTION = VENETIAN_TILT_RESET_OPEN  # back-compat
+VENETIAN_TILT_RESET_DIRECTIONS = (
+    VENETIAN_TILT_RESET_OPEN,
+    VENETIAN_TILT_RESET_CLOSE,
+)
+
 # Venetian cover operating mode.  position_and_tilt tracks both axes with solar
 # geometry; tilt_only closes the cover to 0% and tracks only the slat angle.
 CONF_VENETIAN_MODE = "venetian_mode"  # one of VENETIAN_MODES
@@ -956,6 +1095,25 @@ WINDOW_DEPTH_GAMMA_THRESHOLD = 10  # deg — min gamma for depth contribution
 
 
 # =============================================================================
+# Solar-calculation trace keys (issue #682)
+# =============================================================================
+# Stable key names for the per-cycle raw geometric solar-position trace that
+# each calc engine records in ``_last_calc_details``. The new
+# ``solar_calculation`` diagnostic sensor and the diagnostics download both read
+# this single dict. Suffix convention: ``_deg`` = degrees, ``_m`` = metres,
+# ``_pct`` = percent (0-100), raw ratios carry no suffix.
+#
+# Common to every cover type (stamped by the engine; ``cover_type`` stamped by
+# the builder from config — engines never branch on their own type string).
+TRACE_KEY_COVER_TYPE = "cover_type"
+TRACE_KEY_SOL_ELEV_DEG = "sol_elev_deg"
+TRACE_KEY_GAMMA_DEG = "gamma_deg"
+TRACE_KEY_POSITION_PCT = "position_pct"
+# Venetian dual-axis: the tilt sub-trace nests under this key.
+TRACE_KEY_TILT = "tilt"
+
+
+# =============================================================================
 # 25. UI Defaults & Validation Caps
 # =============================================================================
 # Default values shown in the config-flow UI and hard caps not derived from
@@ -1001,6 +1159,10 @@ _RANGE_ARM_LENGTH = (0.1, 6.0)  # CONF_ARM_LENGTH, metres
 _RANGE_AWNING_SWEEP_ANGLE = (0, 180)  # CONF_AWNING_MIN/MAX_ANGLE, degrees
 _RANGE_AWNING_HOUSING_OFFSET = (0.0, 1.0)  # CONF_AWNING_HOUSING_OFFSET, metres
 _RANGE_AWNING_PIVOT_OFFSET = (0.0, 2.0)  # CONF_AWNING_PIVOT_OFFSET, metres
+
+# Geometry — roof / skylight window (#212).
+_RANGE_ROOF_PITCH = (0, 90)  # CONF_ROOF_PITCH, degrees (0=flat, 90=vertical)
+_RANGE_ROOF_HEIGHT_ABOVE = (0.0, 10.0)  # CONF_ROOF_HEIGHT_ABOVE, metres
 
 # Geometry — tilt / venetian slats.
 _RANGE_TILT_DEPTH = (0.1, 15.0)  # CONF_TILT_DEPTH, cm
@@ -1073,6 +1235,10 @@ _RANGE_VENETIAN_TILT_SKIP_ABOVE = (
     MIN_VENETIAN_TILT_SKIP_ABOVE,
     MAX_VENETIAN_TILT_SKIP_ABOVE,
 )  # CONF_VENETIAN_TILT_SKIP_ABOVE, percent
+_RANGE_VENETIAN_TILT_RESET_THRESHOLD = (
+    MIN_VENETIAN_TILT_RESET_THRESHOLD,
+    MAX_VENETIAN_TILT_RESET_THRESHOLD,
+)  # CONF_VENETIAN_TILT_RESET_THRESHOLD, accumulated percent
 _RANGE_VENETIAN_BACKROTATE_PUBLISH_LAG = (
     MIN_VENETIAN_BACKROTATE_PUBLISH_LAG,
     MAX_VENETIAN_BACKROTATE_PUBLISH_LAG,
@@ -1142,6 +1308,11 @@ class CoverType(StrEnum):
     TILT = "cover_tilt"
     VENETIAN = "cover_venetian"
     OSCILLATING_AWNING = "cover_oscillating_awning"
+    ROOF_WINDOW = "cover_roof_window"
+    # Virtual entry type — not a physical cover. Holds shared building-level
+    # sensor entity IDs that linked covers copy into their own options. Its
+    # policy registers no platforms (``controls_cover = False``).
+    BUILDING_PROFILE = "cover_building_profile"
 
     @property
     def display_name(self) -> str:
@@ -1157,7 +1328,65 @@ class CoverType(StrEnum):
             self.TILT: "Tilt",
             self.VENETIAN: "Venetian",
             self.OSCILLATING_AWNING: "Oscillating Awning",
+            self.ROOF_WINDOW: "Roof Window",
+            self.BUILDING_PROFILE: "Building Profile",
         }[self]
+
+
+# =============================================================================
+# 28. Building-profile sensor key sets
+# =============================================================================
+# Canonical frozensets of the sensor-picker option keys. ``config_flow``'s
+# ``SYNC_CATEGORIES`` references these (it used to inline the same membership),
+# so they live here — ``const`` cannot import from ``config_flow`` (circular).
+# ``BUILDING_PROFILE_SENSOR_KEYS`` is the set of option keys a Building Profile
+# owns and copies into each linked cover. Threshold/reaction keys, presence,
+# and the sunrise/sunset OFFSETS are deliberately excluded — they stay per-cover.
+# The four ``*_template_mode`` keys are profile-owned (moved from per-cover in
+# issue #720): they render in the profile screen, are copied to linked covers,
+# and are hidden on the per-cover weather/light/behavior forms.
+
+LIGHT_CLOUD_SENSOR_KEYS = frozenset(
+    {
+        CONF_WEATHER_ENTITY,
+        CONF_LUX_ENTITY,
+        CONF_IRRADIANCE_ENTITY,
+        CONF_CLOUD_COVERAGE_ENTITY,
+        CONF_IS_SUNNY_SENSOR,
+        CONF_IS_SUNNY_TEMPLATE,
+        CONF_IS_SUNNY_TEMPLATE_MODE,
+    }
+)
+
+WEATHER_OVERRIDE_SENSOR_KEYS = frozenset(
+    {
+        CONF_WEATHER_WIND_SPEED_SENSOR,
+        CONF_WEATHER_WIND_DIRECTION_SENSOR,
+        CONF_WEATHER_RAIN_SENSOR,
+        CONF_WEATHER_IS_RAINING_SENSOR,
+        CONF_WEATHER_IS_RAINING_TEMPLATE,
+        CONF_WEATHER_IS_RAINING_TEMPLATE_MODE,
+        CONF_WEATHER_IS_WINDY_SENSOR,
+        CONF_WEATHER_IS_WINDY_TEMPLATE,
+        CONF_WEATHER_IS_WINDY_TEMPLATE_MODE,
+        CONF_WEATHER_SEVERE_SENSORS,
+    }
+)
+
+BUILDING_PROFILE_SENSOR_KEYS = (
+    LIGHT_CLOUD_SENSOR_KEYS
+    | WEATHER_OVERRIDE_SENSOR_KEYS
+    | frozenset(
+        {
+            CONF_OUTSIDETEMP_ENTITY,
+            CONF_DAYTIME_GATE_SENSORS,
+            CONF_DAYTIME_GATE_TEMPLATE,
+            CONF_DAYTIME_GATE_TEMPLATE_MODE,
+            CONF_SUNSET_TIME_ENTITY,
+            CONF_SUNRISE_TIME_ENTITY,
+        }
+    )
+)
 
 
 class TiltMode(StrEnum):

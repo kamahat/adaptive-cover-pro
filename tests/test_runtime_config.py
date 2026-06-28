@@ -34,6 +34,7 @@ from custom_components.adaptive_cover_pro.const import (
     CONF_POSITION_TOLERANCE,
     CONF_START_ENTITY,
     CONF_START_TIME,
+    CONF_WEATHER_ENABLED,
     CONF_WEATHER_IS_RAINING_SENSOR,
     CONF_WEATHER_IS_WINDY_SENSOR,
     CONF_WEATHER_RAIN_SENSOR,
@@ -121,6 +122,52 @@ def test_enable_position_matching_reads_provided_value() -> None:
     """The enable toggle flows through to the tracking slice (issue #591)."""
     rc = RuntimeConfig.from_options({CONF_ENABLE_POSITION_MATCHING: True})
     assert rc.tracking.enable_position_matching is True
+
+
+def test_weather_enabled_defaults_false() -> None:
+    """Empty options → the weather override master toggle is off (issue #719)."""
+    rc = RuntimeConfig.from_options({})
+    assert rc.weather.enabled is False
+
+
+def test_weather_enabled_reads_provided_value() -> None:
+    """The master toggle flows through to the weather slice (issue #719)."""
+    rc = RuntimeConfig.from_options({CONF_WEATHER_ENABLED: True})
+    assert rc.weather.enabled is True
+
+
+def test_enforce_delta_at_endpoints_defaults_false() -> None:
+    """Empty options → endpoint delta enforcement is off by default (issue #679)."""
+    rc = RuntimeConfig.from_options({})
+    assert rc.tracking.enforce_delta_at_endpoints is False
+
+
+def test_runtime_config_reads_enforce_delta_at_endpoints() -> None:
+    """The endpoint-enforce toggle flows through to the tracking slice (#679)."""
+    from custom_components.adaptive_cover_pro.const import (
+        CONF_ENFORCE_DELTA_AT_ENDPOINTS,
+    )
+
+    rc = RuntimeConfig.from_options({CONF_ENFORCE_DELTA_AT_ENDPOINTS: True})
+    assert rc.tracking.enforce_delta_at_endpoints is True
+
+
+def test_manual_override_input_entities_defaults_empty() -> None:
+    """Empty options → no input-sensor override entities configured (issue #688)."""
+    rc = RuntimeConfig.from_options({})
+    assert rc.manual_override.input_entities == []
+
+
+def test_runtime_config_reads_manual_override_input_entities() -> None:
+    """Configured input sensors flow through to the manual-override slice (#688)."""
+    from custom_components.adaptive_cover_pro.const import (
+        CONF_MANUAL_OVERRIDE_INPUT_ENTITIES,
+    )
+
+    rc = RuntimeConfig.from_options(
+        {CONF_MANUAL_OVERRIDE_INPUT_ENTITIES: ["binary_sensor.cover_input_0"]}
+    )
+    assert rc.manual_override.input_entities == ["binary_sensor.cover_input_0"]
 
 
 def test_from_options_reads_every_field_from_provided_dict() -> None:

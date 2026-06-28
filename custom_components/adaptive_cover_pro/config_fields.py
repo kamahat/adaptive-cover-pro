@@ -49,9 +49,6 @@ from .const import (
     CONF_AWNING_MIN_ANGLE,
     CONF_AWNING_PIVOT_OFFSET,
     CONF_AZIMUTH,
-    CONF_BLIND_SPOT_ELEVATION,
-    CONF_BLIND_SPOT_LEFT,
-    CONF_BLIND_SPOT_RIGHT,
     CONF_CLIMATE_MODE,
     CONF_CLOUD_COVERAGE_ENTITY,
     CONF_CLOUD_COVERAGE_THRESHOLD,
@@ -129,12 +126,15 @@ from .const import (
     CONF_SILL_HEIGHT,
     CONF_START_ENTITY,
     CONF_START_TIME,
+    CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR,
     CONF_SUNRISE_OFFSET,
     CONF_SUNRISE_TIME_ENTITY,
     CONF_SUNSET_OFFSET,
     CONF_SUNSET_POS,
     CONF_SUNSET_TILT,
     CONF_SUNSET_TIME_ENTITY,
+    CONF_ROOF_HEIGHT_ABOVE,
+    CONF_ROOF_PITCH,
     CONF_SUNSET_USE_MY,
     CONF_TEMP_ENTITY,
     CONF_TEMP_HIGH,
@@ -147,6 +147,8 @@ from .const import (
     CONF_VENETIAN_BACKROTATE_PUBLISH_LAG,
     CONF_VENETIAN_MODE,
     CONF_VENETIAN_POST_SETTLE_HOLD,
+    CONF_VENETIAN_TILT_RESET_DIRECTION,
+    CONF_VENETIAN_TILT_RESET_THRESHOLD,
     CONF_VENETIAN_TILT_SKIP_ABOVE,
     CONF_WEATHER_BYPASS_AUTO_CONTROL,
     CONF_WEATHER_ENTITY,
@@ -1452,6 +1454,12 @@ _TEMPERATURE_CLIMATE_SPECS = _spec(
         ValidatorKind.BOOL,
         default=False,
     ),
+    FieldSpec(
+        CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR,
+        SECTION_TEMPERATURE_CLIMATE,
+        ValidatorKind.BOOL,
+        default=False,
+    ),
 )
 
 
@@ -1460,26 +1468,54 @@ _TEMPERATURE_CLIMATE_SPECS = _spec(
 # policies' geometry builders emit the markers. Specs here keep ranges/validators
 # single-sourced. Blind-spot numeric fields live in the blind_spot section.
 
-_BLIND_SPOT_SPECS = _spec(
-    FieldSpec(
-        CONF_BLIND_SPOT_LEFT,
-        SECTION_BLIND_SPOT,
-        ValidatorKind.RANGE,
-        rng=const._RANGE_BLIND_SPOT_LEFT,
-    ),
-    FieldSpec(
-        CONF_BLIND_SPOT_RIGHT,
-        SECTION_BLIND_SPOT,
-        ValidatorKind.RANGE,
-        rng=const._RANGE_BLIND_SPOT_RIGHT,
-    ),
-    FieldSpec(
-        CONF_BLIND_SPOT_ELEVATION,
-        SECTION_BLIND_SPOT,
-        ValidatorKind.RANGE,
-        rng=const._RANGE_BLIND_SPOT_ELEVATION,
-    ),
-)
+
+# Built by looping the slot key map (issue #701): slot 1 reuses the legacy
+# unsuffixed keys, slots 2/3 are suffixed. Every slot reuses the same three
+# range constants, so OPTION_RANGES/FIELD_VALIDATORS cover all slots from a
+# single source. Selectors are emitted by ``config_dynamic.blind_spot_schema``
+# (dynamic, FOV-edge aware) so these carry no ``make_selector``.
+def _blind_spot_specs() -> list[FieldSpec]:
+    specs: list[FieldSpec] = []
+    for keys in const.BLIND_SPOT_SLOTS.values():
+        specs.append(
+            FieldSpec(
+                keys["left"],
+                SECTION_BLIND_SPOT,
+                ValidatorKind.RANGE,
+                rng=const._RANGE_BLIND_SPOT_LEFT,
+            )
+        )
+        specs.append(
+            FieldSpec(
+                keys["right"],
+                SECTION_BLIND_SPOT,
+                ValidatorKind.RANGE,
+                rng=const._RANGE_BLIND_SPOT_RIGHT,
+            )
+        )
+        specs.append(
+            FieldSpec(
+                keys["elevation"],
+                SECTION_BLIND_SPOT,
+                ValidatorKind.RANGE,
+                rng=const._RANGE_BLIND_SPOT_ELEVATION,
+            )
+        )
+        # Per-slot below/above elevation mode (issue #702). The selector is
+        # emitted by ``config_dynamic.blind_spot_schema``; this spec keeps the
+        # field in the registry with its SELECT validator vocabulary.
+        specs.append(
+            FieldSpec(
+                keys["elevation_mode"],
+                SECTION_BLIND_SPOT,
+                ValidatorKind.SELECT,
+                select_options=const.BLIND_SPOT_ELEVATION_MODES,
+            )
+        )
+    return specs
+
+
+_BLIND_SPOT_SPECS = _blind_spot_specs()
 
 # Geometry specs are owned per cover type, but the numeric metadata is declared
 # here so OPTION_RANGES/FIELD_VALIDATORS cover them. They carry section=geometry.
@@ -1551,6 +1587,19 @@ _GEOMETRY_SPECS = _spec(
         ValidatorKind.RANGE,
         rng=const._RANGE_AWNING_PIVOT_OFFSET,
     ),
+    # Roof / skylight window geometry (#212).
+    FieldSpec(
+        CONF_ROOF_PITCH,
+        SECTION_GEOMETRY,
+        ValidatorKind.RANGE,
+        rng=const._RANGE_ROOF_PITCH,
+    ),
+    FieldSpec(
+        CONF_ROOF_HEIGHT_ABOVE,
+        SECTION_GEOMETRY,
+        ValidatorKind.RANGE,
+        rng=const._RANGE_ROOF_HEIGHT_ABOVE,
+    ),
     FieldSpec(
         CONF_TILT_DEPTH,
         SECTION_GEOMETRY,
@@ -1588,6 +1637,12 @@ _GEOMETRY_SPECS = _spec(
         rng=const._RANGE_VENETIAN_TILT_SKIP_ABOVE,
     ),
     FieldSpec(
+        CONF_VENETIAN_TILT_RESET_THRESHOLD,
+        SECTION_GEOMETRY,
+        ValidatorKind.RANGE,
+        rng=const._RANGE_VENETIAN_TILT_RESET_THRESHOLD,
+    ),
+    FieldSpec(
         CONF_VENETIAN_BACKROTATE_PUBLISH_LAG,
         SECTION_GEOMETRY,
         ValidatorKind.RANGE,
@@ -1598,6 +1653,12 @@ _GEOMETRY_SPECS = _spec(
         SECTION_GEOMETRY,
         ValidatorKind.SELECT,
         select_options=const.VENETIAN_MODES,
+    ),
+    FieldSpec(
+        CONF_VENETIAN_TILT_RESET_DIRECTION,
+        SECTION_GEOMETRY,
+        ValidatorKind.SELECT,
+        select_options=const.VENETIAN_TILT_RESET_DIRECTIONS,
     ),
 )
 

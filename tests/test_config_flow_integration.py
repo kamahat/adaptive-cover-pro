@@ -24,6 +24,7 @@ from custom_components.adaptive_cover_pro.const import (
     CONF_AWNING_MAX_ANGLE,
     CONF_AWNING_MIN_ANGLE,
     CONF_AZIMUTH,
+    CONF_BUILDING_PROFILE_ID,
     CONF_CLIMATE_MODE,
     CONF_DEFAULT_HEIGHT,
     CONF_DELTA_POSITION,
@@ -42,6 +43,7 @@ from custom_components.adaptive_cover_pro.const import (
     CONF_MANUAL_OVERRIDE_RESET,
     CONF_MAX_ELEVATION,
     CONF_MAX_POSITION,
+    CONF_OUTSIDETEMP_ENTITY,
     CONF_VENETIAN_MODE,
     CONF_ENABLE_MAX_POSITION,
     CONF_MIN_ELEVATION,
@@ -137,12 +139,14 @@ _MOTION_OVERRIDE = {
 # Threshold fields are multiline TextSelectors (#577): the frontend submits
 # them as strings (a number or a Jinja2 template), so the simulated form
 # submissions use string values too.
+# The retraction sensor pickers are always rendered now, but they are optional
+# entity selectors — the simulated submission leaves them empty and carries only
+# the always-present threshold/position fields, which is a valid form submission.
 _WEATHER_OVERRIDE = {
     "weather_bypass_auto_control": False,
     "weather_wind_speed_threshold": "50",
     "weather_wind_direction_tolerance": "45",
     "weather_rain_threshold": "1",
-    "weather_severe_sensors": [],
     "weather_override_position": 0,
 }
 
@@ -172,7 +176,7 @@ async def test_quick_setup_vertical_creates_entry(hass: HomeAssistant) -> None:
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": "user"}
     )
-    # First entry: no existing entries → goes straight to create_new form
+    # The create menu is always shown (cover vs building profile); pick create_new.
     assert result["type"] in ("form", "menu")
 
     # Step: create_new
@@ -508,6 +512,179 @@ async def test_full_setup_vertical_creates_entry(hass: HomeAssistant) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Phase 2b: Full-setup — building profile integration (issue #693)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.integration
+async def test_full_setup_includes_building_profile_step_when_profile_exists(
+    hass: HomeAssistant,
+) -> None:
+    """Full-setup create flow surfaces building_profile step when profiles exist.
+
+    Regression test for issue #693: the step was absent from ConfigFlow and
+    only existed in OptionsFlowHandler.
+    """
+    # Register a building profile so _building_profile_entries(hass) is non-empty.
+    profile = MockConfigEntry(
+        domain=DOMAIN,
+        data={"name": "My Building", CONF_SENSOR_TYPE: CoverType.BUILDING_PROFILE},
+        options={CONF_OUTSIDETEMP_ENTITY: "sensor.outside_temp"},
+        entry_id="test_profile_693",
+        title="My Building",
+    )
+    profile.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    if result["type"] == "menu":
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "create_new"}
+        )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"name": "Profile Blind", CONF_MODE: CoverType.BLIND},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "full_setup"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_ENTITIES: []}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _VERTICAL_GEOMETRY
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _SUN_TRACKING
+    )
+    # The building_profile step must appear when profiles exist.
+    assert result["step_id"] == "building_profile"
+
+    # Submit with a profile chosen.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_BUILDING_PROFILE_ID: "test_profile_693"}
+    )
+    # blind_spot is False in _SUN_TRACKING → position is next.
+    assert result["step_id"] == "position"
+
+    # Walk through the remaining steps to create the entry.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _POSITION
+    )
+    assert result["step_id"] == "behavior"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _BEHAVIOR
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _WEATHER_OVERRIDE
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _MANUAL_OVERRIDE
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _CUSTOM_POSITION
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _MOTION_OVERRIDE
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _LIGHT_CLOUD
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _TEMPERATURE_CLIMATE
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _AUTOMATION
+    )
+    assert result["step_id"] == "summary"
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] == "create_entry"
+
+    opts = result["result"].options
+    assert opts.get(CONF_BUILDING_PROFILE_ID) == "test_profile_693"
+    assert opts.get(CONF_OUTSIDETEMP_ENTITY) == "sensor.outside_temp"
+
+
+@pytest.mark.integration
+async def test_full_setup_skips_building_profile_step_when_no_profiles(
+    hass: HomeAssistant,
+) -> None:
+    """Full-setup create flow skips building_profile step when no profiles exist.
+
+    When _building_profile_entries(hass) is empty the flow jumps directly to
+    position (or blind_spot), preserving the pre-#693 path.
+    """
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    if result["type"] == "menu":
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "create_new"}
+        )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"name": "No Profile Blind", CONF_MODE: CoverType.BLIND},
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "full_setup"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_ENTITIES: []}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _VERTICAL_GEOMETRY
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _SUN_TRACKING
+    )
+    # No profiles registered → skip directly to position.
+    assert result["step_id"] == "position"
+
+
+@pytest.mark.integration
+async def test_quick_setup_skips_building_profile_step_even_when_profiles_exist(
+    hass: HomeAssistant,
+) -> None:
+    """Quick-setup path bypasses the building_profile step even when profiles exist."""
+    profile = MockConfigEntry(
+        domain=DOMAIN,
+        data={"name": "Bldg", CONF_SENSOR_TYPE: CoverType.BUILDING_PROFILE},
+        options={},
+        entry_id="test_profile_quick",
+        title="Bldg",
+    )
+    profile.add_to_hass(hass)
+
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    if result["type"] == "menu":
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "create_new"}
+        )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        {"name": "Quick Blind", CONF_MODE: CoverType.BLIND},
+    )
+    # Quick setup
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "quick_setup"}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_ENTITIES: []}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _VERTICAL_GEOMETRY
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _SUN_TRACKING
+    )
+    # Quick setup never shows the building_profile step.
+    assert result["step_id"] == "position"
+
+
+# ---------------------------------------------------------------------------
 # Phase 2c: Validation errors
 # ---------------------------------------------------------------------------
 
@@ -594,6 +771,40 @@ async def test_quick_setup_critical_keys_never_none(hass: HomeAssistant) -> None
 
 
 @pytest.mark.integration
+async def test_options_flow_round_trips_input_entities(hass: HomeAssistant) -> None:
+    """Options flow manual-override step accepts the input-sensor list (issue #688)."""
+    from custom_components.adaptive_cover_pro.const import (
+        CONF_MANUAL_OVERRIDE_INPUT_ENTITIES,
+    )
+    from tests.ha_helpers import VERTICAL_OPTIONS, _patch_coordinator_refresh
+
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"name": "My Blind", CONF_SENSOR_TYPE: CoverType.BLIND},
+        options=dict(VERTICAL_OPTIONS),
+        entry_id="opts_mo_input_01",
+        title="My Blind",
+    )
+    entry.add_to_hass(hass)
+    with _patch_coordinator_refresh():
+        await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    assert result["type"] in ("form", "menu")
+    if result["type"] == "menu":
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "manual_override"}
+        )
+    assert result["step_id"] == "manual_override"
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {CONF_MANUAL_OVERRIDE_INPUT_ENTITIES: ["binary_sensor.cover_input_0"]},
+    )
+    # Step accepted the new field and advanced (back to the menu / created entry).
+    assert result["type"] in ("form", "menu", "create_entry")
+
+
 async def test_options_flow_change_geometry(hass: HomeAssistant) -> None:
     """Options flow geometry step saves updated height to options."""
     from tests.ha_helpers import VERTICAL_OPTIONS, _patch_coordinator_refresh
@@ -1055,7 +1266,6 @@ def test_config_flow_does_not_use_system_language() -> None:
                 "weather_wind_speed_threshold": "50",
                 "weather_wind_direction_tolerance": "45",
                 "weather_rain_threshold": "1",
-                "weather_severe_sensors": [],
                 "weather_override_position": 0,
             },
         ),

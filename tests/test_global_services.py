@@ -22,6 +22,7 @@ from custom_components.adaptive_cover_pro.services import (
     _resolve_targets,
     async_setup_services,
     async_unload_services,
+    loaded_coordinators,
 )
 
 # ---------------------------------------------------------------------------
@@ -568,3 +569,50 @@ async def test_unload_services_removes_all_three():
     assert "integration_enable" in removed
     assert "integration_disable" in removed
     assert "emergency_stop" in removed
+
+
+# ---------------------------------------------------------------------------
+# loaded_coordinators — virtual (Building Profile) entries (regression)
+# ---------------------------------------------------------------------------
+
+
+def _make_profile_entry(entry_id: str) -> MagicMock:
+    """Build a LOADED entry with no ``runtime_data`` — mirrors a Building Profile.
+
+    ``del`` makes the attribute genuinely absent on the MagicMock, so
+    ``getattr(entry, "runtime_data", ...)`` must fall back to the default —
+    reproducing the real ``AttributeError`` the running HA raised.
+    """
+    entry = MagicMock()
+    entry.entry_id = entry_id
+    entry.state = ConfigEntryState.LOADED
+    del entry.runtime_data
+    return entry
+
+
+def test_loaded_coordinators_skips_entries_without_runtime_data():
+    """A LOADED Building Profile entry (no runtime_data) is skipped, not dereferenced."""
+    real = _make_coordinator(["cover.deck"])
+    hass = _make_hass({"cover_01": real})
+    # Append a virtual profile entry alongside the real cover entry.
+    entries = list(hass.config_entries.async_entries.return_value)
+    entries.append(_make_profile_entry("profile_01"))
+    hass.config_entries.async_entries = MagicMock(return_value=entries)
+
+    result = loaded_coordinators(hass)  # must not raise AttributeError
+
+    assert result == {"cover_01": real}
+
+
+@pytest.mark.asyncio
+async def test_unload_services_keeps_services_when_only_real_entry_remains():
+    """With a real cover entry still loaded, the last-entry teardown is skipped."""
+    real = _make_coordinator(["cover.deck"])
+    hass = _make_hass({"cover_01": real})
+    entries = list(hass.config_entries.async_entries.return_value)
+    entries.append(_make_profile_entry("profile_01"))
+    hass.config_entries.async_entries = MagicMock(return_value=entries)
+
+    await async_unload_services(hass)  # must not raise AttributeError
+
+    hass.services.async_remove.assert_not_called()

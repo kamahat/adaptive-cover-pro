@@ -48,6 +48,8 @@ from ...const import (
     VENETIAN_POST_SETTLE_CAP_GRACE_SECONDS,
     VENETIAN_POST_TILT_REBASE_DELAY_SECONDS,
     VENETIAN_REBASE_MAX_DRIFT_PERCENT,
+    VENETIAN_TILT_RESET_CLOSE,
+    VENETIAN_TILT_RESET_OPEN,
     VENETIAN_TILT_SUPPRESSION_SECONDS,
     VENETIAN_TILT_VERIFY_MAX_SAMPLES,
     VENETIAN_TILT_VERIFY_POLL_SECONDS,
@@ -102,6 +104,9 @@ class DualAxisSequencer:
         event_buffer: EventBuffer | None = None,
         invert_tilt: Callable[[], bool] | None = None,
         get_min_change: Callable[[], int] | None = None,
+        get_enforce_delta_at_endpoints: Callable[[], bool] | None = None,
+        get_tilt_reset_threshold: Callable[[], int] | None = None,
+        get_tilt_reset_direction: Callable[[], str] | None = None,
         post_settle_hold_seconds: float = DEFAULT_VENETIAN_POST_SETTLE_HOLD_SECONDS,
         backrotate_publish_lag_seconds: float = (
             DEFAULT_VENETIAN_BACKROTATE_PUBLISH_LAG_SECONDS
@@ -128,6 +133,18 @@ class DualAxisSequencer:
         self._event_buffer = event_buffer
         self._invert_tilt = invert_tilt
         self._get_min_change = get_min_change
+        self._get_enforce_delta_at_endpoints = get_enforce_delta_at_endpoints
+        # Live accessor for the accumulated commanded tilt-% drift-reset
+        # threshold (issue #663). 0 disables. A live lambda (like
+        # ``get_min_change``) so an options change applies without a reload.
+        self._get_tilt_reset_threshold = get_tilt_reset_threshold or (lambda: 0)
+        # Live accessor for the drift-reset direction (issue #686). Resolves the
+        # mechanical endpoint the reset drives to before re-sending the target —
+        # ``VENETIAN_TILT_RESET_OPEN`` (default, back-compat) or ``_CLOSE``. A
+        # live lambda so an options change applies without a reload.
+        self._get_tilt_reset_direction = get_tilt_reset_direction or (
+            lambda: VENETIAN_TILT_RESET_OPEN
+        )
         self._post_settle_hold_seconds = post_settle_hold_seconds
         self._backrotate_publish_lag_seconds = backrotate_publish_lag_seconds
         # Per-entity timestamps. Keep these on the sequencer (rather than on
@@ -149,6 +166,15 @@ class DualAxisSequencer:
         # subsequent verifying send still runs (issue #33).
         self._tilt_targets_verified: set[str] = set()
         self._tilt_sent_at: dict[str, dt.datetime] = {}
+        # Per-entity accumulated commanded tilt-% change (issue #663). Each real
+        # (non-deduped, non-dry-run, non-gated) tilt send adds
+        # ``abs(new_target - prior_anchor)``; crossing
+        # ``_get_tilt_reset_threshold()`` triggers a two-step drift reset.
+        self._accumulated_tilt: dict[str, float] = {}
+        # Entities currently inside a drift-reset's two-step send. A dedicated
+        # guard (not reason-string sniffing): the reset's own open + return
+        # sends must neither re-accumulate nor re-trigger another reset.
+        self._reset_in_progress: set[str] = set()
 
     # -- tilt inversion ---------------------------------------------------- #
 
@@ -186,6 +212,36 @@ class DualAxisSequencer:
             if wire is not None:
                 return self._to_wire(wire), _ANCHOR_SOURCE_ACTUAL
         return self._tilt_targets.get(entity_id), _ANCHOR_SOURCE_TARGET_FALLBACK
+
+    def _target_already_satisfied(self, entity_id: str, tilt_target: int) -> bool:
+        """Return whether the tilt dedup may safely skip a re-send.
+
+        The stored-target dedup alone is wrong for mechanically coupled
+        venetians (issue #679): a ``set_cover_position`` command back-drives
+        the tilt actuator, so the stored target (last verified send) no longer
+        reflects reality. Before treating a target as "unchanged", confirm the
+        *live* actuator tilt is still within ``VENETIAN_TILT_VERIFY_TOLERANCE``
+        of the stored target.
+
+        Returns ``True`` only when the stored target equals ``tilt_target``
+        AND (the live tilt could not be read OR it still matches within
+        tolerance). Returns ``False`` when the stored target differs, or when
+        the live actuator reading has drifted out of tolerance — forcing a
+        re-send so the coupled cover recovers its slat angle. Reuses
+        :meth:`_resolve_tilt_anchor` for the live read (the same actual-aware
+        path the min-delta gate uses) — no second live-read path.
+        """
+        stored = self._tilt_targets.get(entity_id)
+        if stored is None or stored != tilt_target:
+            return False
+        anchor, source = self._resolve_tilt_anchor(entity_id)
+        if (
+            source == _ANCHOR_SOURCE_ACTUAL
+            and anchor is not None
+            and abs(anchor - stored) > VENETIAN_TILT_VERIFY_TOLERANCE
+        ):
+            return False
+        return True
 
     # -- suppression window ------------------------------------------------ #
 
@@ -292,6 +348,10 @@ class DualAxisSequencer:
         self._tilt_targets.clear()
         self._tilt_targets_verified.clear()
         self._settled_at.clear()
+        # Drift-reset accumulator + recursion guard (issue #663) are per-entity
+        # caches like the above and must reset on Auto Control off→on too.
+        self._accumulated_tilt.clear()
+        self._reset_in_progress.clear()
 
     async def run_sequence(
         self,
@@ -317,6 +377,23 @@ class DualAxisSequencer:
         # leak from a prior cycle. ``stamp_position_command`` pops; this
         # write puts the fresh settle stamp back.
         self._stamp_settled(entity_id)
+        # A position move can mechanically back-rotate the slats on real
+        # motors (Somfy IO via Tahoma, KNX): the carriage bottoming out at /
+        # near POSITION_CLOSED drags the tilt shut regardless of the angle we
+        # last commanded. Any prior verification of the stored tilt target is
+        # therefore stale the moment the carriage has travelled. Drop the
+        # verified flag so the post-settle send below re-reads the actuator
+        # and re-asserts tilt on drift, instead of short-circuiting on the
+        # target-unchanged + already-verified dedup in ``_send_tilt_command``
+        # and leaving the slats wherever the motor parked them.
+        #
+        # Opening transitions already force tilt through
+        # ``before_position_command`` (and that force-send discards the flag);
+        # closing transitions had no equivalent, so a close to 0 left the
+        # slats shut until some later open happened to clear the flag — an
+        # intermittent, state-dependent blackout. This closes that gap on the
+        # closing path.
+        self._tilt_targets_verified.discard(entity_id)
         await self._send_tilt_command(
             entity_id,
             tilt_target=tilt_target,
@@ -376,7 +453,7 @@ class DualAxisSequencer:
         depth flag is threaded straight into the verify step so a still-
         drifting retry does not spawn another retry.
         """
-        if not force and tilt_target == self._tilt_targets.get(entity_id):
+        if not force and self._target_already_satisfied(entity_id, tilt_target):
             self._record_event(
                 "tilt_command_skipped",
                 reason=_TILT_SKIP_TARGET_UNCHANGED,
@@ -394,11 +471,20 @@ class DualAxisSequencer:
 
         if not force and self._get_min_change is not None:
             anchor, anchor_source = self._resolve_tilt_anchor(entity_id)
+            # When endpoint-delta enforcement is enabled (issue #679), drop the
+            # 0/100 special bypass so the gate applies to the full endpoints too
+            # — mirrors the position axis in ``build_special_positions``.
+            tilt_specials = (
+                []
+                if self._get_enforce_delta_at_endpoints
+                and self._get_enforce_delta_at_endpoints()
+                else _TILT_SPECIAL_POSITIONS
+            )
             if anchor is not None and not check_position_delta(
                 entity_id,
                 tilt_target,
                 self._get_min_change(),
-                _TILT_SPECIAL_POSITIONS,
+                tilt_specials,
                 position=anchor,
                 logger=self._logger,
                 axis_label="tilt",
@@ -432,6 +518,22 @@ class DualAxisSequencer:
                 trigger=reason,
             )
             return
+
+        # Capture the pre-send anchor BEFORE overwriting _tilt_targets so the
+        # drift accumulator (issue #663) measures real commanded travel. Uses
+        # the same actual-aware source as the min-delta gate; a cold-start None
+        # accumulates 0 (the freshly-stored target seeds the next send). Only
+        # resolved when the feature is enabled (threshold > 0) and the send is
+        # not part of a reset already — resolving does a live actuator read, so
+        # skipping it when disabled keeps the read sequence identical to the
+        # pre-#663 behaviour for the dominant disabled case.
+        drift_reset_enabled = (
+            entity_id not in self._reset_in_progress
+            and self._get_tilt_reset_threshold() > 0
+        )
+        pre_send_anchor: int | None = None
+        if drift_reset_enabled:
+            pre_send_anchor, _ = self._resolve_tilt_anchor(entity_id)
 
         self._tilt_targets[entity_id] = tilt_target  # store logical value
         # A freshly-sent target is unverified until _verify_and_record_tilt
@@ -485,6 +587,20 @@ class DualAxisSequencer:
             trigger=reason,
         )
 
+        # Accumulate real commanded travel and, when the threshold is crossed,
+        # run a two-step mechanical drift reset (issue #663). Placed after the
+        # successful async_call so deduped / dry-run / min-delta-gated sends do
+        # not count. ``drift_reset_enabled`` already folds in the recursion
+        # guard and the disabled (threshold 0) case, so the reset's own two
+        # sends neither re-accumulate nor re-trigger.
+        if drift_reset_enabled:
+            await self._maybe_drift_reset(
+                entity_id,
+                original_target=tilt_target,
+                position_target=position_target,
+                pre_send_anchor=pre_send_anchor,
+            )
+
         if not verify:
             return
 
@@ -513,6 +629,100 @@ class DualAxisSequencer:
                 trigger=reason,
             )
 
+    async def _maybe_drift_reset(
+        self,
+        entity_id: str,
+        *,
+        original_target: int,
+        position_target: int,
+        pre_send_anchor: int | None,
+    ) -> None:
+        """Accumulate commanded tilt travel; reset to flush drift on threshold.
+
+        Issue #663. Adds ``abs(original_target - pre_send_anchor)`` to the
+        per-entity accumulator (0 when the anchor is unresolved at cold start —
+        the freshly-stored target seeds the next send). When a positive
+        threshold is crossed, runs a two-step re-zero through
+        :meth:`_send_tilt_command` (reusing inverse / grace / dedup gates per
+        the no-duplication rule):
+
+        1. Drive the slats to the mechanical endpoint chosen by
+           ``get_tilt_reset_direction`` (issue #686) — logical ``POSITION_OPEN``
+           (default) or ``POSITION_CLOSED`` (``force=True``, ``verify=False``).
+           The literal logical value is passed so ``_to_wire`` applies inversion
+           exactly once; it is NOT clamped to ``CONF_MAX_TILT`` — the hardware
+           endpoint is the correct re-zero anchor.
+        2. Settle (``VENETIAN_POST_TILT_REBASE_DELAY_SECONDS``).
+        3. Re-send the original target (``force=True``, ``verify=True``) so the
+           dedup gate doesn't swallow the unchanged value.
+
+        Then zeroes the accumulator. A dedicated ``_reset_in_progress`` guard
+        wraps the two sends so they neither re-accumulate nor re-trigger.
+        """
+        if entity_id in self._reset_in_progress:
+            return
+
+        delta = (
+            abs(original_target - pre_send_anchor)
+            if pre_send_anchor is not None
+            else 0.0
+        )
+        accumulated = self._accumulated_tilt.get(entity_id, 0.0) + delta
+        self._accumulated_tilt[entity_id] = accumulated
+
+        threshold = self._get_tilt_reset_threshold()
+        if not (threshold > 0 and accumulated >= threshold):
+            return
+
+        # Resolve the drive-to endpoint once (issue #686). ``close`` drives the
+        # slats fully closed; anything else (default ``open``) drives fully open.
+        direction = self._get_tilt_reset_direction()
+        reset_endpoint = (
+            POSITION_CLOSED if direction == VENETIAN_TILT_RESET_CLOSE else POSITION_OPEN
+        )
+        self._record_event(
+            "tilt_reset_triggered",
+            entity_id=entity_id,
+            accumulated_tilt=accumulated,
+            threshold=threshold,
+            target=original_target,
+            direction=direction,
+        )
+        self._reset_in_progress.add(entity_id)
+        try:
+            # Event NAME stays ``tilt_reset_open`` for Lovelace-card / test
+            # stability; its ``tilt_position`` reflects the chosen endpoint.
+            self._record_event(
+                "tilt_reset_open",
+                entity_id=entity_id,
+                tilt_position=reset_endpoint,
+            )
+            await self._send_tilt_command(
+                entity_id,
+                tilt_target=reset_endpoint,
+                position_target=position_target,
+                reason="tilt_reset_open",
+                force=True,
+                verify=False,
+            )
+            await asyncio.sleep(VENETIAN_POST_TILT_REBASE_DELAY_SECONDS)
+            self._record_event(
+                "tilt_reset_return",
+                entity_id=entity_id,
+                tilt_position=original_target,
+            )
+            await self._send_tilt_command(
+                entity_id,
+                tilt_target=original_target,
+                position_target=position_target,
+                reason="tilt_reset_return",
+                force=True,
+                verify=True,
+            )
+        finally:
+            self._reset_in_progress.discard(entity_id)
+        self._accumulated_tilt[entity_id] = 0.0
+
     async def update_tilt_only(
         self,
         entity_id: str,
@@ -520,14 +730,20 @@ class DualAxisSequencer:
         tilt_target: int,
         current_position: int | None,
         reason: str,
+        force: bool = False,
     ) -> None:
         """Emit a tilt command without a position settle wait or suppression stamp.
 
         Used by VenetianPolicy when the position axis won't fire this cycle
         (cover is already at the commanded position) so tilt can still track
         the sun continuously.
+
+        ``force=True`` bypasses the target-unchanged dedup here AND threads the
+        same flag into ``_send_tilt_command`` so it skips the dedup/min-delta
+        gates. Used by the user-tilt path (issue #684): a user explicitly
+        re-requesting the current tilt is not a no-op.
         """
-        if tilt_target == self._tilt_targets.get(entity_id):
+        if not force and self._target_already_satisfied(entity_id, tilt_target):
             self._record_event(
                 "tilt_command_skipped",
                 reason=_TILT_SKIP_TARGET_UNCHANGED,
@@ -542,6 +758,7 @@ class DualAxisSequencer:
             tilt_target=tilt_target,
             position_target=current_position if current_position is not None else 0,
             reason=reason,
+            force=force,
         )
 
     def _rebase_commanded_position(self, entity_id: str, position_target: int) -> None:

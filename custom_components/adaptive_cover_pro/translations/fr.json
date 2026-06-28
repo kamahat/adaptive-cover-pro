@@ -5,6 +5,7 @@
       "user": {
         "menu_options": {
           "create_new": "Créer un nouveau store",
+          "create_building_profile": "Créer un profil de bâtiment",
           "duplicate_existing": "Dupliquer à partir d'un store existant"
         }
       },
@@ -53,7 +54,11 @@
           "awning_min_angle": "Angle du bras fermé",
           "awning_max_angle": "Angle du bras complètement ouvert",
           "awning_housing_offset": "Décalage du boîtier au-dessus de la fenêtre",
-          "awning_pivot_offset": "Décalage du pivot par rapport à la fenêtre"
+          "awning_pivot_offset": "Décalage du pivot par rapport à la fenêtre",
+          "venetian_tilt_reset_threshold": "Seuil de réinitialisation de dérive store vénitien (inclinaison cumulée %)",
+          "venetian_tilt_reset_direction": "Direction de réinitialisation de dérive",
+          "roof_pitch": "Pente de toit",
+          "roof_height_above": "Hauteur du toit au-dessus de la fenêtre"
         },
         "data_description": {
           "window_height": "Hauteur de votre fenêtre (de bas en haut de la zone vitrée). Affiché dans l'unité configurée dans Home Assistant. Exemples : Porte standard = 2,0 m / 79 in, Petite fenêtre = 1,5 m / 59 in, Du sol au plafond = 2,5 m / 98 in. Mesurez d'où la protection commence à d'où elle finit lorsqu'elle est complètement étendue.",
@@ -76,7 +81,11 @@
           "awning_min_angle": "Angle du bras lorsque la store banne est complètement fermée/rétractée (0–180°). En règle générale, 0° = bras vertical contre le mur. Définit le début de l'arc de balayage.",
           "awning_max_angle": "Angle du bras lorsque la store banne est complètement ouverte (0–180°). Le bras pivote linéairement de l'angle fermé à cette valeur sur 0–100% d'ouverture. Exemple : un balayage total de 175° ≈ 1,75° par 1%.",
           "awning_housing_offset": "Décalage vertical du pivot du bras au-dessus du haut de la fenêtre (0–1 m). Combiné avec la hauteur de la fenêtre et la longueur du bras pour localiser le pivot. Définir à 0 lorsque le boîtier s'aligne avec le haut de la fenêtre.",
-          "awning_pivot_offset": "Distance horizontale entre le pivot du bras (plan du tissu) du store et la vitre de la fenêtre (0–2 m). Sous un soleil bas, cela permet au tissu abaissé d'ombrager plus bas sur la vitre, car le tissu se tient à distance de la vitre. Réglez cette valeur sur l'écart entre le boîtier/bras et le mur, plus tout renfoncement/embrasure de la fenêtre — utilisez 0 lorsque le tissu pend à fleur de la vitre. Exemple : 0,7 m / 28 in pour un bras monté loin du mur."
+          "awning_pivot_offset": "Distance horizontale entre le pivot du bras (plan du tissu) du store et la vitre de la fenêtre (0–2 m). Sous un soleil bas, cela permet au tissu abaissé d'ombrager plus bas sur la vitre, car le tissu se tient à distance de la vitre. Réglez cette valeur sur l'écart entre le boîtier/bras et le mur, plus tout renfoncement/embrasure de la fenêtre — utilisez 0 lorsque le tissu pend à fleur de la vitre. Exemple : 0,7 m / 28 in pour un bras monté loin du mur.",
+          "venetian_tilt_reset_threshold": "Ouvrir complètement les lamelles puis les ramener à la position pour éliminer la dérive mécanique accumulée une fois que cette quantité de changement d'inclinaison commandé s'est accumulée. 0 désactive la réinitialisation de dérive.",
+          "venetian_tilt_reset_direction": "Direction dans laquelle la réinitialisation de dérive entraîne les lamelles avant de revenir à la cible. **Ouvrir** (par défaut) : entraîner complètement ouvert, puis revenir — le comportement d'origine. **Fermer** : entraîner complètement fermé, puis revenir. Choisissez Fermer quand le store se situe près de la fermeture lors du suivi (une réinitialisation plus silencieuse et plus rapide) ou quand votre actionneur réinitialise les lamelles sur une commande de fermeture.",
+          "roof_pitch": "Inclinaison du verre de toit mesurée DEPUIS L'HORIZONTALE (0–90°). 0° = un puits de lumière plat (le soleil entre chaque fois qu'il est au-dessus de l'horizon) ; 90° = une fenêtre verticale (se comporte exactement comme un store vertical). Les fenêtres de toit de style Velux typiques ont une pente de 30–50°. Si vous migrez depuis la solution de contournement utilisant les stores verticaux avec une limite d'élévation maximale, cette pente est le complément de cet angle (p. ex. un toit de 35° ↔ une solution de contournement d'environ 55° d'élévation maximale).",
+          "roof_height_above": "Distance le long de la pente depuis le haut de la fenêtre jusqu'au faîtage du toit (0–10 m). Lorsqu'elle est > 0, le toit au-dessus de la fenêtre peut bloquer le soleil une fois qu'il dépasse le faîtage et descend bas (la porte d'occlusion du faîtage). Définissez à 0 (par défaut) pour désactiver la porte — p. ex. une fenêtre positionnée juste au faîtage sans toit au-dessus. Affichée dans l'unité configurée dans Home Assistant."
         }
       },
       "sun_tracking": {
@@ -123,14 +132,16 @@
           "sunset_use_my": "Utiliser Ma position au coucher du soleil",
           "open_close_threshold": "Seuil ouverture/fermeture",
           "interp": "Activer l'étalonnage de position (mappage custom position ouverture/fermeture)",
-          "end_of_window_position": "Position de fin de fenêtre"
+          "end_of_window_position": "Position de fin de fenêtre",
+          "enforce_delta_at_endpoints": "Appliquer le delta de position aux extrémités entièrement ouvert/fermé",
+          "endpoint_use_open_close": "Utiliser les commandes d'ouverture/fermeture aux fins de course"
         },
         "data_description": {
           "default_percentage": "Position du store quand le soleil n'est pas devant la fenêtre (0-100%). 0% = fermé (stores baissés / store banne rétracté), 50% = demi-ouvert (lumière et intimité équilibrées), 100% = ouvert (stores levés / store banne étendu). Ceci est la « position de repos » utilisée quand le suivi du soleil n'est pas actif (soleil derrière la fenêtre, bloqué par des obstacles, ou en dehors des heures de suivi).",
-          "max_position": "Limite maximale de position de la protection (0-100%). 100% = ouvert (stores levés / auvent étendu). La protection ne dépassera jamais cette valeur. À utiliser pour : empêcher la protection de s'ouvrir complètement (mettre à 80%), maintenir une protection permanente (mettre à 60-70%), protéger contre les blocages en haut (mettre à 95%). Cela crée une limite supérieure pour toutes les positions automatiques. Sur les stores vénitiens, ceci contraint l'axe de translation (vertical) uniquement — l'inclinaison des lamelles est calculée à partir de la géométrie solaire et n'est pas plafonnée ici.",
-          "enable_max_position": "Contrôle QUAND la limite de position maximale s'applique. NON COCHÉ (par défaut, recommandé) : Position maximale s'applique TOUT LE TEMPS - lors du suivi du soleil, position par défaut, modes climatiques, etc. Le store ne dépasse jamais la valeur max. COCHÉ (avancé) : Position maximale s'applique UNIQUEMENT quand le soleil est directement devant la fenêtre. Pendant les états par défaut/repli, le store peut dépasser la valeur max. La plupart des utilisateurs doivent laisser UNCHECKED pour une protection cohérente.",
-          "min_position": "Limite de position minimale du store (0-99%). 0% = fermé (stores baissés / store banne rétracté). Le store ne descendra jamais en dessous de cette valeur. Utilisez ceci pour : empêcher le store de se fermer complètement (réglez sur 20%), maintenir de la lumière (réglez sur 30-40%), protéger du blocage au bas (réglez sur 5%). Ceci crée une limite inférieure pour toutes les positions automatiques. Fonctionne avec le bouton bascule « Appliquer min uniquement lors du suivi du soleil » ci-dessous.",
-          "enable_min_position": "Contrôle QUAND la limite de position minimale s'applique. NON COCHÉ (par défaut, recommandé) : Position minimale s'applique TOUT LE TEMPS - lors du suivi du soleil, position par défaut, modes climatiques, etc. Le store ne descend jamais sous la valeur min. COCHÉ (avancé) : Position minimale s'applique UNIQUEMENT quand le soleil est directement devant la fenêtre. Pendant les états par défaut/repli, le store peut descendre sous la valeur min. La plupart des utilisateurs doivent laisser UNCHECKED pour une protection cohérente.",
+          "max_position": "Limite de position maximale du store (0-100%). 100% = ouvert (stores levés / store banne étendu). Utilisez ceci pour : empêcher le store de s'ouvrir complètement (réglez à 80%), conserver une certaine ombre tout le temps (réglez à 60-70%), prévenir le coincement en haut (réglez à 95%). ACP bloque chaque position CALCULÉE à au maximum cette valeur (suivi du soleil, défaut/repos, mode climatique, suppression des nuages, délai de mouvement, éblouissement, récupération de dérogation manuelle). Les cibles fixes explicitement configurées sont envoyées comme vous les définissez et ne sont PAS bloquées par ce plafond : la Position au coucher du soleil (exemptée par conception), les slots Position personnalisée (mode exact), la position Dérogation météo, et le préréglage « My ». Sur les stores vénitiens, ceci limite uniquement l'axe du tablier (vertical) — l'inclinaison des lamelles est calculée à partir de la géométrie solaire et n'est pas plafonnée ici.",
+          "enable_max_position": "Contrôle QUAND la limite de position maximale s'applique aux positions CALCULÉES. NON COCHÉ (par défaut, recommandé) : la position maximale s'applique tout le temps - suivi du soleil, position par défaut, modes climatiques, etc. COCHÉ (avancé) : la position maximale s'applique uniquement lorsque le soleil est directement devant la fenêtre ; pendant les états par défaut/secours, le store peut monter au-dessus de la valeur max. Dans les deux cas, les cibles fixes explicitement configurées (Position au coucher du soleil, Positions personnalisées, Dérogation météo, préréglage « My ») sont envoyées comme vous les définissez et ne sont pas plafonnées par ce plafond. La plupart des utilisateurs devraient laisser ceci NON COCHÉ pour une protection cohérente.",
+          "min_position": "Limite de position minimale du store (0-99%). 0% = fermé (stores baissés / store banne rétracté). Utilisez ceci pour : empêcher le store de se fermer complètement (réglez à 20%), maintenir une certaine lumière (réglez à 30-40%), prévenir le coincement en bas (réglez à 5%). ACP bloque chaque position CALCULÉE à au minimum cette valeur (suivi du soleil, défaut/repos, mode climatique, suppression des nuages, délai de mouvement, éblouissement, récupération de dérogation manuelle). Les cibles fixes explicitement configurées sont envoyées comme vous les définissez et ne sont PAS bloquées par ce plancher : la Position au coucher du soleil (exemptée par conception pour que les stores puissent se fermer complètement la nuit), les slots Position personnalisée (mode exact), la position Dérogation météo, et le préréglage « My » — réglez ceux-ci à ou au-dessus de cette valeur (ou utilisez leur « mode position minimale ») pour un plancher absolu partout. Sur les stores vénitiens, ceci limite uniquement l'axe du tablier (vertical). Fonctionne avec le bouton bascule 'Appliquer le min uniquement lors du suivi du soleil' ci-dessous.",
+          "enable_min_position": "Contrôle QUAND la limite de position minimale s'applique aux positions CALCULÉES. NON COCHÉ (par défaut, recommandé) : la position minimale s'applique tout le temps - suivi du soleil, position par défaut, modes climatiques, etc. COCHÉ (avancé) : la position minimale s'applique uniquement lorsque le soleil est directement devant la fenêtre ; pendant les états par défaut/secours, le store peut descendre sous la valeur min. Dans les deux cas, les cibles fixes explicitement configurées (Position au coucher du soleil, Positions personnalisées, Dérogation météo, préréglage « My ») sont envoyées comme vous les définissez et ne sont pas plafonnées par ce plancher. La plupart des utilisateurs devraient laisser ceci NON COCHÉ pour une protection cohérente.",
           "min_position_sun_tracking": "Limite de position minimale facultative qui s'applique uniquement pendant que le soleil est dans le champ de vision. Lorsqu'elle est définie, elle remplace « Position minimale » lors des calculs de suivi solaire. Laissez vide pour utiliser « Position minimale » pour le suivi solaire et les autres modes. Utilisez cette option si votre store a une zone morte mécanique en bas du parcours (par exemple, les volets roulants dont les lames s'écartent avant le bas se soulève) et que vous souhaitez que le suivi solaire ignore cette zone morte tout en permettant au store de se fermer complètement au coucher du soleil. 0% = fermé (stores baissés), 100% = ouvert (stores levés).",
           "sunset_position": "Position du store à définir après le coucher du soleil. Effacez le curseur (laissez vide) pour utiliser la position par défaut à la place — pas de comportement spécial au coucher du soleil. 0% = fermé (stores baissés / store banne rétracté), 100% = ouvert (stores levés / store banne étendu). Utilisations courantes : confidentialité (0%), ouvert pour la brise nocturne (100%), confidentialité partielle (30-50%). Si défini, cela remplace la position par défaut après le coucher du soleil.",
           "enable_my_position_entities": "Crée le bouton « Ma position gérée » et l'entité nombre « Valeur de Ma position gérée ». Désactivé par défaut — activez cette option si vous utilisez le préset « Ma » de type Somfy et souhaitez rappeler ou modifier la valeur depuis un tableau de bord.",
@@ -138,7 +149,9 @@
           "sunset_use_my": "Quand la fenêtre coucher du soleil/heure de fin s'active, déclenchez le préset Ma du store (via stop_cover) au lieu du repli ouverture/fermeture normal. Nécessite que la valeur Ma position soit définie. N'affecte que les stores sans capacité de position (par exemple Somfy RTS).",
           "open_close_threshold": "Seuil de position pour les stores qui ne supportent que les commandes ouverture/fermeture (pas de contrôle de position). Quand la position calculée est supérieure ou égale à ce seuil, le store s'ouvre ; quand c'est moins, il se ferme. Par défaut : 50% (s'ouvre au point médian ou au-dessus). Les valeurs plus élevées (60-70%) gardent le store fermé plus souvent, les valeurs plus basses (30-40%) l'ouvrent plus souvent. N'affecte que les stores sans support de position - les stores avec contrôle de position ignorent ce paramètre et utilisent les positions calculées exactes.",
           "interp": "Activez le mappage de position personnalisé pour étalonner les stores qui ne répondent pas linéairement aux commandes 0–100%. Quand activé, une section « Étalonnage de position » apparaîtra dans le menu des options (sous Paramètres de position) où vous pouvez configurer les valeurs de mappage. Cas d'utilisation : le store ne se déplace pas linéairement, préférez certaines plages (plus fermé ou plus ouvert), étalonner pour un comportement de store inhabituel. Laissez désactivé pour un fonctionnement normal.",
-          "end_of_window_position": "Position du store à définir à l'heure de fin opérationnelle, indépendamment du coucher du soleil astronomique. Effacez le curseur (laissez vide) pour désactiver. Nécessite que « Déplacer les couvertures vers la position par défaut actuelle à l'heure de fin » soit activé. Lorsque cette position et la position au coucher du soleil sont toutes deux définies, celle-ci s'applique de l'heure de fin jusqu'au coucher du soleil astronomique, puis la position au coucher du soleil prend le relais. 0% = fermé (stores baissés / store banne rétracté), 100% = ouvert (stores levés / store banne étendu). Utile lorsque votre heure de fin est bien avant le coucher du soleil (par ex. 19h30 en été) et que vous voulez les stores fermés pour la soirée."
+          "end_of_window_position": "Position du store à définir à l'heure de fin opérationnelle, indépendamment du coucher du soleil astronomique. Effacez le curseur (laissez vide) pour désactiver. Nécessite que « Déplacer les couvertures vers la position par défaut actuelle à l'heure de fin » soit activé. Lorsque cette position et la position au coucher du soleil sont toutes deux définies, celle-ci s'applique de l'heure de fin jusqu'au coucher du soleil astronomique, puis la position au coucher du soleil prend le relais. 0% = fermé (stores baissés / store banne rétracté), 100% = ouvert (stores levés / store banne étendu). Utile lorsque votre heure de fin est bien avant le coucher du soleil (par ex. 19h30 en été) et que vous voulez les stores fermés pour la soirée.",
+          "enforce_delta_at_endpoints": "Contrôle si le delta de changement minimal de position est respecté même pour les cibles entièrement ouvert (100%) et entièrement fermé (0%). NON COCHÉ (par défaut): les commandes à 0% et 100% sont toujours envoyées, contournant le filtre delta — une fermeture ou ouverture complète n'est jamais silencieusement ignorée. COCHÉ: le filtre delta s'applique aussi aux extrémités 0% et 100%, donc un mouvement vers une extrémité complète plus petit que le delta configuré est supprimé. Activez ceci sur les protections mécaniquement couplées où commander une extrémité complète perturbe l'inclinaison des lamelles (par exemple, une protection vénitienne dont le chariot et les lamelles partagent un moteur), pour empêcher la protection de chasser à plusieurs reprises une extrémité inatteignable. La plupart des utilisateurs devraient laisser ceci NON COCHÉ.",
+          "endpoint_use_open_close": "Contrôle quel service Home Assistant est envoyé lorsque la store doit aller à une fin de course complète. COCHÉ (par défaut) : une position finale de 100% envoie cover.open_cover et une position finale de 0% envoie cover.close_cover, au lieu de cover.set_cover_position(100/0). Les positions entre 1% et 99% utilisent toujours set_cover_position. De nombreux moteurs effectuent un parcours complet plus fiable en utilisant la commande d'ouverture/fermeture dédiée plutôt que set_cover_position jusqu'aux limites extrêmes. Si la store n'expose pas les commandes d'ouverture/fermeture, l'intégration bascule automatiquement vers set_cover_position. Ce paramètre n'a aucun effet sur les stores à inclinaison uniquement (l'axe de lamelles ne reçoit jamais de commandes d'ouverture/fermeture). DÉCOCHÉ : utilisez toujours set_cover_position, y compris à 0% et 100%."
         }
       },
       "automation": {
@@ -174,7 +187,8 @@
           "manual_threshold": "Seuil de dérogation manuelle",
           "manual_ignore_intermediate": "Ignorer les positions intermédiaires lors de la dérogation manuelle (ouverture et fermeture)",
           "transit_timeout": "Délai de transit (secondes)",
-          "manual_ignore_external": "Engager uniquement la dérogation manuelle via les commandes Adaptive Cover Pro"
+          "manual_ignore_external": "Engager uniquement la dérogation manuelle via les commandes Adaptive Cover Pro",
+          "manual_override_input_entities": "Capteurs d'entrée qui déclenchent une dérogation manuelle"
         },
         "data_description": {
           "manual_override_duration": "Combien de temps (minutes) pour mettre en pause le contrôle automatique après ajustement manuel. Quand vous déplacez manuellement le store, le contrôle automatique met en pause. Valeurs typiques : 10-15 min (pause courte, reprendre le suivi bientôt), 30 min (pause moyenne, équilibrée), 60-120 min (pause longue, garder la position manuelle plus longtemps), 0 (désactivé, reprendre immédiatement le contrôle automatique - non recommandé). Vous donne le contrôle quand vous le voulez, reprend l'automatisation plus tard.",
@@ -182,12 +196,13 @@
           "manual_threshold": "Différence de position (%) qui compte comme « dérogation manuelle » (par défaut : 1%). Si vous déplacez manuellement le store de ce montant, la détection de dérogation se déclenche. Valeurs typiques : 1-2% (sensible, détecte les petits ajustements), 5% (moins sensible, recommandé), 10% (seuls les grands changements manuels comptent). Empêche la détection accidentelle de dérogation due à de petites dérives de moteur ou aux variations de rapports de position.",
           "manual_ignore_intermediate": "Ignorez les positions intermédiaires lors des opérations d'ouverture et de fermeture manuelles. Activez ceci pour empêcher la détection de dérogation des positions transitoires tandis que le store se déplace vers votre position cible. Utile si votre store signale de nombreuses valeurs intermédiaires pendant le mouvement.",
           "transit_timeout": "Durée pendant laquelle ACP attend après l'arrêt du signalement de progression d'une protection avant de traiter le prochain rapport de position comme une dérogation manuelle initiée par l'utilisateur. Le minuteur se réinitialise chaque fois que la protection se rapproche de sa cible commandée, de sorte que les protections se déplaçant lentement mais continuellement sont protégées pendant l'intégralité du transit. Augmentez cette valeur pour les protections qui prennent plus de 45 secondes pour un parcours complet. Par défaut : 45 secondes.",
-          "manual_ignore_external": "Lorsque activé, seuls les changements de position envoyés via l'entité proxy Adaptive Cover Pro ou le service adaptive_cover_pro.set_position engagent la dérogation manuelle. Les changements de position d'autres sources (autres automatisations, la carte de protection Home Assistant par défaut, les télécommandes physiques ou RF) sont ignorés et le contrôle automatique continue sans interruption. Utile lorsque vous conduisez la protection uniquement via ACP lui-même et souhaitez que les changements d'état externes bruyants ne mettent pas l'automatisation en pause. Par défaut : désactivé."
+          "manual_ignore_external": "Lorsque activé, seuls les changements de position envoyés via l'entité proxy Adaptive Cover Pro ou le service adaptive_cover_pro.set_position engagent la dérogation manuelle. Les changements de position d'autres sources (autres automatisations, la carte de protection Home Assistant par défaut, les télécommandes physiques ou RF) sont ignorés et le contrôle automatique continue sans interruption. Utile lorsque vous conduisez la protection uniquement via ACP lui-même et souhaitez que les changements d'état externes bruyants ne mettent pas l'automatisation en pause. Par défaut : désactivé.",
+          "manual_override_input_entities": "Capteurs binaires (ou commutateurs/input_booleans) dont la transition passage à ON déclenche une dérogation manuelle sur chaque store de cette instance. Destiné à un commutateur mural physique câblé à une entrée (par ex. un Shelly 2PM exposant binary_sensor.*_cover_input_0) : l'appuyer suspend le contrôle automatique pour la durée de la dérogation au lieu de déduire un mouvement manuel de la position du store. Combiner avec « Engager la dérogation manuelle uniquement à partir des commandes Adaptive Cover Pro » pour faire de ces capteurs le seul déclencheur de dérogation. Par défaut : aucun."
         }
       },
       "custom_position": {
         "title": "Positions personnalisées",
-        "description": "Configurez les capteurs de déclenchement et/ou modèles de condition qui définissent le store à des positions spécifiques quand actifs. Chaque emplacement a ses propres déclencheurs (plusieurs capteurs se combinent avec la logique OU), modèle optionnel, position cible, et priorité de pipeline (1-100). Chaque emplacement actif est évalué indépendamment — l'emplacement actif avec la priorité la plus élevée gagne. La priorité 100 donne à un emplacement la sémantique de sécurité : il agit en dehors de la fenêtre de temps début/fin et contourne les portes delta (ceci remplace l'ancienne fonctionnalité Force Override). Utilisez les automations Home Assistant pour basculer ces capteurs pour le contrôle du store basé sur des scènes ou des horaires.\n\n[En savoir plus]({learn_more})\n\n**Priorité de décision** — où la priorité de chaque emplacement configuré s'arrive contre les gestionnaires fixes (le plus élevé gagne). Ceci reflète les dernières priorités enregistrées ; il s'actualise quand le formulaire se rend à nouveau, pas en direct comme vous glissez le curseur :\n{priority_scale}",
+        "description": "Configurez des capteurs de déclenchement et/ou des modèles de condition qui définissent le store à des positions spécifiques lorsqu'ils sont actifs. Chaque emplacement dispose de ses propres déclencheurs (plusieurs capteurs se combinent avec une logique OU), d'un modèle optionnel, d'une position cible et d'une priorité de pipeline (1-100). Chaque emplacement actif est évalué indépendamment — l'emplacement actif avec la priorité la plus élevée gagne. La priorité 100 donne à un emplacement une sémantique de sécurité : il contourne l'interrupteur de contrôle automatique, la dérogation manuelle et la fenêtre horaire de début/fin (pour que le store puisse se déplacer même quand le contrôle automatique est DÉSACTIVÉ), et contourne les seuils delta (cela remplace l'ancienne fonctionnalité de Dérogation Forcée). Utilisez les automations Home Assistant pour activer/désactiver ces capteurs pour contrôler le store en fonction de scènes ou d'horaires.\n\n[En savoir plus]({learn_more})\n\n**Priorité de décision** — où la priorité de chaque emplacement configuré s'aligne contre les gestionnaires fixes (le plus élevé gagne). Cela reflète les priorités dernièrement enregistrées ; cela s'actualise quand le formulaire se re-rend, pas en direct quand vous déplacez le curseur :\n{priority_scale}",
         "data": {
           "custom_position_sensors_1": "Capteurs 1",
           "custom_position_template_1": "Template de condition 1",
@@ -235,14 +250,59 @@
           "custom_position_tilt_5": "Slot 5 : inclinaison",
           "custom_position_tilt_only_5": "Slot 5 : inclinaison uniquement",
           "default_tilt": "Inclinaison par défaut",
-          "sunset_tilt": "Inclinaison au coucher du soleil"
+          "sunset_tilt": "Inclinaison au coucher du soleil",
+          "custom_position_sensors_6": "Capteurs 6",
+          "custom_position_template_6": "Template de condition 6",
+          "custom_position_template_mode_6": "Mode de combinaison de template 6",
+          "custom_position_6": "Position pour le slot 6",
+          "custom_position_priority_6": "Priorité pour le slot 6",
+          "custom_position_min_mode_6": "Mode de minimum pour le slot 6",
+          "custom_position_use_my_6": "Slot 6 : utiliser la position Mes présélections",
+          "custom_position_tilt_6": "Slot 6 : inclinaison",
+          "custom_position_tilt_only_6": "Slot 6 : inclinaison uniquement",
+          "custom_position_sensors_7": "Capteurs 7",
+          "custom_position_template_7": "Template de condition 7",
+          "custom_position_template_mode_7": "Mode de combinaison de template 7",
+          "custom_position_7": "Position pour le slot 7",
+          "custom_position_priority_7": "Priorité pour le slot 7",
+          "custom_position_min_mode_7": "Mode de minimum pour le slot 7",
+          "custom_position_use_my_7": "Slot 7 : utiliser la position Mes présélections",
+          "custom_position_tilt_7": "Slot 7 : inclinaison",
+          "custom_position_tilt_only_7": "Slot 7 : inclinaison uniquement",
+          "custom_position_sensors_8": "Capteurs 8",
+          "custom_position_template_8": "Template de condition 8",
+          "custom_position_template_mode_8": "Mode de combinaison de template 8",
+          "custom_position_8": "Position pour le slot 8",
+          "custom_position_priority_8": "Priorité pour le slot 8",
+          "custom_position_min_mode_8": "Mode de minimum pour le slot 8",
+          "custom_position_use_my_8": "Slot 8 : utiliser la position Mes présélections",
+          "custom_position_tilt_8": "Slot 8 : inclinaison",
+          "custom_position_tilt_only_8": "Slot 8 : inclinaison uniquement",
+          "custom_position_sensors_9": "Capteurs 9",
+          "custom_position_template_9": "Template de condition 9",
+          "custom_position_template_mode_9": "Mode de combinaison de template 9",
+          "custom_position_9": "Position pour le slot 9",
+          "custom_position_priority_9": "Priorité pour le slot 9",
+          "custom_position_min_mode_9": "Mode de minimum pour le slot 9",
+          "custom_position_use_my_9": "Slot 9 : utiliser la position Mes présélections",
+          "custom_position_tilt_9": "Slot 9 : inclinaison",
+          "custom_position_tilt_only_9": "Slot 9 : inclinaison uniquement",
+          "custom_position_sensors_10": "Capteurs 10",
+          "custom_position_template_10": "Template de condition 10",
+          "custom_position_template_mode_10": "Mode de combinaison de template 10",
+          "custom_position_10": "Position pour le slot 10",
+          "custom_position_priority_10": "Priorité pour le slot 10",
+          "custom_position_min_mode_10": "Mode de minimum pour le slot 10",
+          "custom_position_use_my_10": "Slot 10 : utiliser la position Mes présélections",
+          "custom_position_tilt_10": "Slot 10 : inclinaison",
+          "custom_position_tilt_only_10": "Slot 10 : inclinaison uniquement"
         },
         "data_description": {
           "custom_position_sensors_1": "Capteurs binaires qui, lorsque l'un est 'on', déplacent le store à sa position configurée (logique OR). Laisser vide pour utiliser uniquement un template — ou pour ignorer ce slot.",
           "custom_position_template_1": "Template Jinja2 optionnel ; lorsqu'il s'évalue à vrai, il active le slot. Combiné avec les capteurs selon le mode de combinaison ci-dessous.",
           "custom_position_template_mode_1": "Comment le template se combine avec les capteurs : 'or' (défaut) — le template OU n'importe quel capteur active le slot ; 'and' — le template doit être vrai ET un capteur on.",
           "custom_position_1": "Position (0-100%) vers laquelle déplacer les stores lorsque le slot 1 est actif. 0% = fermé, 100% = ouvert.",
-          "custom_position_priority_1": "Priorité du pipeline (1-100). Plus élevé = évalué avant les gestionnaires de priorité inférieure. Le défaut 77 se situe entre la dérogation manuelle (80) et l'expiration du mouvement (75). Définir au-dessus de 80 pour remplacer les mouvements manuels ; définir au-dessous de 40 pour s'appliquer uniquement lorsque le suivi du soleil est inactif. 100 = sécurité : le slot agit en dehors de la fenêtre de temps et contourne les portes delta (l'ancien comportement de Dérogation forcée).",
+          "custom_position_priority_1": "Priorité de pipeline (1-100). Supérieur = évalué avant les gestionnaires de priorité inférieure. La valeur par défaut 77 se situe entre la Dérogation Manuelle (80) et le Délai de Mouvement (75). Définir au-dessus de 80 pour remplacer les mouvements manuels ; définir en dessous de 40 pour s'appliquer uniquement quand le suivi du soleil est inactif. 100 = sécurité : l'emplacement contourne l'interrupteur de contrôle automatique, la dérogation manuelle et la fenêtre horaire de début/fin — il peut déplacer le store même quand le contrôle automatique est DÉSACTIVÉ — et contourne également les seuils delta (le comportement de l'ancienne Dérogation Forcée).",
           "custom_position_min_mode_1": "Lorsqu'activé, la position agit comme un plancher minimum — les positions plus élevées du suivi du soleil ou d'autres calculs peuvent passer. Lorsque désactivé (défaut), le store est toujours défini à la position exacte configurée.",
           "custom_position_use_my_1": "Lorsque le déclencheur du slot 1 est actif, déclenchez la présélection Mes du store au lieu de la position numérique du slot. Nécessite que la valeur de position Mes soit définie.",
           "custom_position_tilt_1": "Angle d'inclinaison (0-100%) à définir lorsque le capteur du slot 1 est actif. Stores vénitiens uniquement — ignoré pour les autres types de stores. Laisser non défini pour laisser le moteur calculer l'inclinaison automatiquement.",
@@ -251,7 +311,7 @@
           "custom_position_template_2": "Template de condition Jinja2 optionnel pour le slot 2.",
           "custom_position_template_mode_2": "Mode de combinaison de template pour le slot 2 ('or'/'and').",
           "custom_position_2": "Position (0-100%) pour le slot 2.",
-          "custom_position_priority_2": "Priorité du pipeline pour le slot 2 (1-100, défaut 77 ; 100 = sécurité).",
+          "custom_position_priority_2": "Priorité de pipeline pour l'emplacement 2 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
           "custom_position_min_mode_2": "Traiter la position du slot 2 comme un plancher minimum.",
           "custom_position_use_my_2": "Utiliser la présélection Mes pour le slot 2 au lieu de sa position numérique.",
           "custom_position_tilt_2": "Angle d'inclinaison (0-100%) à définir lorsque le capteur du slot 2 est actif. Stores vénitiens uniquement. Laisser non défini pour laisser le moteur calculer l'inclinaison automatiquement.",
@@ -260,7 +320,7 @@
           "custom_position_template_3": "Template de condition Jinja2 optionnel pour le slot 3.",
           "custom_position_template_mode_3": "Mode de combinaison de template pour le slot 3 ('or'/'and').",
           "custom_position_3": "Position (0-100%) pour le slot 3.",
-          "custom_position_priority_3": "Priorité du pipeline pour le slot 3 (1-100, défaut 77 ; 100 = sécurité).",
+          "custom_position_priority_3": "Priorité de pipeline pour l'emplacement 3 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
           "custom_position_min_mode_3": "Traiter la position du slot 3 comme un plancher minimum.",
           "custom_position_use_my_3": "Utiliser la présélection Mes pour le slot 3 au lieu de sa position numérique.",
           "custom_position_tilt_3": "Angle d'inclinaison (0-100%) à définir lorsque le capteur du slot 3 est actif. Stores vénitiens uniquement. Laisser non défini pour laisser le moteur calculer l'inclinaison automatiquement.",
@@ -269,7 +329,7 @@
           "custom_position_template_4": "Template de condition Jinja2 optionnel pour le slot 4.",
           "custom_position_template_mode_4": "Mode de combinaison de template pour le slot 4 ('or'/'and').",
           "custom_position_4": "Position (0-100%) pour le slot 4.",
-          "custom_position_priority_4": "Priorité du pipeline pour le slot 4 (1-100, défaut 77 ; 100 = sécurité).",
+          "custom_position_priority_4": "Priorité de pipeline pour l'emplacement 4 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
           "custom_position_min_mode_4": "Traiter la position du slot 4 comme un plancher minimum.",
           "custom_position_use_my_4": "Utiliser la présélection Mes pour le slot 4 au lieu de sa position numérique.",
           "custom_position_tilt_4": "Angle d'inclinaison (0-100%) à définir lorsque le capteur du slot 4 est actif. Stores vénitiens uniquement. Laisser non défini pour laisser le moteur calculer l'inclinaison automatiquement.",
@@ -278,13 +338,58 @@
           "custom_position_template_5": "Template de condition Jinja2 optionnel pour le slot 5.",
           "custom_position_template_mode_5": "Mode de combinaison de template pour le slot 5 ('or'/'and').",
           "custom_position_5": "Position (0-100%) pour le slot 5.",
-          "custom_position_priority_5": "Priorité du pipeline pour le slot 5 (1-100, défaut 77 ; 100 = sécurité).",
+          "custom_position_priority_5": "Priorité de pipeline pour l'emplacement 5 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
           "custom_position_min_mode_5": "Traiter la position du slot 5 comme un plancher minimum.",
           "custom_position_use_my_5": "Utiliser la présélection Mes pour le slot 5 au lieu de sa position numérique.",
           "custom_position_tilt_5": "Angle d'inclinaison explicite (0-100%) pour le slot 5 sur les stores vénitiens.",
           "custom_position_tilt_only_5": "Le slot 5 fixe uniquement l'angle des lamelles ; le suivi du soleil pilote la position.",
           "default_tilt": "Angle d'inclinaison par défaut (0-100%) pour les stores vénitiens lorsqu'aucun autre gestionnaire ne remplace l'inclinaison. Appliqué chaque fois que le gestionnaire de position par défaut est actif. Laisser non défini pour laisser le moteur calculer l'inclinaison à partir de la géométrie du soleil.",
-          "sunset_tilt": "Angle d'inclinaison (0-100%) pour les stores vénitiens pendant la fenêtre de coucher du soleil. Remplace default_tilt lorsque la fenêtre de temps de coucher du soleil est active. Laisser non défini pour revenir à default_tilt."
+          "sunset_tilt": "Angle d'inclinaison (0-100%) pour les stores vénitiens pendant la fenêtre de coucher du soleil. Remplace default_tilt lorsque la fenêtre de temps de coucher du soleil est active. Laisser non défini pour revenir à default_tilt.",
+          "custom_position_sensors_6": "Capteurs de déclenchement pour le slot 6 (logique OR). Laisser vide pour ignorer.",
+          "custom_position_template_6": "Template de condition Jinja2 optionnel pour le slot 6.",
+          "custom_position_template_mode_6": "Mode de combinaison de template pour le slot 6 ('or'/'and').",
+          "custom_position_6": "Position (0-100%) pour le slot 6.",
+          "custom_position_priority_6": "Priorité de pipeline pour l'emplacement 6 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
+          "custom_position_min_mode_6": "Traiter la position du slot 6 comme un plancher minimum.",
+          "custom_position_use_my_6": "Utiliser la présélection Mes pour le slot 6 au lieu de sa position numérique.",
+          "custom_position_tilt_6": "Angle d'inclinaison explicite (0-100%) pour le slot 6 sur les stores vénitiens.",
+          "custom_position_tilt_only_6": "Le slot 6 fixe uniquement l'angle des lamelles ; le suivi du soleil pilote la position.",
+          "custom_position_sensors_7": "Capteurs de déclenchement pour le slot 7 (logique OR). Laisser vide pour ignorer.",
+          "custom_position_template_7": "Template de condition Jinja2 optionnel pour le slot 7.",
+          "custom_position_template_mode_7": "Mode de combinaison de template pour le slot 7 ('or'/'and').",
+          "custom_position_7": "Position (0-100%) pour le slot 7.",
+          "custom_position_priority_7": "Priorité de pipeline pour l'emplacement 7 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
+          "custom_position_min_mode_7": "Traiter la position du slot 7 comme un plancher minimum.",
+          "custom_position_use_my_7": "Utiliser la présélection Mes pour le slot 7 au lieu de sa position numérique.",
+          "custom_position_tilt_7": "Angle d'inclinaison explicite (0-100%) pour le slot 7 sur les stores vénitiens.",
+          "custom_position_tilt_only_7": "Le slot 7 fixe uniquement l'angle des lamelles ; le suivi du soleil pilote la position.",
+          "custom_position_sensors_8": "Capteurs de déclenchement pour le slot 8 (logique OR). Laisser vide pour ignorer.",
+          "custom_position_template_8": "Template de condition Jinja2 optionnel pour le slot 8.",
+          "custom_position_template_mode_8": "Mode de combinaison de template pour le slot 8 ('or'/'and').",
+          "custom_position_8": "Position (0-100%) pour le slot 8.",
+          "custom_position_priority_8": "Priorité de pipeline pour l'emplacement 8 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
+          "custom_position_min_mode_8": "Traiter la position du slot 8 comme un plancher minimum.",
+          "custom_position_use_my_8": "Utiliser la présélection Mes pour le slot 8 au lieu de sa position numérique.",
+          "custom_position_tilt_8": "Angle d'inclinaison explicite (0-100%) pour le slot 8 sur les stores vénitiens.",
+          "custom_position_tilt_only_8": "Le slot 8 fixe uniquement l'angle des lamelles ; le suivi du soleil pilote la position.",
+          "custom_position_sensors_9": "Capteurs de déclenchement pour le slot 9 (logique OR). Laisser vide pour ignorer.",
+          "custom_position_template_9": "Template de condition Jinja2 optionnel pour le slot 9.",
+          "custom_position_template_mode_9": "Mode de combinaison de template pour le slot 9 ('or'/'and').",
+          "custom_position_9": "Position (0-100%) pour le slot 9.",
+          "custom_position_priority_9": "Priorité de pipeline pour l'emplacement 9 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
+          "custom_position_min_mode_9": "Traiter la position du slot 9 comme un plancher minimum.",
+          "custom_position_use_my_9": "Utiliser la présélection Mes pour le slot 9 au lieu de sa position numérique.",
+          "custom_position_tilt_9": "Angle d'inclinaison explicite (0-100%) pour le slot 9 sur les stores vénitiens.",
+          "custom_position_tilt_only_9": "Le slot 9 fixe uniquement l'angle des lamelles ; le suivi du soleil pilote la position.",
+          "custom_position_sensors_10": "Capteurs de déclenchement pour le slot 10 (logique OR). Laisser vide pour ignorer.",
+          "custom_position_template_10": "Template de condition Jinja2 optionnel pour le slot 10.",
+          "custom_position_template_mode_10": "Mode de combinaison de template pour le slot 10 ('or'/'and').",
+          "custom_position_10": "Position (0-100%) pour le slot 10.",
+          "custom_position_priority_10": "Priorité de pipeline pour l'emplacement 10 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
+          "custom_position_min_mode_10": "Traiter la position du slot 10 comme un plancher minimum.",
+          "custom_position_use_my_10": "Utiliser la présélection Mes pour le slot 10 au lieu de sa position numérique.",
+          "custom_position_tilt_10": "Angle d'inclinaison explicite (0-100%) pour le slot 10 sur les stores vénitiens.",
+          "custom_position_tilt_only_10": "Le slot 10 fixe uniquement l'angle des lamelles ; le suivi du soleil pilote la position."
         }
       },
       "motion_override": {
@@ -327,16 +432,17 @@
           "weather_is_raining_template": "Modèle Is Raining (optionnel)",
           "weather_is_raining_template_mode": "Logique du modèle Is Raining",
           "weather_is_windy_template": "Modèle Is Windy (optionnel)",
-          "weather_is_windy_template_mode": "Logique du modèle Is Windy"
+          "weather_is_windy_template_mode": "Logique du modèle Is Windy",
+          "weather_enabled": "Activer la dérogation météo"
         },
         "data_description": {
           "weather_bypass_auto_control": "Quand activé, la dérogation météo déplacera toujours les stores à la position configurée même quand le commutateur de contrôle automatique est désactivé. Cela garantit que la protection contre le vent, la pluie et les conditions météorologiques graves reste toujours active indépendamment de l'état de l'automatisation. Désactivez ceci uniquement si vous voulez que la dérogation météo suive le commutateur de contrôle automatique.",
           "weather_wind_speed_sensor": "Capteur numérique signalant la vitesse du vent. La dérogation s'active quand la valeur atteint ou dépasse le seuil. Laissez vide pour ignorer la vitesse du vent.",
           "weather_wind_direction_sensor": "Optionnel : ne déclenchez la dérogation vent que quand le vent souffle vers l'azimut de cette fenêtre (dans la tolérance de direction). Laissez vide pour déclencher uniquement sur la vitesse du vent indépendamment de la direction.",
-          "weather_wind_speed_threshold": "Seuil de vitesse du vent qui active la dérogation. **La valeur est interprétée dans l'unité du capteur de vitesse du vent configuré, non dans l'unité d'affichage Home Assistant.** Accepte un nombre fixe ou un modèle Jinja2 Home Assistant qui évalue à un nombre, réévalué à chaque cycle de mise à jour.",
+          "weather_wind_speed_threshold": "Seuil de vitesse du vent qui active la dérogation, exprimé en **{wind_unit}** — l'unité du capteur de vitesse du vent configuré (et non l'unité d'affichage Home Assistant). Accepte un nombre fixe ou un modèle Jinja2 Home Assistant qui évalue à un nombre, réévalué à chaque cycle de mise à jour.",
           "weather_wind_direction_tolerance": "Combien de degrés à partir de l'azimut de la fenêtre pour considérer le vent comme « frappant » cette fenêtre. Exemple : fenêtre orientée sud (180°), tolérance 45° → vent de 135°-225° déclenche la dérogation. Accepte un nombre fixe ou un modèle Jinja2 Home Assistant qui évalue à un nombre, réévalué à chaque cycle de mise à jour.",
           "weather_rain_sensor": "Capteur numérique signalant le taux de pluie. La dérogation s'active quand la valeur atteint ou dépasse le seuil. Laissez vide pour ignorer le taux de pluie.",
-          "weather_rain_threshold": "Seuil de taux de pluie qui active la dérogation. **La valeur est interprétée dans l'unité du capteur de pluie configuré, non dans l'unité d'affichage Home Assistant.** Accepte un nombre fixe ou un modèle Jinja2 Home Assistant qui évalue à un nombre, réévalué à chaque cycle de mise à jour.",
+          "weather_rain_threshold": "Seuil de taux de pluie qui active la dérogation, exprimé en **{rain_unit}** — l'unité du capteur de pluie configuré (et non l'unité d'affichage Home Assistant). Accepte un nombre fixe ou un modèle Jinja2 Home Assistant qui évalue à un nombre, réévalué à chaque cycle de mise à jour.",
           "weather_is_raining_sensor": "Capteur binaire pour la détection de pluie. La dérogation s'active quand ce capteur est « activé ». Laissez vide pour ignorer.",
           "weather_is_windy_sensor": "Capteur binaire pour la détection du vent. La dérogation s'active quand ce capteur est « activé ». Laissez vide pour ignorer.",
           "weather_severe_sensors": "Capteurs binaires pour les conditions graves (grêle, gel, tempête, etc.). La dérogation s'active quand N'IMPORTE QUEL capteur est « activé ». Laissez vide pour ignorer.",
@@ -346,7 +452,8 @@
           "weather_is_raining_template": "Modèle Jinja2 Home Assistant optionnel qui détermine s'il pleut. Lorsqu'il s'évalue à vrai (on/true/1), la dérogation s'active. La façon dont il se combine avec le capteur binaire Is Raining ci-dessus (OU ou ET) est définie par la « logique du modèle Is Raining » ci-dessous ; il peut fonctionner seul sans capteur et réagit instantanément quand le modèle bascule. Exemple : dériver « pluie » d'un seuil de taux de pluie numérique. Un modèle vide ou qui ne s'évalue pas n'exprime aucune opinion (pas de rétractation). Laissez vide pour désactiver.",
           "weather_is_raining_template_mode": "Comment le modèle Is Raining se combine avec le capteur binaire Is Raining ci-dessus. « OU » (par défaut) — pluie lorsque le modèle est vrai OU le capteur est ACTIF. « ET » — pluie uniquement lorsque le modèle est vrai ET le capteur est ACTIF. Sans capteur configuré, le modèle seul décide dans chaque mode. N'a d'effet que lorsqu'un modèle Is Raining est défini ci-dessus.",
           "weather_is_windy_template": "Modèle Jinja2 Home Assistant optionnel qui détermine s'il fait du vent. Lorsqu'il s'évalue à vrai (on/true/1), la dérogation s'active. La façon dont il se combine avec le capteur binaire Is Windy ci-dessus (OU ou ET) est définie par la « logique du modèle Is Windy » ci-dessous ; il peut fonctionner seul sans capteur et réagit instantanément quand le modèle bascule. Exemple : dériver « venteux » d'un seuil de vitesse du vent numérique. Un modèle vide ou qui ne s'évalue pas n'exprime aucune opinion (pas de rétractation). Laissez vide pour désactiver.",
-          "weather_is_windy_template_mode": "Comment le modèle Is Windy se combine avec le capteur binaire Is Windy ci-dessus. « OU » (par défaut) — venteux lorsque le modèle est vrai OU le capteur est ACTIF. « ET » — venteux uniquement lorsque le modèle est vrai ET le capteur est ACTIF. Sans capteur configuré, le modèle seul décide dans chaque mode. N'a d'effet que lorsqu'un modèle Is Windy est défini ci-dessus."
+          "weather_is_windy_template_mode": "Comment le modèle Is Windy se combine avec le capteur binaire Is Windy ci-dessus. « OU » (par défaut) — venteux lorsque le modèle est vrai OU le capteur est ACTIF. « ET » — venteux uniquement lorsque le modèle est vrai ET le capteur est ACTIF. Sans capteur configuré, le modèle seul décide dans chaque mode. N'a d'effet que lorsqu'un modèle Is Windy est défini ci-dessus.",
+          "weather_enabled": "Interrupteur principal pour les dérogations de sécurité météo (vent, pluie, conditions sévères). Lorsqu'il est désactivé, les capteurs météo configurés sont ignorés. Les protections existantes gardent cette option activée après la mise à jour ; les nouvelles protections commencent désactivées."
         }
       },
       "weather": {
@@ -363,12 +470,30 @@
         "data": {
           "blind_spot_left": "Bord gauche de la zone cachée (depuis FOV gauche)",
           "blind_spot_right": "Bord droit de la zone cachée (depuis FOV gauche)",
-          "blind_spot_elevation": "Élévation zone cachée"
+          "blind_spot_elevation": "Élévation zone cachée",
+          "blind_spot_left_2": "Bord gauche zone cachée 2 (depuis FOV gauche)",
+          "blind_spot_right_2": "Bord droit zone cachée 2 (depuis FOV gauche)",
+          "blind_spot_elevation_2": "Élévation zone cachée 2",
+          "blind_spot_left_3": "Bord gauche zone cachée 3 (depuis FOV gauche)",
+          "blind_spot_right_3": "Bord droit zone cachée 3 (depuis FOV gauche)",
+          "blind_spot_elevation_3": "Élévation zone cachée 3",
+          "blind_spot_elevation_mode": "Mode d'élévation zone cachée",
+          "blind_spot_elevation_mode_2": "Mode d'élévation zone cachée 2",
+          "blind_spot_elevation_mode_3": "Mode d'élévation zone cachée 3"
         },
         "data_description": {
           "blind_spot_left": "Bord gauche de la zone de point aveugle (angle horizontal en degrés de votre limite FOV gauche). Où 0 = au bord FOV le plus à gauche. Exemple : Si votre FOV gauche est 45° et un arbre bloque le soleil de 10-20° par rapport à ce bord, réglez sur 10. Cela marque où l'obstruction commence horizontalement. Utilisez le capteur de position du soleil ou observez quand le soleil est bloqué pour trouver cette valeur.",
           "blind_spot_right": "Bord droit de la zone de point aveugle (angle horizontal en degrés de votre limite FOV gauche, doit être > bord gauche). Exemple : Si votre FOV gauche est 45° et un arbre bloque le soleil de 10-20° par rapport à ce bord, réglez sur 20. Cela marque où l'obstruction se termine horizontalement. Crée une zone « ne pas suivre le soleil ici » entre les bords gauche et droit.",
-          "blind_spot_elevation": "Élévation solaire maximale (degrés au-dessus de l'horizon) où la zone cachée s'applique. Exemple : Le surplomb du toit bloque le soleil uniquement quand c'est bas (< 30°) donc réglez sur 30. Le soleil à plus haute élévation dégaze l'obstacle, donc la zone cachée ne s'applique pas. Si l'obstacle bloque toutes les élévations (bâtiment haut), réglez sur 90 ou laissez élevé. Élévation du soleil : 0°=horizon, 45°=mi-hauteur, 90°=directement au-dessus. Mesurez ou estimez en fonction de la hauteur et de la distance de l'obstacle."
+          "blind_spot_elevation": "Élévation solaire maximale (degrés au-dessus de l'horizon) où la zone cachée s'applique. Exemple : Le surplomb du toit bloque le soleil uniquement quand c'est bas (< 30°) donc réglez sur 30. Le soleil à plus haute élévation dégaze l'obstacle, donc la zone cachée ne s'applique pas. Si l'obstacle bloque toutes les élévations (bâtiment haut), réglez sur 90 ou laissez élevé. Élévation du soleil : 0°=horizon, 45°=mi-hauteur, 90°=directement au-dessus. Mesurez ou estimez en fonction de la hauteur et de la distance de l'obstacle.",
+          "blind_spot_left_2": "Slot zone cachée 2 facultatif. Bord gauche en degrés de votre limite FOV gauche. Laissez ce champ et le bord droit vides pour désactiver le slot 2.",
+          "blind_spot_right_2": "Bord droit du slot zone cachée 2 (degrés depuis FOV gauche, doit être supérieur au bord gauche du slot 2).",
+          "blind_spot_elevation_2": "Élévation solaire maximale où le slot 2 s'applique. Laissez vide pour s'appliquer à toutes les élévations.",
+          "blind_spot_left_3": "Slot zone cachée 3 facultatif. Bord gauche en degrés de votre limite FOV gauche. Laissez ce champ et le bord droit vides pour désactiver le slot 3.",
+          "blind_spot_right_3": "Bord droit du slot zone cachée 3 (degrés depuis FOV gauche, doit être supérieur au bord gauche du slot 3).",
+          "blind_spot_elevation_3": "Élévation solaire maximale où le slot 3 s'applique. Laissez vide pour s'appliquer à toutes les élévations.",
+          "blind_spot_elevation_mode": "De quel côté du seuil d'élévation se trouve la zone cachée. « En dessous » (par défaut) bloque le soleil BAS (un arbre ou avant-toit) ; « Au-dessus » bloque le soleil HAUT (un obstacle en surplomb comme un balcon ou une alcôve profonde). Ne s'applique que si une élévation est définie.",
+          "blind_spot_elevation_mode_2": "De quel côté du seuil d'élévation du slot 2 se trouve la zone : « En dessous » bloque le soleil bas, « Au-dessus » bloque le soleil haut. Ne s'applique que si l'élévation du slot 2 est définie.",
+          "blind_spot_elevation_mode_3": "De quel côté du seuil d'élévation du slot 3 se trouve la zone : « En dessous » bloque le soleil bas, « Au-dessus » bloque le soleil haut. Ne s'applique que si l'élévation du slot 3 est définie."
         },
         "title": "Zone cachée",
         "description": "Définissez les zones où les obstacles bloquent le soleil (arbres, bâtiments, surplombs de toit). Ces valeurs angulaires sont relatives en degrés dans votre champ de vision, où 0 est la limite FOV la plus à gauche. La protection ignorera la position du soleil lorsqu'elle se trouve dans cette zone de point aveugle.\n\n[Learn more]({learn_more})"
@@ -515,7 +640,8 @@
           "transparent_blind": "Store transparent",
           "winter_close_insulation": "Mode isolation hivernale",
           "presence_template": "Modèle de présence (optionnel)",
-          "presence_template_mode": "Logique du modèle de présence"
+          "presence_template_mode": "Logique du modèle de présence",
+          "summer_close_bypass_sun_floor": "Fermeture complète en cas de chaleur estivale"
         },
         "data_description": {
           "climate_mode": "Activez pour activer tout le contrôle du store basé sur le climat. Quand désactivé, tous les paramètres de cet écran sont ignorés et le store suit le suivi solaire/anti-éblouissement normal.",
@@ -528,7 +654,8 @@
           "transparent_blind": "Ferme complètement le store en été, même quand des occupants sont présents. Sans cela, un store opaque suit le contrôle d'éblouissement du soleil en été au lieu de se fermer. Activez-le pour un matériau translucide ou transparent — ou pour tout store que vous souhaitez fermer complètement pour la protection thermique quand des gens sont à la maison.",
           "winter_close_insulation": "Quand activé, le store se ferme complètement (0 %) en hiver lorsque le soleil n'est pas directement en face de la fenêtre, aidant à retenir la chaleur à l'intérieur. N'a aucun effet quand le soleil est sur la fenêtre (le store s'ouvre pour capter la chaleur solaire).",
           "presence_template": "Modèle Jinja2 Home Assistant optionnel qui signale l'occupation. Lorsqu'il s'évalue à vrai (on/true/1), l'espace est considéré comme occupé ; lorsqu'il est faux, il est traité comme vide. La façon dont il se combine avec l'entité de présence ci-dessus (OU ou ET) est définie par la « logique du modèle de présence » ci-dessous ; il peut fonctionner seul sans entité. Utilisez-le pour l'occupation composite (par exemple, quelqu'un à la maison ET réveillé). Un modèle vide ou qui ne s'évalue pas n'exprime aucune opinion, donc la logique de l'entité de présence décide. Laissez vide pour désactiver.",
-          "presence_template_mode": "Comment le modèle de présence se combine avec l'entité de présence ci-dessus. « OU » (par défaut) — occupé lorsque le modèle est vrai OU l'entité est active. « ET » — occupé uniquement lorsque le modèle est vrai ET l'entité est active. Sans entité configurée, le modèle seul décide dans chaque mode. N'a d'effet que lorsqu'un modèle de présence est défini ci-dessus."
+          "presence_template_mode": "Comment le modèle de présence se combine avec l'entité de présence ci-dessus. « OU » (par défaut) — occupé lorsque le modèle est vrai OU l'entité est active. « ET » — occupé uniquement lorsque le modèle est vrai ET l'entité est active. Sans entité configurée, le modèle seul décide dans chaque mode. N'a d'effet que lorsqu'un modèle de présence est défini ci-dessus.",
+          "summer_close_bypass_sun_floor": "Quand activé, le blocage de la chaleur estivale ferme complètement la protection jusqu'à la position minimale globale, en ignorant le seuil plus élevé de « position minimale lorsque le soleil est dans le champ de vision ». Utilisez ceci pour une protection thermique complète en été, même lorsque le soleil est directement sur la fenêtre. N'a aucun effet en dehors de l'été, et la limite de position maximale s'applique toujours."
         }
       },
       "behavior": {
@@ -560,6 +687,64 @@
         },
         "description": "Affinez le comportement du store une fois une position choisie : ajustements de synchronisation du coucher/lever du soleil, la tolérance de correspondance de position et le basculement de correspondance, et état inversé. Ce ne sont pas des positions cibles — chaque valeur en pourcentage vit sur l'étape Paramètres de Position ; cette étape ne contient que les boutons de synchronisation et seuil.\n\n[En savoir plus]({learn_more})",
         "title": "Comportement (Synchronisation & Seuils)"
+      },
+      "create_building_profile": {
+        "title": "Créer un profil de bâtiment",
+        "description": "Nommez le profil et sélectionnez les capteurs partagés à l'échelle du bâtiment qu'il fournit. Les volets liés copient ces entités de capteur dans leur propre configuration. Laissez un champ vide pour que chaque volet conserve son propre capteur local.\n\n[En savoir plus]({learn_more})",
+        "data": {
+          "name": "Nom",
+          "cloud_coverage_entity": "Capteur de couverture nuageuse (optionnel)",
+          "daytime_gate_sensors": "Capteurs du filtre de jour",
+          "daytime_gate_template": "Modèle du filtre de jour (optionnel)",
+          "irradiance_entity": "Capteur d'irradiance (optionnel)",
+          "is_sunny_sensor": "Capteur binaire « Ensoleillé » (optionnel)",
+          "is_sunny_template": "Modèle Is Sunny (optionnel)",
+          "lux_entity": "Capteur de lux (optionnel)",
+          "outside_temp": "Capteur de température extérieure (optionnel)",
+          "sunrise_time_entity": "Entité Heure de Lever du Soleil",
+          "sunset_time_entity": "Entité Heure de Coucher du Soleil",
+          "weather_entity": "Entité météo (optionnelle)",
+          "weather_is_raining_sensor": "Capteur binaire En train de pleuvoir",
+          "weather_is_raining_template": "Modèle Is Raining (optionnel)",
+          "weather_is_windy_sensor": "Capteur binaire Venteux",
+          "weather_is_windy_template": "Modèle Is Windy (optionnel)",
+          "weather_rain_sensor": "Capteur de taux de pluie",
+          "weather_severe_sensors": "Capteurs de conditions météorologiques graves (grêle, gel, tempête, etc.)",
+          "weather_wind_direction_sensor": "Capteur de direction du vent (optionnel)",
+          "weather_wind_speed_sensor": "Capteur de vitesse du vent"
+        },
+        "data_description": {
+          "name": "Un nom convivial pour ce profil de bâtiment.",
+          "cloud_coverage_entity": "Capteur de couverture nuageuse optionnel indiquant une valeur de 0 à 100 % (par ex. d'une intégration météo). Quand la valeur atteint le seuil, le contrôle de l'éblouissement est supprimé et le store revient à sa position par défaut. Laissez vide si vous ne disposez pas de ce capteur.",
+          "daytime_gate_sensors": "Capteurs binaires optionnels (ou input_boolean / switch / schedule) qui décident si c'est « jour » pour le suivi du soleil. Lorsqu'ils sont activés, l'intégration assure le suivi du soleil ; lorsqu'ils sont désactivés, elle applique la Position de coucher de soleil. Utilisez un capteur binaire « assez lumineux » basé sur le lux pour que la lumière réelle — et non l'horloge — ouvre et ferme la fenêtre de suivi : les protections continuent le suivi lors de soirées lumineuses après le coucher du soleil astronomique, et restent à la position de coucher de soleil lors des matins sombres et nuageux. Lorsqu'ils sont définis, ils REMPLACENT la limite de coucher/lever astronomique du soleil (les décalages de coucher/lever de soleil sont ignorés). Un capteur indisponible ou inconnu est traité comme jour, de sorte que le suivi ne s'arrête jamais simplement parce qu'un capteur n'a pas signalé. Laissez vide pour utiliser le calcul de coucher/lever de soleil astronomique.",
+          "daytime_gate_template": "Modèle Jinja2 Home Assistant optionnel qui décide si c'est « jour » pour le suivi du soleil. Lorsqu'il s'évalue comme vrai (on/true/1), l'intégration assure le suivi du soleil ; lorsqu'il s'évalue comme faux, elle applique la Position de coucher de soleil. La manière dont il se combine avec les capteurs du filtre ci-dessus (OR ou AND) est définie par « Logique du filtre de jour » ci-dessous. Il peut fonctionner seul sans capteurs. Exemple : un modèle d'élévation Sun2, ou une comparaison lux. Un modèle qui ne peut pas être évalué est traité comme jour, de sorte qu'un modèle cassé ne force jamais un coucher de soleil prématuré. Lorsqu'il est défini (seul ou avec des capteurs), il REMPLACE la limite de coucher/lever astronomique du soleil. Laissez vide pour désactiver.",
+          "irradiance_entity": "Capteur d'irradiance solaire optionnel (extérieur) pour une détection précise du soleil. Mesure la puissance solaire en W/m². Quand le capteur lit une valeur inférieure au seuil, le soleil direct est absent et le contrôle de l'éblouissement est supprimé. Laissez vide si vous ne disposez pas de ce capteur.",
+          "is_sunny_sensor": "Capteur binaire, input_boolean, interrupteur ou planning optionnel qui rapporte de manière fiable si le soleil frappe la fenêtre. Lorsque ACTIVÉ, le soleil est supposé présent ; lorsque DÉSACTIVÉ, le soleil est supposé absent et la suppression des nuages se déclenche indépendamment de l'état météorologique. En cas d'indisponibilité ou d'état inconnu, l'intégration revient à la logique de l'entité météo / conditions météorologiques ci-dessous. Utilisez ceci si vous calculez le soleil-sur-fenêtre en amont (par exemple, irradiance filtrée par azimut) et que vous souhaitez fournir à Adaptive Cover Pro un booléen épuré.",
+          "is_sunny_template": "Modèle Jinja2 Home Assistant optionnel qui détermine si le soleil brille sur la fenêtre. Lorsqu'il s'évalue à vrai (on/true/1), le soleil est supposé présent ; lorsqu'il est faux, il est supposé absent et la suppression nuageuse s'active. La façon dont il se combine avec le capteur binaire Is Sunny ci-dessus (OU ou ET) est définie par la « logique du modèle Is Sunny » ci-dessous ; il peut fonctionner seul sans capteur. Exemple : une comparaison azimut/élévation ou un seuil de lux. Un modèle vide ou qui ne s'évalue pas n'exprime aucune opinion, l'intégration revient donc au capteur, puis à la logique de l'entité météo / conditions météo. Laissez vide pour désactiver.",
+          "lux_entity": "Capteur d'éclairement optionnel (intérieur ou extérieur) pour une détection précise du soleil. Quand le capteur lit une valeur inférieure au seuil, le soleil direct est absent et le contrôle de l'éblouissement est supprimé. Valeurs typiques en plein soleil : 5 000-10 000 lux. Laissez vide si vous ne disposez pas de ce capteur.",
+          "outside_temp": "Capteur de température extérieure optionnel. Quand configuré, cette valeur (plutôt que le capteur intérieur) détermine la saison actuelle, et le seuil extérieur est appliqué pour éviter que le store se ferme comme en été lors d'une journée intérieure chaude mais extérieure froide.",
+          "sunrise_time_entity": "Entité optionnelle dont l'état est un datetime (par exemple Sun2 « lever du soleil à -4° d'élévation »). Quand défini, remplace l'heure de lever du soleil calculée par astral comme limite de fermeture de la fenêtre du matin. Accepte les entités sensor ou input_datetime. Le Décalage du lever du soleil s'applique toujours en plus. Revient à astral si l'entité n'est pas disponible.",
+          "sunset_time_entity": "Entité optionnelle dont l'état est un datetime (par exemple Sun2 « coucher du soleil à -4° d'élévation »). Quand défini, remplace l'heure de coucher du soleil calculée par astral comme limite de la fenêtre. Accepte les entités sensor ou input_datetime rapportant un datetime ISO-8601. Le Décalage du coucher du soleil s'applique toujours en plus. Revient à astral si l'entité n'est pas disponible.",
+          "weather_entity": "Intégration météo optionnelle utilisée pour détecter la couverture nuageuse. Quand l'état météo actuel ne figure pas dans la liste sélectionnée ci-dessous, le soleil direct est supposé absent et le contrôle de l'éblouissement est supprimé. Laissez vide pour ignorer l'état météo.",
+          "weather_is_raining_sensor": "Capteur binaire pour la détection de pluie. La dérogation s'active quand ce capteur est « activé ». Laissez vide pour ignorer.",
+          "weather_is_raining_template": "Modèle Jinja2 Home Assistant optionnel qui détermine s'il pleut. Lorsqu'il s'évalue à vrai (on/true/1), la dérogation s'active. La façon dont il se combine avec le capteur binaire Is Raining ci-dessus (OU ou ET) est définie par la « logique du modèle Is Raining » ci-dessous ; il peut fonctionner seul sans capteur et réagit instantanément quand le modèle bascule. Exemple : dériver « pluie » d'un seuil de taux de pluie numérique. Un modèle vide ou qui ne s'évalue pas n'exprime aucune opinion (pas de rétractation). Laissez vide pour désactiver.",
+          "weather_is_windy_sensor": "Capteur binaire pour la détection du vent. La dérogation s'active quand ce capteur est « activé ». Laissez vide pour ignorer.",
+          "weather_is_windy_template": "Modèle Jinja2 Home Assistant optionnel qui détermine s'il fait du vent. Lorsqu'il s'évalue à vrai (on/true/1), la dérogation s'active. La façon dont il se combine avec le capteur binaire Is Windy ci-dessus (OU ou ET) est définie par la « logique du modèle Is Windy » ci-dessous ; il peut fonctionner seul sans capteur et réagit instantanément quand le modèle bascule. Exemple : dériver « venteux » d'un seuil de vitesse du vent numérique. Un modèle vide ou qui ne s'évalue pas n'exprime aucune opinion (pas de rétractation). Laissez vide pour désactiver.",
+          "weather_rain_sensor": "Capteur numérique signalant le taux de pluie. La dérogation s'active quand la valeur atteint ou dépasse le seuil. Laissez vide pour ignorer le taux de pluie.",
+          "weather_severe_sensors": "Capteurs binaires pour les conditions graves (grêle, gel, tempête, etc.). La dérogation s'active quand N'IMPORTE QUEL capteur est « activé ». Laissez vide pour ignorer.",
+          "weather_wind_direction_sensor": "Optionnel : ne déclenchez la dérogation vent que quand le vent souffle vers l'azimut de cette fenêtre (dans la tolérance de direction). Laissez vide pour déclencher uniquement sur la vitesse du vent indépendamment de la direction.",
+          "weather_wind_speed_sensor": "Capteur numérique signalant la vitesse du vent. La dérogation s'active quand la valeur atteint ou dépasse le seuil. Laissez vide pour ignorer la vitesse du vent."
+        }
+      },
+      "building_profile": {
+        "title": "Profil de bâtiment",
+        "description": "Associez ce volet à un Profil de bâtiment pour partager les capteurs à l'échelle du bâtiment entre les volets. L'association copie les capteurs du profil dans ce volet ; les champs de profil vides conservent les valeurs propres de ce volet.\n\n[En savoir plus]({learn_more})",
+        "data": {
+          "building_profile_id": "Profil de bâtiment"
+        },
+        "data_description": {
+          "building_profile_id": "Associez ce volet à un Profil de bâtiment pour hériter de ses capteurs partagés à l'échelle du bâtiment. Sélectionnez « Aucun (non lié) » pour ignorer l'association de profil et gérer les capteurs de ce volet localement."
+        }
       }
     },
     "abort": {
@@ -591,9 +776,13 @@
           "done": "✅ Enregistrer et fermer",
           "light_cloud": "☁️ Capteurs de lumière et nuages",
           "temperature_climate": "🌡️ Température et climat",
-          "pipeline_priorities": "🔀 Priorités des gestionnaires"
+          "pipeline_priorities": "🔀 Priorités des gestionnaires",
+          "building_profile": "🏢 Profil de bâtiment",
+          "profile_sensors": "📡 Capteurs partagés",
+          "profile_overview": "🏢 Aperçu du profil",
+          "profile_overrides": "🧹 Dérogations locales"
         },
-        "description": "Configuration : **{instance_name}**\n\nSi Adaptive Cover Pro vous a été utile, vous pouvez [☕ Buy Me a Coffee]({coffee_url})."
+        "description": "Configuration : **{instance_name}**{profile_line}\n\nSi Adaptive Cover Pro vous a été utile, vous pouvez [☕ Buy Me a Coffee]({coffee_url})."
       },
       "automation": {
         "title": "Mouvement & Programme",
@@ -657,7 +846,11 @@
           "awning_min_angle": "Angle du bras fermé",
           "awning_max_angle": "Angle du bras complètement ouvert",
           "awning_housing_offset": "Décalage du boîtier au-dessus de la fenêtre",
-          "awning_pivot_offset": "Décalage du pivot par rapport à la fenêtre"
+          "awning_pivot_offset": "Décalage du pivot par rapport à la fenêtre",
+          "venetian_tilt_reset_threshold": "Seuil de réinitialisation de dérive store vénitien (inclinaison cumulée %)",
+          "venetian_tilt_reset_direction": "Direction de réinitialisation de dérive",
+          "roof_pitch": "Pente de toit",
+          "roof_height_above": "Hauteur du toit au-dessus de la fenêtre"
         },
         "data_description": {
           "window_height": "Hauteur de votre fenêtre (de bas en haut de la zone vitrée). Affiché dans l'unité configurée dans Home Assistant. Exemples : Porte standard = 2,0 m / 79 in, Petite fenêtre = 1,5 m / 59 in, Du sol au plafond = 2,5 m / 98 in. Mesurez d'où la protection commence à d'où elle finit lorsqu'elle est complètement étendue.",
@@ -680,7 +873,11 @@
           "awning_min_angle": "Angle du bras lorsque la store banne est complètement fermée/rétractée (0–180°). En règle générale, 0° = bras vertical contre le mur. Définit le début de l'arc de balayage.",
           "awning_max_angle": "Angle du bras lorsque la store banne est complètement ouverte (0–180°). Le bras pivote linéairement de l'angle fermé à cette valeur sur 0–100% d'ouverture. Exemple : un balayage total de 175° ≈ 1,75° par 1%.",
           "awning_housing_offset": "Décalage vertical du pivot du bras au-dessus du haut de la fenêtre (0–1 m). Combiné avec la hauteur de la fenêtre et la longueur du bras pour localiser le pivot. Définir à 0 lorsque le boîtier s'aligne avec le haut de la fenêtre.",
-          "awning_pivot_offset": "Distance horizontale entre le pivot du bras (plan du tissu) du store et la vitre de la fenêtre (0–2 m). Sous un soleil bas, cela permet au tissu abaissé d'ombrager plus bas sur la vitre, car le tissu se tient à distance de la vitre. Réglez cette valeur sur l'écart entre le boîtier/bras et le mur, plus tout renfoncement/embrasure de la fenêtre — utilisez 0 lorsque le tissu pend à fleur de la vitre. Exemple : 0,7 m / 28 in pour un bras monté loin du mur."
+          "awning_pivot_offset": "Distance horizontale entre le pivot du bras (plan du tissu) du store et la vitre de la fenêtre (0–2 m). Sous un soleil bas, cela permet au tissu abaissé d'ombrager plus bas sur la vitre, car le tissu se tient à distance de la vitre. Réglez cette valeur sur l'écart entre le boîtier/bras et le mur, plus tout renfoncement/embrasure de la fenêtre — utilisez 0 lorsque le tissu pend à fleur de la vitre. Exemple : 0,7 m / 28 in pour un bras monté loin du mur.",
+          "venetian_tilt_reset_threshold": "Ouvrir complètement les lamelles puis les ramener à la position pour éliminer la dérive mécanique accumulée une fois que cette quantité de changement d'inclinaison commandé s'est accumulée. 0 désactive la réinitialisation de dérive.",
+          "venetian_tilt_reset_direction": "Direction dans laquelle la réinitialisation de dérive entraîne les lamelles avant de revenir à la cible. **Ouvrir** (par défaut) : entraîner complètement ouvert, puis revenir — le comportement d'origine. **Fermer** : entraîner complètement fermé, puis revenir. Choisissez Fermer quand le store se situe près de la fermeture lors du suivi (une réinitialisation plus silencieuse et plus rapide) ou quand votre actionneur réinitialise les lamelles sur une commande de fermeture.",
+          "roof_pitch": "Inclinaison du verre de toit mesurée DEPUIS L'HORIZONTALE (0–90°). 0° = un puits de lumière plat (le soleil entre chaque fois qu'il est au-dessus de l'horizon) ; 90° = une fenêtre verticale (se comporte exactement comme un store vertical). Les fenêtres de toit de style Velux typiques ont une pente de 30–50°. Si vous migrez depuis la solution de contournement utilisant les stores verticaux avec une limite d'élévation maximale, cette pente est le complément de cet angle (p. ex. un toit de 35° ↔ une solution de contournement d'environ 55° d'élévation maximale).",
+          "roof_height_above": "Distance le long de la pente depuis le haut de la fenêtre jusqu'au faîtage du toit (0–10 m). Lorsqu'elle est > 0, le toit au-dessus de la fenêtre peut bloquer le soleil une fois qu'il dépasse le faîtage et descend bas (la porte d'occlusion du faîtage). Définissez à 0 (par défaut) pour désactiver la porte — p. ex. une fenêtre positionnée juste au faîtage sans toit au-dessus. Affichée dans l'unité configurée dans Home Assistant."
         }
       },
       "sun_tracking": {
@@ -727,14 +924,16 @@
           "sunset_use_my": "Utiliser Ma position au coucher du soleil",
           "open_close_threshold": "Seuil ouverture/fermeture",
           "interp": "Activer l'étalonnage de position (mappage custom position ouverture/fermeture)",
-          "end_of_window_position": "Position de fin de fenêtre"
+          "end_of_window_position": "Position de fin de fenêtre",
+          "enforce_delta_at_endpoints": "Appliquer le delta de position aux extrémités entièrement ouvert/fermé",
+          "endpoint_use_open_close": "Utiliser les commandes d'ouverture/fermeture aux fins de course"
         },
         "data_description": {
           "default_percentage": "Position du store quand le soleil n'est pas devant la fenêtre (0-100%). 0% = fermé (stores baissés / store banne rétracté), 50% = demi-ouvert (lumière et intimité équilibrées), 100% = ouvert (stores levés / store banne étendu). Ceci est la « position de repos » utilisée quand le suivi du soleil n'est pas actif (soleil derrière la fenêtre, bloqué par des obstacles, ou en dehors des heures de suivi).",
-          "max_position": "Limite maximale de position de la protection (0-100%). 100% = ouvert (stores levés / auvent étendu). La protection ne dépassera jamais cette valeur. À utiliser pour : empêcher la protection de s'ouvrir complètement (mettre à 80%), maintenir une protection permanente (mettre à 60-70%), protéger contre les blocages en haut (mettre à 95%). Cela crée une limite supérieure pour toutes les positions automatiques. Sur les stores vénitiens, ceci contraint l'axe de translation (vertical) uniquement — l'inclinaison des lamelles est calculée à partir de la géométrie solaire et n'est pas plafonnée ici.",
-          "enable_max_position": "Contrôle QUAND la limite de position maximale s'applique. NON COCHÉ (par défaut, recommandé) : Position maximale s'applique TOUT LE TEMPS - lors du suivi du soleil, position par défaut, modes climatiques, etc. Le store ne dépasse jamais la valeur max. COCHÉ (avancé) : Position maximale s'applique UNIQUEMENT quand le soleil est directement devant la fenêtre. Pendant les états par défaut/repli, le store peut dépasser la valeur max. La plupart des utilisateurs doivent laisser UNCHECKED pour une protection cohérente.",
-          "min_position": "Limite de position minimale du store (0-99%). 0% = fermé (stores baissés / store banne rétracté). Le store ne descendra jamais en dessous de cette valeur. Utilisez ceci pour : empêcher le store de se fermer complètement (réglez sur 20%), maintenir de la lumière (réglez sur 30-40%), protéger du blocage au bas (réglez sur 5%). Ceci crée une limite inférieure pour toutes les positions automatiques. Fonctionne avec le bouton bascule « Appliquer min uniquement lors du suivi du soleil » ci-dessous.",
-          "enable_min_position": "Contrôle QUAND la limite de position minimale s'applique. NON COCHÉ (par défaut, recommandé) : Position minimale s'applique TOUT LE TEMPS - lors du suivi du soleil, position par défaut, modes climatiques, etc. Le store ne descend jamais sous la valeur min. COCHÉ (avancé) : Position minimale s'applique UNIQUEMENT quand le soleil est directement devant la fenêtre. Pendant les états par défaut/repli, le store peut descendre sous la valeur min. La plupart des utilisateurs doivent laisser UNCHECKED pour une protection cohérente.",
+          "max_position": "Limite de position maximale du store (0-100%). 100% = ouvert (stores levés / store banne étendu). Utilisez ceci pour : empêcher le store de s'ouvrir complètement (réglez à 80%), conserver une certaine ombre tout le temps (réglez à 60-70%), prévenir le coincement en haut (réglez à 95%). ACP bloque chaque position CALCULÉE à au maximum cette valeur (suivi du soleil, défaut/repos, mode climatique, suppression des nuages, délai de mouvement, éblouissement, récupération de dérogation manuelle). Les cibles fixes explicitement configurées sont envoyées comme vous les définissez et ne sont PAS bloquées par ce plafond : la Position au coucher du soleil (exemptée par conception), les slots Position personnalisée (mode exact), la position Dérogation météo, et le préréglage « My ». Sur les stores vénitiens, ceci limite uniquement l'axe du tablier (vertical) — l'inclinaison des lamelles est calculée à partir de la géométrie solaire et n'est pas plafonnée ici.",
+          "enable_max_position": "Contrôle QUAND la limite de position maximale s'applique aux positions CALCULÉES. NON COCHÉ (par défaut, recommandé) : la position maximale s'applique tout le temps - suivi du soleil, position par défaut, modes climatiques, etc. COCHÉ (avancé) : la position maximale s'applique uniquement lorsque le soleil est directement devant la fenêtre ; pendant les états par défaut/secours, le store peut monter au-dessus de la valeur max. Dans les deux cas, les cibles fixes explicitement configurées (Position au coucher du soleil, Positions personnalisées, Dérogation météo, préréglage « My ») sont envoyées comme vous les définissez et ne sont pas plafonnées par ce plafond. La plupart des utilisateurs devraient laisser ceci NON COCHÉ pour une protection cohérente.",
+          "min_position": "Limite de position minimale du store (0-99%). 0% = fermé (stores baissés / store banne rétracté). Utilisez ceci pour : empêcher le store de se fermer complètement (réglez à 20%), maintenir une certaine lumière (réglez à 30-40%), prévenir le coincement en bas (réglez à 5%). ACP bloque chaque position CALCULÉE à au minimum cette valeur (suivi du soleil, défaut/repos, mode climatique, suppression des nuages, délai de mouvement, éblouissement, récupération de dérogation manuelle). Les cibles fixes explicitement configurées sont envoyées comme vous les définissez et ne sont PAS bloquées par ce plancher : la Position au coucher du soleil (exemptée par conception pour que les stores puissent se fermer complètement la nuit), les slots Position personnalisée (mode exact), la position Dérogation météo, et le préréglage « My » — réglez ceux-ci à ou au-dessus de cette valeur (ou utilisez leur « mode position minimale ») pour un plancher absolu partout. Sur les stores vénitiens, ceci limite uniquement l'axe du tablier (vertical). Fonctionne avec le bouton bascule 'Appliquer le min uniquement lors du suivi du soleil' ci-dessous.",
+          "enable_min_position": "Contrôle QUAND la limite de position minimale s'applique aux positions CALCULÉES. NON COCHÉ (par défaut, recommandé) : la position minimale s'applique tout le temps - suivi du soleil, position par défaut, modes climatiques, etc. COCHÉ (avancé) : la position minimale s'applique uniquement lorsque le soleil est directement devant la fenêtre ; pendant les états par défaut/secours, le store peut descendre sous la valeur min. Dans les deux cas, les cibles fixes explicitement configurées (Position au coucher du soleil, Positions personnalisées, Dérogation météo, préréglage « My ») sont envoyées comme vous les définissez et ne sont pas plafonnées par ce plancher. La plupart des utilisateurs devraient laisser ceci NON COCHÉ pour une protection cohérente.",
           "min_position_sun_tracking": "Limite de position minimale facultative qui s'applique uniquement pendant que le soleil est dans le champ de vision. Lorsqu'elle est définie, elle remplace « Position minimale » lors des calculs de suivi solaire. Laissez vide pour utiliser « Position minimale » pour le suivi solaire et les autres modes. Utilisez cette option si votre store a une zone morte mécanique en bas du parcours (par exemple, les volets roulants dont les lames s'écartent avant le bas se soulève) et que vous souhaitez que le suivi solaire ignore cette zone morte tout en permettant au store de se fermer complètement au coucher du soleil. 0% = fermé (stores baissés), 100% = ouvert (stores levés).",
           "sunset_position": "Position du store à définir après le coucher du soleil. Effacez le curseur (laissez vide) pour utiliser la position par défaut à la place — pas de comportement spécial au coucher du soleil. 0% = fermé (stores baissés / store banne rétracté), 100% = ouvert (stores levés / store banne étendu). Utilisations courantes : confidentialité (0%), ouvert pour la brise nocturne (100%), confidentialité partielle (30-50%). Si défini, cela remplace la position par défaut après le coucher du soleil.",
           "enable_my_position_entities": "Crée le bouton « Ma position gérée » et l'entité nombre « Valeur de Ma position gérée ». Désactivé par défaut — activez cette option si vous utilisez le préset « Ma » de type Somfy et souhaitez rappeler ou modifier la valeur depuis un tableau de bord.",
@@ -742,7 +941,9 @@
           "sunset_use_my": "Quand la fenêtre coucher du soleil/heure de fin s'active, déclenchez le préset Ma du store (via stop_cover) au lieu du repli ouverture/fermeture normal. Nécessite que la valeur Ma position soit définie. N'affecte que les stores sans capacité de position (par exemple Somfy RTS).",
           "open_close_threshold": "Seuil de position pour les stores qui ne supportent que les commandes ouverture/fermeture (pas de contrôle de position). Quand la position calculée est supérieure ou égale à ce seuil, le store s'ouvre ; quand c'est moins, il se ferme. Par défaut : 50% (s'ouvre au point médian ou au-dessus). Les valeurs plus élevées (60-70%) gardent le store fermé plus souvent, les valeurs plus basses (30-40%) l'ouvrent plus souvent. N'affecte que les stores sans support de position - les stores avec contrôle de position ignorent ce paramètre et utilisent les positions calculées exactes.",
           "interp": "Activez le mappage de position personnalisé pour étalonner les stores qui ne répondent pas linéairement aux commandes 0–100%. Quand activé, une section « Étalonnage de position » apparaîtra dans le menu des options (sous Paramètres de position) où vous pouvez configurer les valeurs de mappage. Cas d'utilisation : le store ne se déplace pas linéairement, préférez certaines plages (plus fermé ou plus ouvert), étalonner pour un comportement de store inhabituel. Laissez désactivé pour un fonctionnement normal.",
-          "end_of_window_position": "Position du store à définir à l'heure de fin opérationnelle, indépendamment du coucher du soleil astronomique. Effacez le curseur (laissez vide) pour désactiver. Nécessite que « Déplacer les couvertures vers la position par défaut actuelle à l'heure de fin » soit activé. Lorsque cette position et la position au coucher du soleil sont toutes deux définies, celle-ci s'applique de l'heure de fin jusqu'au coucher du soleil astronomique, puis la position au coucher du soleil prend le relais. 0% = fermé (stores baissés / store banne rétracté), 100% = ouvert (stores levés / store banne étendu). Utile lorsque votre heure de fin est bien avant le coucher du soleil (par ex. 19h30 en été) et que vous voulez les stores fermés pour la soirée."
+          "end_of_window_position": "Position du store à définir à l'heure de fin opérationnelle, indépendamment du coucher du soleil astronomique. Effacez le curseur (laissez vide) pour désactiver. Nécessite que « Déplacer les couvertures vers la position par défaut actuelle à l'heure de fin » soit activé. Lorsque cette position et la position au coucher du soleil sont toutes deux définies, celle-ci s'applique de l'heure de fin jusqu'au coucher du soleil astronomique, puis la position au coucher du soleil prend le relais. 0% = fermé (stores baissés / store banne rétracté), 100% = ouvert (stores levés / store banne étendu). Utile lorsque votre heure de fin est bien avant le coucher du soleil (par ex. 19h30 en été) et que vous voulez les stores fermés pour la soirée.",
+          "enforce_delta_at_endpoints": "Contrôle si le delta de changement minimal de position est respecté même pour les cibles entièrement ouvert (100%) et entièrement fermé (0%). NON COCHÉ (par défaut): les commandes à 0% et 100% sont toujours envoyées, contournant le filtre delta — une fermeture ou ouverture complète n'est jamais silencieusement ignorée. COCHÉ: le filtre delta s'applique aussi aux extrémités 0% et 100%, donc un mouvement vers une extrémité complète plus petit que le delta configuré est supprimé. Activez ceci sur les protections mécaniquement couplées où commander une extrémité complète perturbe l'inclinaison des lamelles (par exemple, une protection vénitienne dont le chariot et les lamelles partagent un moteur), pour empêcher la protection de chasser à plusieurs reprises une extrémité inatteignable. La plupart des utilisateurs devraient laisser ceci NON COCHÉ.",
+          "endpoint_use_open_close": "Contrôle quel service Home Assistant est envoyé lorsque la store doit aller à une fin de course complète. COCHÉ (par défaut) : une position finale de 100% envoie cover.open_cover et une position finale de 0% envoie cover.close_cover, au lieu de cover.set_cover_position(100/0). Les positions entre 1% et 99% utilisent toujours set_cover_position. De nombreux moteurs effectuent un parcours complet plus fiable en utilisant la commande d'ouverture/fermeture dédiée plutôt que set_cover_position jusqu'aux limites extrêmes. Si la store n'expose pas les commandes d'ouverture/fermeture, l'intégration bascule automatiquement vers set_cover_position. Ce paramètre n'a aucun effet sur les stores à inclinaison uniquement (l'axe de lamelles ne reçoit jamais de commandes d'ouverture/fermeture). DÉCOCHÉ : utilisez toujours set_cover_position, y compris à 0% et 100%."
         }
       },
       "manual_override": {
@@ -754,7 +955,8 @@
           "manual_threshold": "Seuil de dérogation manuelle",
           "manual_ignore_intermediate": "Ignorer les positions intermédiaires lors de la dérogation manuelle (ouverture et fermeture)",
           "transit_timeout": "Délai de transit (secondes)",
-          "manual_ignore_external": "Engager uniquement la dérogation manuelle via les commandes Adaptive Cover Pro"
+          "manual_ignore_external": "Engager uniquement la dérogation manuelle via les commandes Adaptive Cover Pro",
+          "manual_override_input_entities": "Capteurs d'entrée qui déclenchent une dérogation manuelle"
         },
         "data_description": {
           "manual_override_duration": "Combien de temps (minutes) pour mettre en pause le contrôle automatique après ajustement manuel. Quand vous déplacez manuellement le store, le contrôle automatique met en pause. Valeurs typiques : 10-15 min (pause courte, reprendre le suivi bientôt), 30 min (pause moyenne, équilibrée), 60-120 min (pause longue, garder la position manuelle plus longtemps), 0 (désactivé, reprendre immédiatement le contrôle automatique - non recommandé). Vous donne le contrôle quand vous le voulez, reprend l'automatisation plus tard.",
@@ -762,12 +964,13 @@
           "manual_threshold": "Différence de position (%) qui compte comme « dérogation manuelle » (par défaut : 1%). Si vous déplacez manuellement le store de ce montant, la détection de dérogation se déclenche. Valeurs typiques : 1-2% (sensible, détecte les petits ajustements), 5% (moins sensible, recommandé), 10% (seuls les grands changements manuels comptent). Empêche la détection accidentelle de dérogation due à de petites dérives de moteur ou aux variations de rapports de position.",
           "manual_ignore_intermediate": "Ignorez les positions intermédiaires lors des opérations d'ouverture et de fermeture manuelles. Activez ceci pour empêcher la détection de dérogation des positions transitoires tandis que le store se déplace vers votre position cible. Utile si votre store signale de nombreuses valeurs intermédiaires pendant le mouvement.",
           "transit_timeout": "Durée pendant laquelle ACP attend après l'arrêt du signalement de progression d'une protection avant de traiter le prochain rapport de position comme une dérogation manuelle initiée par l'utilisateur. Le minuteur se réinitialise chaque fois que la protection se rapproche de sa cible commandée, de sorte que les protections se déplaçant lentement mais continuellement sont protégées pendant l'intégralité du transit. Augmentez cette valeur pour les protections qui prennent plus de 45 secondes pour un parcours complet. Par défaut : 45 secondes.",
-          "manual_ignore_external": "Lorsque activé, seuls les changements de position envoyés via l'entité proxy Adaptive Cover Pro ou le service adaptive_cover_pro.set_position engagent la dérogation manuelle. Les changements de position d'autres sources (autres automatisations, la carte de protection Home Assistant par défaut, les télécommandes physiques ou RF) sont ignorés et le contrôle automatique continue sans interruption. Utile lorsque vous conduisez la protection uniquement via ACP lui-même et souhaitez que les changements d'état externes bruyants ne mettent pas l'automatisation en pause. Par défaut : désactivé."
+          "manual_ignore_external": "Lorsque activé, seuls les changements de position envoyés via l'entité proxy Adaptive Cover Pro ou le service adaptive_cover_pro.set_position engagent la dérogation manuelle. Les changements de position d'autres sources (autres automatisations, la carte de protection Home Assistant par défaut, les télécommandes physiques ou RF) sont ignorés et le contrôle automatique continue sans interruption. Utile lorsque vous conduisez la protection uniquement via ACP lui-même et souhaitez que les changements d'état externes bruyants ne mettent pas l'automatisation en pause. Par défaut : désactivé.",
+          "manual_override_input_entities": "Capteurs binaires (ou commutateurs/input_booleans) dont la transition passage à ON déclenche une dérogation manuelle sur chaque store de cette instance. Destiné à un commutateur mural physique câblé à une entrée (par ex. un Shelly 2PM exposant binary_sensor.*_cover_input_0) : l'appuyer suspend le contrôle automatique pour la durée de la dérogation au lieu de déduire un mouvement manuel de la position du store. Combiner avec « Engager la dérogation manuelle uniquement à partir des commandes Adaptive Cover Pro » pour faire de ces capteurs le seul déclencheur de dérogation. Par défaut : aucun."
         }
       },
       "custom_position": {
         "title": "Positions personnalisées",
-        "description": "Configurez les capteurs de déclenchement et/ou modèles de condition qui définissent le store à des positions spécifiques quand actifs. Chaque emplacement a ses propres déclencheurs (plusieurs capteurs se combinent avec la logique OU), modèle optionnel, position cible, et priorité de pipeline (1-100). Chaque emplacement actif est évalué indépendamment — l'emplacement actif avec la priorité la plus élevée gagne. La priorité 100 donne à un emplacement la sémantique de sécurité : il agit en dehors de la fenêtre de temps début/fin et contourne les portes delta (ceci remplace l'ancienne fonctionnalité Force Override). Utilisez les automations Home Assistant pour basculer ces capteurs pour le contrôle du store basé sur des scènes ou des horaires.\n\n[En savoir plus]({learn_more})\n\n**Priorité de décision** — où la priorité de chaque emplacement configuré s'arrive contre les gestionnaires fixes (le plus élevé gagne). Ceci reflète les dernières priorités enregistrées ; il s'actualise quand le formulaire se rend à nouveau, pas en direct comme vous glissez le curseur :\n{priority_scale}",
+        "description": "Configurez des capteurs de déclenchement et/ou des modèles de condition qui définissent le store à des positions spécifiques lorsqu'ils sont actifs. Chaque emplacement dispose de ses propres déclencheurs (plusieurs capteurs se combinent avec une logique OU), d'un modèle optionnel, d'une position cible et d'une priorité de pipeline (1-100). Chaque emplacement actif est évalué indépendamment — l'emplacement actif avec la priorité la plus élevée gagne. La priorité 100 donne à un emplacement une sémantique de sécurité : il contourne l'interrupteur de contrôle automatique, la dérogation manuelle et la fenêtre horaire de début/fin (pour que le store puisse se déplacer même quand le contrôle automatique est DÉSACTIVÉ), et contourne les seuils delta (cela remplace l'ancienne fonctionnalité de Dérogation Forcée). Utilisez les automations Home Assistant pour activer/désactiver ces capteurs pour contrôler le store en fonction de scènes ou d'horaires.\n\n[En savoir plus]({learn_more})\n\n**Priorité de décision** — où la priorité de chaque emplacement configuré s'aligne contre les gestionnaires fixes (le plus élevé gagne). Cela reflète les priorités dernièrement enregistrées ; cela s'actualise quand le formulaire se re-rend, pas en direct quand vous déplacez le curseur :\n{priority_scale}",
         "data": {
           "custom_position_sensors_1": "Capteurs 1",
           "custom_position_template_1": "Template de condition 1",
@@ -815,14 +1018,59 @@
           "custom_position_tilt_5": "Slot 5 : inclinaison",
           "custom_position_tilt_only_5": "Slot 5 : inclinaison uniquement",
           "default_tilt": "Inclinaison par défaut",
-          "sunset_tilt": "Inclinaison au coucher du soleil"
+          "sunset_tilt": "Inclinaison au coucher du soleil",
+          "custom_position_sensors_6": "Capteurs 6",
+          "custom_position_template_6": "Template de condition 6",
+          "custom_position_template_mode_6": "Mode de combinaison de template 6",
+          "custom_position_6": "Position pour le slot 6",
+          "custom_position_priority_6": "Priorité pour le slot 6",
+          "custom_position_min_mode_6": "Mode de minimum pour le slot 6",
+          "custom_position_use_my_6": "Slot 6 : utiliser la position Mes présélections",
+          "custom_position_tilt_6": "Slot 6 : inclinaison",
+          "custom_position_tilt_only_6": "Slot 6 : inclinaison uniquement",
+          "custom_position_sensors_7": "Capteurs 7",
+          "custom_position_template_7": "Template de condition 7",
+          "custom_position_template_mode_7": "Mode de combinaison de template 7",
+          "custom_position_7": "Position pour le slot 7",
+          "custom_position_priority_7": "Priorité pour le slot 7",
+          "custom_position_min_mode_7": "Mode de minimum pour le slot 7",
+          "custom_position_use_my_7": "Slot 7 : utiliser la position Mes présélections",
+          "custom_position_tilt_7": "Slot 7 : inclinaison",
+          "custom_position_tilt_only_7": "Slot 7 : inclinaison uniquement",
+          "custom_position_sensors_8": "Capteurs 8",
+          "custom_position_template_8": "Template de condition 8",
+          "custom_position_template_mode_8": "Mode de combinaison de template 8",
+          "custom_position_8": "Position pour le slot 8",
+          "custom_position_priority_8": "Priorité pour le slot 8",
+          "custom_position_min_mode_8": "Mode de minimum pour le slot 8",
+          "custom_position_use_my_8": "Slot 8 : utiliser la position Mes présélections",
+          "custom_position_tilt_8": "Slot 8 : inclinaison",
+          "custom_position_tilt_only_8": "Slot 8 : inclinaison uniquement",
+          "custom_position_sensors_9": "Capteurs 9",
+          "custom_position_template_9": "Template de condition 9",
+          "custom_position_template_mode_9": "Mode de combinaison de template 9",
+          "custom_position_9": "Position pour le slot 9",
+          "custom_position_priority_9": "Priorité pour le slot 9",
+          "custom_position_min_mode_9": "Mode de minimum pour le slot 9",
+          "custom_position_use_my_9": "Slot 9 : utiliser la position Mes présélections",
+          "custom_position_tilt_9": "Slot 9 : inclinaison",
+          "custom_position_tilt_only_9": "Slot 9 : inclinaison uniquement",
+          "custom_position_sensors_10": "Capteurs 10",
+          "custom_position_template_10": "Template de condition 10",
+          "custom_position_template_mode_10": "Mode de combinaison de template 10",
+          "custom_position_10": "Position pour le slot 10",
+          "custom_position_priority_10": "Priorité pour le slot 10",
+          "custom_position_min_mode_10": "Mode de minimum pour le slot 10",
+          "custom_position_use_my_10": "Slot 10 : utiliser la position Mes présélections",
+          "custom_position_tilt_10": "Slot 10 : inclinaison",
+          "custom_position_tilt_only_10": "Slot 10 : inclinaison uniquement"
         },
         "data_description": {
           "custom_position_sensors_1": "Capteurs binaires qui, lorsque l'un est 'on', déplacent le store à sa position configurée (logique OR). Laisser vide pour utiliser uniquement un template — ou pour ignorer ce slot.",
           "custom_position_template_1": "Template Jinja2 optionnel ; lorsqu'il s'évalue à vrai, il active le slot. Combiné avec les capteurs selon le mode de combinaison ci-dessous.",
           "custom_position_template_mode_1": "Comment le template se combine avec les capteurs : 'or' (défaut) — le template OU n'importe quel capteur active le slot ; 'and' — le template doit être vrai ET un capteur on.",
           "custom_position_1": "Position (0-100%) vers laquelle déplacer les stores lorsque le slot 1 est actif. 0% = fermé, 100% = ouvert.",
-          "custom_position_priority_1": "Priorité du pipeline (1-100). Plus élevé = évalué avant les gestionnaires de priorité inférieure. Le défaut 77 se situe entre la dérogation manuelle (80) et l'expiration du mouvement (75). Définir au-dessus de 80 pour remplacer les mouvements manuels ; définir au-dessous de 40 pour s'appliquer uniquement lorsque le suivi du soleil est inactif. 100 = sécurité : le slot agit en dehors de la fenêtre de temps et contourne les portes delta (l'ancien comportement de Dérogation forcée).",
+          "custom_position_priority_1": "Priorité de pipeline (1-100). Supérieur = évalué avant les gestionnaires de priorité inférieure. La valeur par défaut 77 se situe entre la Dérogation Manuelle (80) et le Délai de Mouvement (75). Définir au-dessus de 80 pour remplacer les mouvements manuels ; définir en dessous de 40 pour s'appliquer uniquement quand le suivi du soleil est inactif. 100 = sécurité : l'emplacement contourne l'interrupteur de contrôle automatique, la dérogation manuelle et la fenêtre horaire de début/fin — il peut déplacer le store même quand le contrôle automatique est DÉSACTIVÉ — et contourne également les seuils delta (le comportement de l'ancienne Dérogation Forcée).",
           "custom_position_min_mode_1": "Lorsqu'activé, la position agit comme un plancher minimum — les positions plus élevées du suivi du soleil ou d'autres calculs peuvent passer. Lorsque désactivé (défaut), le store est toujours défini à la position exacte configurée.",
           "custom_position_use_my_1": "Lorsque le déclencheur du slot 1 est actif, déclenchez la présélection Mes du store au lieu de la position numérique du slot. Nécessite que la valeur de position Mes soit définie.",
           "custom_position_tilt_1": "Angle d'inclinaison (0-100%) à définir lorsque le capteur du slot 1 est actif. Stores vénitiens uniquement — ignoré pour les autres types de stores. Laisser non défini pour laisser le moteur calculer l'inclinaison automatiquement.",
@@ -831,7 +1079,7 @@
           "custom_position_template_2": "Template de condition Jinja2 optionnel pour le slot 2.",
           "custom_position_template_mode_2": "Mode de combinaison de template pour le slot 2 ('or'/'and').",
           "custom_position_2": "Position (0-100%) pour le slot 2.",
-          "custom_position_priority_2": "Priorité du pipeline pour le slot 2 (1-100, défaut 77 ; 100 = sécurité).",
+          "custom_position_priority_2": "Priorité de pipeline pour l'emplacement 2 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
           "custom_position_min_mode_2": "Traiter la position du slot 2 comme un plancher minimum.",
           "custom_position_use_my_2": "Utiliser la présélection Mes pour le slot 2 au lieu de sa position numérique.",
           "custom_position_tilt_2": "Angle d'inclinaison (0-100%) à définir lorsque le capteur du slot 2 est actif. Stores vénitiens uniquement. Laisser non défini pour laisser le moteur calculer l'inclinaison automatiquement.",
@@ -840,7 +1088,7 @@
           "custom_position_template_3": "Template de condition Jinja2 optionnel pour le slot 3.",
           "custom_position_template_mode_3": "Mode de combinaison de template pour le slot 3 ('or'/'and').",
           "custom_position_3": "Position (0-100%) pour le slot 3.",
-          "custom_position_priority_3": "Priorité du pipeline pour le slot 3 (1-100, défaut 77 ; 100 = sécurité).",
+          "custom_position_priority_3": "Priorité de pipeline pour l'emplacement 3 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
           "custom_position_min_mode_3": "Traiter la position du slot 3 comme un plancher minimum.",
           "custom_position_use_my_3": "Utiliser la présélection Mes pour le slot 3 au lieu de sa position numérique.",
           "custom_position_tilt_3": "Angle d'inclinaison (0-100%) à définir lorsque le capteur du slot 3 est actif. Stores vénitiens uniquement. Laisser non défini pour laisser le moteur calculer l'inclinaison automatiquement.",
@@ -849,7 +1097,7 @@
           "custom_position_template_4": "Template de condition Jinja2 optionnel pour le slot 4.",
           "custom_position_template_mode_4": "Mode de combinaison de template pour le slot 4 ('or'/'and').",
           "custom_position_4": "Position (0-100%) pour le slot 4.",
-          "custom_position_priority_4": "Priorité du pipeline pour le slot 4 (1-100, défaut 77 ; 100 = sécurité).",
+          "custom_position_priority_4": "Priorité de pipeline pour l'emplacement 4 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
           "custom_position_min_mode_4": "Traiter la position du slot 4 comme un plancher minimum.",
           "custom_position_use_my_4": "Utiliser la présélection Mes pour le slot 4 au lieu de sa position numérique.",
           "custom_position_tilt_4": "Angle d'inclinaison (0-100%) à définir lorsque le capteur du slot 4 est actif. Stores vénitiens uniquement. Laisser non défini pour laisser le moteur calculer l'inclinaison automatiquement.",
@@ -858,13 +1106,58 @@
           "custom_position_template_5": "Template de condition Jinja2 optionnel pour le slot 5.",
           "custom_position_template_mode_5": "Mode de combinaison de template pour le slot 5 ('or'/'and').",
           "custom_position_5": "Position (0-100%) pour le slot 5.",
-          "custom_position_priority_5": "Priorité du pipeline pour le slot 5 (1-100, défaut 77 ; 100 = sécurité).",
+          "custom_position_priority_5": "Priorité de pipeline pour l'emplacement 5 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
           "custom_position_min_mode_5": "Traiter la position du slot 5 comme un plancher minimum.",
           "custom_position_use_my_5": "Utiliser la présélection Mes pour le slot 5 au lieu de sa position numérique.",
           "custom_position_tilt_5": "Angle d'inclinaison explicite (0-100%) pour le slot 5 sur les stores vénitiens.",
           "custom_position_tilt_only_5": "Le slot 5 fixe uniquement l'angle des lamelles ; le suivi du soleil pilote la position.",
           "default_tilt": "Angle d'inclinaison par défaut (0-100%) pour les stores vénitiens lorsqu'aucun autre gestionnaire ne remplace l'inclinaison. Appliqué chaque fois que le gestionnaire de position par défaut est actif. Laisser non défini pour laisser le moteur calculer l'inclinaison à partir de la géométrie du soleil.",
-          "sunset_tilt": "Angle d'inclinaison (0-100%) pour les stores vénitiens pendant la fenêtre de coucher du soleil. Remplace default_tilt lorsque la fenêtre de temps de coucher du soleil est active. Laisser non défini pour revenir à default_tilt."
+          "sunset_tilt": "Angle d'inclinaison (0-100%) pour les stores vénitiens pendant la fenêtre de coucher du soleil. Remplace default_tilt lorsque la fenêtre de temps de coucher du soleil est active. Laisser non défini pour revenir à default_tilt.",
+          "custom_position_sensors_6": "Capteurs de déclenchement pour le slot 6 (logique OR). Laisser vide pour ignorer.",
+          "custom_position_template_6": "Template de condition Jinja2 optionnel pour le slot 6.",
+          "custom_position_template_mode_6": "Mode de combinaison de template pour le slot 6 ('or'/'and').",
+          "custom_position_6": "Position (0-100%) pour le slot 6.",
+          "custom_position_priority_6": "Priorité de pipeline pour l'emplacement 6 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
+          "custom_position_min_mode_6": "Traiter la position du slot 6 comme un plancher minimum.",
+          "custom_position_use_my_6": "Utiliser la présélection Mes pour le slot 6 au lieu de sa position numérique.",
+          "custom_position_tilt_6": "Angle d'inclinaison explicite (0-100%) pour le slot 6 sur les stores vénitiens.",
+          "custom_position_tilt_only_6": "Le slot 6 fixe uniquement l'angle des lamelles ; le suivi du soleil pilote la position.",
+          "custom_position_sensors_7": "Capteurs de déclenchement pour le slot 7 (logique OR). Laisser vide pour ignorer.",
+          "custom_position_template_7": "Template de condition Jinja2 optionnel pour le slot 7.",
+          "custom_position_template_mode_7": "Mode de combinaison de template pour le slot 7 ('or'/'and').",
+          "custom_position_7": "Position (0-100%) pour le slot 7.",
+          "custom_position_priority_7": "Priorité de pipeline pour l'emplacement 7 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
+          "custom_position_min_mode_7": "Traiter la position du slot 7 comme un plancher minimum.",
+          "custom_position_use_my_7": "Utiliser la présélection Mes pour le slot 7 au lieu de sa position numérique.",
+          "custom_position_tilt_7": "Angle d'inclinaison explicite (0-100%) pour le slot 7 sur les stores vénitiens.",
+          "custom_position_tilt_only_7": "Le slot 7 fixe uniquement l'angle des lamelles ; le suivi du soleil pilote la position.",
+          "custom_position_sensors_8": "Capteurs de déclenchement pour le slot 8 (logique OR). Laisser vide pour ignorer.",
+          "custom_position_template_8": "Template de condition Jinja2 optionnel pour le slot 8.",
+          "custom_position_template_mode_8": "Mode de combinaison de template pour le slot 8 ('or'/'and').",
+          "custom_position_8": "Position (0-100%) pour le slot 8.",
+          "custom_position_priority_8": "Priorité de pipeline pour l'emplacement 8 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
+          "custom_position_min_mode_8": "Traiter la position du slot 8 comme un plancher minimum.",
+          "custom_position_use_my_8": "Utiliser la présélection Mes pour le slot 8 au lieu de sa position numérique.",
+          "custom_position_tilt_8": "Angle d'inclinaison explicite (0-100%) pour le slot 8 sur les stores vénitiens.",
+          "custom_position_tilt_only_8": "Le slot 8 fixe uniquement l'angle des lamelles ; le suivi du soleil pilote la position.",
+          "custom_position_sensors_9": "Capteurs de déclenchement pour le slot 9 (logique OR). Laisser vide pour ignorer.",
+          "custom_position_template_9": "Template de condition Jinja2 optionnel pour le slot 9.",
+          "custom_position_template_mode_9": "Mode de combinaison de template pour le slot 9 ('or'/'and').",
+          "custom_position_9": "Position (0-100%) pour le slot 9.",
+          "custom_position_priority_9": "Priorité de pipeline pour l'emplacement 9 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
+          "custom_position_min_mode_9": "Traiter la position du slot 9 comme un plancher minimum.",
+          "custom_position_use_my_9": "Utiliser la présélection Mes pour le slot 9 au lieu de sa position numérique.",
+          "custom_position_tilt_9": "Angle d'inclinaison explicite (0-100%) pour le slot 9 sur les stores vénitiens.",
+          "custom_position_tilt_only_9": "Le slot 9 fixe uniquement l'angle des lamelles ; le suivi du soleil pilote la position.",
+          "custom_position_sensors_10": "Capteurs de déclenchement pour le slot 10 (logique OR). Laisser vide pour ignorer.",
+          "custom_position_template_10": "Template de condition Jinja2 optionnel pour le slot 10.",
+          "custom_position_template_mode_10": "Mode de combinaison de template pour le slot 10 ('or'/'and').",
+          "custom_position_10": "Position (0-100%) pour le slot 10.",
+          "custom_position_priority_10": "Priorité de pipeline pour l'emplacement 10 (1-100, par défaut 77 ; 100 = sécurité : contourne le contrôle automatique, la dérogation manuelle et la fenêtre horaire).",
+          "custom_position_min_mode_10": "Traiter la position du slot 10 comme un plancher minimum.",
+          "custom_position_use_my_10": "Utiliser la présélection Mes pour le slot 10 au lieu de sa position numérique.",
+          "custom_position_tilt_10": "Angle d'inclinaison explicite (0-100%) pour le slot 10 sur les stores vénitiens.",
+          "custom_position_tilt_only_10": "Le slot 10 fixe uniquement l'angle des lamelles ; le suivi du soleil pilote la position."
         }
       },
       "motion_override": {
@@ -889,7 +1182,7 @@
       },
       "weather_override": {
         "title": "Dérogation météo",
-        "description": "Configurez les dérogations de sécurité basées sur la météo. N'importe quelle condition configurée déclenche la rétraction des protections. Les entrées non configurées sont ignorées.\n\n[Learn more]({learn_more})",
+        "description": "Configurez les dérogations de sécurité basées sur la météo. N'importe quelle condition configurée déclenche la rétraction des protections. Les entrées non configurées sont ignorées.\n\n[Learn more]({learn_more})\n\n{profile_inherit}",
         "data": {
           "weather_bypass_auto_control": "Actif quand le contrôle automatique est désactivé",
           "weather_wind_speed_sensor": "Capteur de vitesse du vent",
@@ -907,16 +1200,17 @@
           "weather_is_raining_template": "Modèle Is Raining (optionnel)",
           "weather_is_raining_template_mode": "Logique du modèle Is Raining",
           "weather_is_windy_template": "Modèle Is Windy (optionnel)",
-          "weather_is_windy_template_mode": "Logique du modèle Is Windy"
+          "weather_is_windy_template_mode": "Logique du modèle Is Windy",
+          "weather_enabled": "Activer la dérogation météo"
         },
         "data_description": {
           "weather_bypass_auto_control": "Quand activé, la dérogation météo déplacera toujours les stores à la position configurée même quand le commutateur de contrôle automatique est désactivé. Cela garantit que la protection contre le vent, la pluie et les conditions météorologiques graves reste toujours active indépendamment de l'état de l'automatisation. Désactivez ceci uniquement si vous voulez que la dérogation météo suive le commutateur de contrôle automatique.",
           "weather_wind_speed_sensor": "Capteur numérique signalant la vitesse du vent. La dérogation s'active quand la valeur atteint ou dépasse le seuil. Laissez vide pour ignorer la vitesse du vent.",
           "weather_wind_direction_sensor": "Optionnel : ne déclenchez la dérogation vent que quand le vent souffle vers l'azimut de cette fenêtre (dans la tolérance de direction). Laissez vide pour déclencher uniquement sur la vitesse du vent indépendamment de la direction.",
-          "weather_wind_speed_threshold": "Seuil de vitesse du vent qui active la dérogation. **La valeur est interprétée dans l'unité du capteur de vitesse du vent configuré, non dans l'unité d'affichage Home Assistant.** Accepte un nombre fixe ou un modèle Jinja2 Home Assistant qui évalue à un nombre, réévalué à chaque cycle de mise à jour.",
+          "weather_wind_speed_threshold": "Seuil de vitesse du vent qui active la dérogation, exprimé en **{wind_unit}** — l'unité du capteur de vitesse du vent configuré (et non l'unité d'affichage Home Assistant). Accepte un nombre fixe ou un modèle Jinja2 Home Assistant qui évalue à un nombre, réévalué à chaque cycle de mise à jour.",
           "weather_wind_direction_tolerance": "Combien de degrés à partir de l'azimut de la fenêtre pour considérer le vent comme « frappant » cette fenêtre. Exemple : fenêtre orientée sud (180°), tolérance 45° → vent de 135°-225° déclenche la dérogation. Accepte un nombre fixe ou un modèle Jinja2 Home Assistant qui évalue à un nombre, réévalué à chaque cycle de mise à jour.",
           "weather_rain_sensor": "Capteur numérique signalant le taux de pluie. La dérogation s'active quand la valeur atteint ou dépasse le seuil. Laissez vide pour ignorer le taux de pluie.",
-          "weather_rain_threshold": "Seuil de taux de pluie qui active la dérogation. **La valeur est interprétée dans l'unité du capteur de pluie configuré, non dans l'unité d'affichage Home Assistant.** Accepte un nombre fixe ou un modèle Jinja2 Home Assistant qui évalue à un nombre, réévalué à chaque cycle de mise à jour.",
+          "weather_rain_threshold": "Seuil de taux de pluie qui active la dérogation, exprimé en **{rain_unit}** — l'unité du capteur de pluie configuré (et non l'unité d'affichage Home Assistant). Accepte un nombre fixe ou un modèle Jinja2 Home Assistant qui évalue à un nombre, réévalué à chaque cycle de mise à jour.",
           "weather_is_raining_sensor": "Capteur binaire pour la détection de pluie. La dérogation s'active quand ce capteur est « activé ». Laissez vide pour ignorer.",
           "weather_is_windy_sensor": "Capteur binaire pour la détection du vent. La dérogation s'active quand ce capteur est « activé ». Laissez vide pour ignorer.",
           "weather_severe_sensors": "Capteurs binaires pour les conditions graves (grêle, gel, tempête, etc.). La dérogation s'active quand N'IMPORTE QUEL capteur est « activé ». Laissez vide pour ignorer.",
@@ -926,7 +1220,8 @@
           "weather_is_raining_template": "Modèle Jinja2 Home Assistant optionnel qui détermine s'il pleut. Lorsqu'il s'évalue à vrai (on/true/1), la dérogation s'active. La façon dont il se combine avec le capteur binaire Is Raining ci-dessus (OU ou ET) est définie par la « logique du modèle Is Raining » ci-dessous ; il peut fonctionner seul sans capteur et réagit instantanément quand le modèle bascule. Exemple : dériver « pluie » d'un seuil de taux de pluie numérique. Un modèle vide ou qui ne s'évalue pas n'exprime aucune opinion (pas de rétractation). Laissez vide pour désactiver.",
           "weather_is_raining_template_mode": "Comment le modèle Is Raining se combine avec le capteur binaire Is Raining ci-dessus. « OU » (par défaut) — pluie lorsque le modèle est vrai OU le capteur est ACTIF. « ET » — pluie uniquement lorsque le modèle est vrai ET le capteur est ACTIF. Sans capteur configuré, le modèle seul décide dans chaque mode. N'a d'effet que lorsqu'un modèle Is Raining est défini ci-dessus.",
           "weather_is_windy_template": "Modèle Jinja2 Home Assistant optionnel qui détermine s'il fait du vent. Lorsqu'il s'évalue à vrai (on/true/1), la dérogation s'active. La façon dont il se combine avec le capteur binaire Is Windy ci-dessus (OU ou ET) est définie par la « logique du modèle Is Windy » ci-dessous ; il peut fonctionner seul sans capteur et réagit instantanément quand le modèle bascule. Exemple : dériver « venteux » d'un seuil de vitesse du vent numérique. Un modèle vide ou qui ne s'évalue pas n'exprime aucune opinion (pas de rétractation). Laissez vide pour désactiver.",
-          "weather_is_windy_template_mode": "Comment le modèle Is Windy se combine avec le capteur binaire Is Windy ci-dessus. « OU » (par défaut) — venteux lorsque le modèle est vrai OU le capteur est ACTIF. « ET » — venteux uniquement lorsque le modèle est vrai ET le capteur est ACTIF. Sans capteur configuré, le modèle seul décide dans chaque mode. N'a d'effet que lorsqu'un modèle Is Windy est défini ci-dessus."
+          "weather_is_windy_template_mode": "Comment le modèle Is Windy se combine avec le capteur binaire Is Windy ci-dessus. « OU » (par défaut) — venteux lorsque le modèle est vrai OU le capteur est ACTIF. « ET » — venteux uniquement lorsque le modèle est vrai ET le capteur est ACTIF. Sans capteur configuré, le modèle seul décide dans chaque mode. N'a d'effet que lorsqu'un modèle Is Windy est défini ci-dessus.",
+          "weather_enabled": "Interrupteur principal pour les dérogations de sécurité météo (vent, pluie, conditions sévères). Lorsqu'il est désactivé, les capteurs météo configurés sont ignorés. Les protections existantes gardent cette option activée après la mise à jour ; les nouvelles protections commencent désactivées."
         }
       },
       "weather": {
@@ -943,12 +1238,30 @@
         "data": {
           "blind_spot_left": "Bord gauche de la zone cachée (depuis FOV gauche)",
           "blind_spot_right": "Bord droit de la zone cachée (depuis FOV gauche)",
-          "blind_spot_elevation": "Élévation zone cachée"
+          "blind_spot_elevation": "Élévation zone cachée",
+          "blind_spot_left_2": "Bord gauche zone cachée 2 (depuis FOV gauche)",
+          "blind_spot_right_2": "Bord droit zone cachée 2 (depuis FOV gauche)",
+          "blind_spot_elevation_2": "Élévation zone cachée 2",
+          "blind_spot_left_3": "Bord gauche zone cachée 3 (depuis FOV gauche)",
+          "blind_spot_right_3": "Bord droit zone cachée 3 (depuis FOV gauche)",
+          "blind_spot_elevation_3": "Élévation zone cachée 3",
+          "blind_spot_elevation_mode": "Mode d'élévation zone cachée",
+          "blind_spot_elevation_mode_2": "Mode d'élévation zone cachée 2",
+          "blind_spot_elevation_mode_3": "Mode d'élévation zone cachée 3"
         },
         "data_description": {
           "blind_spot_left": "Bord gauche de la zone de point aveugle (angle horizontal en degrés de votre limite FOV gauche). Où 0 = au bord FOV le plus à gauche. Exemple : Si votre FOV gauche est 45° et un arbre bloque le soleil de 10-20° par rapport à ce bord, réglez sur 10. Cela marque où l'obstruction commence horizontalement. Utilisez le capteur de position du soleil ou observez quand le soleil est bloqué pour trouver cette valeur.",
           "blind_spot_right": "Bord droit de la zone de point aveugle (angle horizontal en degrés de votre limite FOV gauche, doit être > bord gauche). Exemple : Si votre FOV gauche est 45° et un arbre bloque le soleil de 10-20° par rapport à ce bord, réglez sur 20. Cela marque où l'obstruction se termine horizontalement. Crée une zone « ne pas suivre le soleil ici » entre les bords gauche et droit.",
-          "blind_spot_elevation": "Élévation solaire maximale (degrés au-dessus de l'horizon) où la zone cachée s'applique. Exemple : Le surplomb du toit bloque le soleil uniquement quand c'est bas (< 30°) donc réglez sur 30. Le soleil à plus haute élévation dégaze l'obstacle, donc la zone cachée ne s'applique pas. Si l'obstacle bloque toutes les élévations (bâtiment haut), réglez sur 90 ou laissez élevé. Élévation du soleil : 0°=horizon, 45°=mi-hauteur, 90°=directement au-dessus. Mesurez ou estimez en fonction de la hauteur et de la distance de l'obstacle."
+          "blind_spot_elevation": "Élévation solaire maximale (degrés au-dessus de l'horizon) où la zone cachée s'applique. Exemple : Le surplomb du toit bloque le soleil uniquement quand c'est bas (< 30°) donc réglez sur 30. Le soleil à plus haute élévation dégaze l'obstacle, donc la zone cachée ne s'applique pas. Si l'obstacle bloque toutes les élévations (bâtiment haut), réglez sur 90 ou laissez élevé. Élévation du soleil : 0°=horizon, 45°=mi-hauteur, 90°=directement au-dessus. Mesurez ou estimez en fonction de la hauteur et de la distance de l'obstacle.",
+          "blind_spot_left_2": "Slot zone cachée 2 facultatif. Bord gauche en degrés de votre limite FOV gauche. Laissez ce champ et le bord droit vides pour désactiver le slot 2.",
+          "blind_spot_right_2": "Bord droit du slot zone cachée 2 (degrés depuis FOV gauche, doit être supérieur au bord gauche du slot 2).",
+          "blind_spot_elevation_2": "Élévation solaire maximale où le slot 2 s'applique. Laissez vide pour s'appliquer à toutes les élévations.",
+          "blind_spot_left_3": "Slot zone cachée 3 facultatif. Bord gauche en degrés de votre limite FOV gauche. Laissez ce champ et le bord droit vides pour désactiver le slot 3.",
+          "blind_spot_right_3": "Bord droit du slot zone cachée 3 (degrés depuis FOV gauche, doit être supérieur au bord gauche du slot 3).",
+          "blind_spot_elevation_3": "Élévation solaire maximale où le slot 3 s'applique. Laissez vide pour s'appliquer à toutes les élévations.",
+          "blind_spot_elevation_mode": "De quel côté du seuil d'élévation se trouve la zone cachée. « En dessous » (par défaut) bloque le soleil BAS (un arbre ou avant-toit) ; « Au-dessus » bloque le soleil HAUT (un obstacle en surplomb comme un balcon ou une alcôve profonde). Ne s'applique que si une élévation est définie.",
+          "blind_spot_elevation_mode_2": "De quel côté du seuil d'élévation du slot 2 se trouve la zone : « En dessous » bloque le soleil bas, « Au-dessus » bloque le soleil haut. Ne s'applique que si l'élévation du slot 2 est définie.",
+          "blind_spot_elevation_mode_3": "De quel côté du seuil d'élévation du slot 3 se trouve la zone : « En dessous » bloque le soleil bas, « Au-dessus » bloque le soleil haut. Ne s'applique que si l'élévation du slot 3 est définie."
         },
         "title": "Zone cachée",
         "description": "Définissez les zones où les obstacles bloquent le soleil (arbres, bâtiments, surplombs de toit). Ces valeurs angulaires sont relatives en degrés dans votre champ de vision, où 0 est la limite FOV la plus à gauche. La protection ignorera la position du soleil lorsqu'elle se trouve dans cette zone de point aveugle.\n\n[Learn more]({learn_more})"
@@ -1056,7 +1369,7 @@
       },
       "light_cloud": {
         "title": "Capteurs de lumière et suppression des nuages",
-        "description": "**Suppression de l'éblouissement en faible luminosité.** Le premier curseur ci-dessous est l'interrupteur principal de cette fonction — laissez-le désactivé et le reste de cet écran sera ignoré. Lorsqu'il est activé, définissez la **position nuageuse** facultative vers laquelle la protection se déplacera lorsque la suppression se déclenche (laissez vide pour utiliser la position par défaut).\n\nLes capteurs restants indiquent à l'intégration *quand* le soleil est absent — l'un des états météorologiques, de la luminosité, du rayonnement solaire ou de la couverture nuageuse peut déclencher la suppression. Configurez uniquement les capteurs que vous avez réellement ; n'importe quelle correspondance suffit.\n\n[En savoir plus]({learn_more})",
+        "description": "**Suppression de l'éblouissement en faible luminosité.** Le premier curseur ci-dessous est l'interrupteur principal de cette fonction — laissez-le désactivé et le reste de cet écran sera ignoré. Lorsqu'il est activé, définissez la **position nuageuse** facultative vers laquelle la protection se déplacera lorsque la suppression se déclenche (laissez vide pour utiliser la position par défaut).\n\nLes capteurs restants indiquent à l'intégration *quand* le soleil est absent — l'un des états météorologiques, de la luminosité, du rayonnement solaire ou de la couverture nuageuse peut déclencher la suppression. Configurez uniquement les capteurs que vous avez réellement ; n'importe quelle correspondance suffit.\n\n[En savoir plus]({learn_more})\n\n{profile_inherit}",
         "data": {
           "weather_entity": "Entité météo (optionnelle)",
           "lux_entity": "Capteur de lux (optionnel)",
@@ -1090,7 +1403,7 @@
       },
       "temperature_climate": {
         "title": "Température et mode climatique",
-        "description": "Le mode climat ajuste la position de la protection en fonction de la température intérieure/extérieure, de la présence et de savoir si le soleil frappe réellement la fenêtre. Lorsqu'il est désactivé, la protection suit le suivi normal du soleil/éblouissement.\n\n**Comment la saison est choisie** — La température actuelle provient du capteur extérieur s'il est fourni, sinon du capteur intérieur.\n- **Hiver** — température actuelle est en dessous du seuil bas.\n- **Été** — température actuelle est au-dessus du seuil haut **et** température extérieure est au-dessus du seuil extérieur (empêche le comportement d'été par une journée froide).\n- **Intermédiaire** — aucun de ce qui précède ; le suivi normal du soleil/éblouissement s'exécute.\n\n**Ce que chaque mode fait**\n- **Hiver + soleil sur fenêtre** → ouverture complète (100%) pour capturer la chaleur solaire gratuite.\n- **Hiver, pas de soleil sur fenêtre**, *Mode d'isolation hivernale* actif → fermeture complète (0%) pour piéger la chaleur.\n- **Été** → fermeture complète (0%) pour bloquer le gain de chaleur. Pour les stores, cela ne se produit avec présence que si *Store transparent* est actif ; sans présence, il se ferme toujours.\n- **Faible luminosité** (nuageux / sombre / pas ensoleillé) → retour à la position par défaut, dérogation à la fermeture estivale pour que les protections ne se ferment pas inutilement.\n- **Intermédiaire / soleil valide avec présence** → suivi normal du contrôle de l'éblouissement.\n\n**Présence** contrôle le comportement : sans personne à la maison, une règle d'été/ouverture hivernale plus simple s'applique ; avec des occupants présents, le suivi de l'éblouissement s'exécute dans des conditions intermédiaires et les stores transparents se ferment toujours en été.\n\n**Les stores inclinables** suivent la même logique saisonnière mais utilisent les angles de lamelle au lieu des positions ouvertes/fermées.\n\nLaissez *Capteur de température extérieure* et *Entité de présence* vides pour ignorer ces vérifications. Le mode climat s'exécute après les dérogations forcées/météorologiques/manuelles/personnalisées mais avant le suivi normal du soleil.\n\n[Learn more]({learn_more})",
+        "description": "Le mode climat ajuste la position de la protection en fonction de la température intérieure/extérieure, de la présence et de savoir si le soleil frappe réellement la fenêtre. Lorsqu'il est désactivé, la protection suit le suivi normal du soleil/éblouissement.\n\n**Comment la saison est choisie** — La température actuelle provient du capteur extérieur s'il est fourni, sinon du capteur intérieur.\n- **Hiver** — température actuelle est en dessous du seuil bas.\n- **Été** — température actuelle est au-dessus du seuil haut **et** température extérieure est au-dessus du seuil extérieur (empêche le comportement d'été par une journée froide).\n- **Intermédiaire** — aucun de ce qui précède ; le suivi normal du soleil/éblouissement s'exécute.\n\n**Ce que chaque mode fait**\n- **Hiver + soleil sur fenêtre** → ouverture complète (100%) pour capturer la chaleur solaire gratuite.\n- **Hiver, pas de soleil sur fenêtre**, *Mode d'isolation hivernale* actif → fermeture complète (0%) pour piéger la chaleur.\n- **Été** → fermeture complète (0%) pour bloquer le gain de chaleur. Pour les stores, cela ne se produit avec présence que si *Store transparent* est actif ; sans présence, il se ferme toujours.\n- **Faible luminosité** (nuageux / sombre / pas ensoleillé) → retour à la position par défaut, dérogation à la fermeture estivale pour que les protections ne se ferment pas inutilement.\n- **Intermédiaire / soleil valide avec présence** → suivi normal du contrôle de l'éblouissement.\n\n**Présence** contrôle le comportement : sans personne à la maison, une règle d'été/ouverture hivernale plus simple s'applique ; avec des occupants présents, le suivi de l'éblouissement s'exécute dans des conditions intermédiaires et les stores transparents se ferment toujours en été.\n\n**Les stores inclinables** suivent la même logique saisonnière mais utilisent les angles de lamelle au lieu des positions ouvertes/fermées.\n\nLaissez *Capteur de température extérieure* et *Entité de présence* vides pour ignorer ces vérifications. Le mode climat s'exécute après les dérogations forcées/météorologiques/manuelles/personnalisées mais avant le suivi normal du soleil.\n\n[Learn more]({learn_more})\n\n{profile_inherit}",
         "data": {
           "climate_mode": "Activer le mode climatique",
           "temp_entity": "Entité de température intérieure",
@@ -1102,7 +1415,8 @@
           "transparent_blind": "Store transparent",
           "winter_close_insulation": "Mode isolation hivernale",
           "presence_template": "Modèle de présence (optionnel)",
-          "presence_template_mode": "Logique du modèle de présence"
+          "presence_template_mode": "Logique du modèle de présence",
+          "summer_close_bypass_sun_floor": "Fermeture complète en cas de chaleur estivale"
         },
         "data_description": {
           "climate_mode": "Activez pour activer tout le contrôle du store basé sur le climat. Quand désactivé, tous les paramètres de cet écran sont ignorés et le store suit le suivi solaire/anti-éblouissement normal.",
@@ -1115,7 +1429,8 @@
           "transparent_blind": "Ferme complètement le store en été, même quand des occupants sont présents. Sans cela, un store opaque suit le contrôle d'éblouissement du soleil en été au lieu de se fermer. Activez-le pour un matériau translucide ou transparent — ou pour tout store que vous souhaitez fermer complètement pour la protection thermique quand des gens sont à la maison.",
           "winter_close_insulation": "Quand activé, le store se ferme complètement (0 %) en hiver lorsque le soleil n'est pas directement en face de la fenêtre, aidant à retenir la chaleur à l'intérieur. N'a aucun effet quand le soleil est sur la fenêtre (le store s'ouvre pour capter la chaleur solaire).",
           "presence_template": "Modèle Jinja2 Home Assistant optionnel qui signale l'occupation. Lorsqu'il s'évalue à vrai (on/true/1), l'espace est considéré comme occupé ; lorsqu'il est faux, il est traité comme vide. La façon dont il se combine avec l'entité de présence ci-dessus (OU ou ET) est définie par la « logique du modèle de présence » ci-dessous ; il peut fonctionner seul sans entité. Utilisez-le pour l'occupation composite (par exemple, quelqu'un à la maison ET réveillé). Un modèle vide ou qui ne s'évalue pas n'exprime aucune opinion, donc la logique de l'entité de présence décide. Laissez vide pour désactiver.",
-          "presence_template_mode": "Comment le modèle de présence se combine avec l'entité de présence ci-dessus. « OU » (par défaut) — occupé lorsque le modèle est vrai OU l'entité est active. « ET » — occupé uniquement lorsque le modèle est vrai ET l'entité est active. Sans entité configurée, le modèle seul décide dans chaque mode. N'a d'effet que lorsqu'un modèle de présence est défini ci-dessus."
+          "presence_template_mode": "Comment le modèle de présence se combine avec l'entité de présence ci-dessus. « OU » (par défaut) — occupé lorsque le modèle est vrai OU l'entité est active. « ET » — occupé uniquement lorsque le modèle est vrai ET l'entité est active. Sans entité configurée, le modèle seul décide dans chaque mode. N'a d'effet que lorsqu'un modèle de présence est défini ci-dessus.",
+          "summer_close_bypass_sun_floor": "Quand activé, le blocage de la chaleur estivale ferme complètement la protection jusqu'à la position minimale globale, en ignorant le seuil plus élevé de « position minimale lorsque le soleil est dans le champ de vision ». Utilisez ceci pour une protection thermique complète en été, même lorsque le soleil est directement sur la fenêtre. N'a aucun effet en dehors de l'été, et la limite de position maximale s'applique toujours."
         }
       },
       "behavior": {
@@ -1145,7 +1460,7 @@
           "sunset_offset": "Minutes pour décaler l'heure du coucher du soleil (± ajustement). Valeur positive : appliquer la position de coucher du soleil X minutes APRÈS le coucher du soleil. Valeur négative : appliquer la position de coucher du soleil X minutes AVANT le coucher du soleil. Zéro : exactement au coucher du soleil. Utilisez une valeur positive (par exemple 30) si vous voulez que les stores restent ouverts un peu après le coucher du soleil. Utilisez une valeur négative (par exemple -30) pour fermer tôt quand le soleil est encore bas.",
           "sunset_time_entity": "Entité optionnelle dont l'état est un datetime (par exemple Sun2 « coucher du soleil à -4° d'élévation »). Quand défini, remplace l'heure de coucher du soleil calculée par astral comme limite de la fenêtre. Accepte les entités sensor ou input_datetime rapportant un datetime ISO-8601. Le Décalage du coucher du soleil s'applique toujours en plus. Revient à astral si l'entité n'est pas disponible."
         },
-        "description": "Affinez le comportement du store une fois une position choisie : ajustements de synchronisation du coucher/lever du soleil, la tolérance de correspondance de position et le basculement de correspondance, et état inversé. Ce ne sont pas des positions cibles — chaque valeur en pourcentage vit sur l'étape Paramètres de Position ; cette étape ne contient que les boutons de synchronisation et seuil.\n\n[En savoir plus]({learn_more})",
+        "description": "Affinez le comportement du store une fois une position choisie : ajustements de synchronisation du coucher/lever du soleil, la tolérance de correspondance de position et le basculement de correspondance, et état inversé. Ce ne sont pas des positions cibles — chaque valeur en pourcentage vit sur l'étape Paramètres de Position ; cette étape ne contient que les boutons de synchronisation et seuil.\n\n[En savoir plus]({learn_more})\n\n{profile_inherit}",
         "title": "Comportement (Synchronisation & Seuils)"
       },
       "pipeline_priorities": {
@@ -1169,6 +1484,73 @@
           "glare_zone_priority": "1–99 ; valeur par défaut intégrée 45.",
           "solar_priority": "1–99 ; valeur par défaut intégrée 40. Le gestionnaire de suivi solaire de base — augmentez-le au-dessus du mode climatique pour que le suivi solaire surclasse le contrôle climatique."
         }
+      },
+      "building_profile": {
+        "title": "Profil de bâtiment",
+        "description": "Liez ce volet à un profil de bâtiment pour partager des capteurs à l'échelle du bâtiment entre les volets. La liaison copie les capteurs du profil dans ce volet ; les champs vides du profil conservent les valeurs propres à ce volet.\n\n[En savoir plus]({learn_more})",
+        "data": {
+          "building_profile_id": "Profil de bâtiment"
+        },
+        "data_description": {
+          "building_profile_id": "Liez ce volet à un profil de bâtiment pour hériter de ses capteurs partagés à l'échelle du bâtiment. Sélectionnez « Aucun (non lié) » pour gérer les capteurs de ce volet localement."
+        }
+      },
+      "profile_sensors": {
+        "title": "Profil de bâtiment — Capteurs Partagés",
+        "description": "Modifiez les ID d'entités de capteurs au niveau du bâtiment partagés entre les volets liés. Les volets liés héritent de ces capteurs ; laissez un champ vide pour que chaque volet conserve sa propre valeur locale.\n\n[En savoir plus]({learn_more})",
+        "data": {
+          "cloud_coverage_entity": "Capteur de couverture nuageuse (optionnel)",
+          "daytime_gate_sensors": "Capteurs du filtre de jour",
+          "daytime_gate_template": "Modèle du filtre de jour (optionnel)",
+          "irradiance_entity": "Capteur d'irradiance (optionnel)",
+          "is_sunny_sensor": "Capteur binaire « Ensoleillé » (optionnel)",
+          "is_sunny_template": "Modèle Is Sunny (optionnel)",
+          "lux_entity": "Capteur de lux (optionnel)",
+          "outside_temp": "Capteur de température extérieure (optionnel)",
+          "sunrise_time_entity": "Entité Heure de Lever du Soleil",
+          "sunset_time_entity": "Entité Heure de Coucher du Soleil",
+          "weather_entity": "Entité météo (optionnelle)",
+          "weather_is_raining_sensor": "Capteur binaire En train de pleuvoir",
+          "weather_is_raining_template": "Modèle Is Raining (optionnel)",
+          "weather_is_windy_sensor": "Capteur binaire Venteux",
+          "weather_is_windy_template": "Modèle Is Windy (optionnel)",
+          "weather_rain_sensor": "Capteur de taux de pluie",
+          "weather_severe_sensors": "Capteurs de conditions météorologiques graves (grêle, gel, tempête, etc.)",
+          "weather_wind_direction_sensor": "Capteur de direction du vent (optionnel)",
+          "weather_wind_speed_sensor": "Capteur de vitesse du vent"
+        },
+        "data_description": {
+          "cloud_coverage_entity": "Capteur de couverture nuageuse optionnel indiquant une valeur de 0 à 100 % (par ex. d'une intégration météo). Quand la valeur atteint le seuil, le contrôle de l'éblouissement est supprimé et le store revient à sa position par défaut. Laissez vide si vous ne disposez pas de ce capteur.",
+          "daytime_gate_sensors": "Capteurs binaires optionnels (ou input_boolean / switch / schedule) qui décident si c'est « jour » pour le suivi du soleil. Lorsqu'ils sont activés, l'intégration assure le suivi du soleil ; lorsqu'ils sont désactivés, elle applique la Position de coucher de soleil. Utilisez un capteur binaire « assez lumineux » basé sur le lux pour que la lumière réelle — et non l'horloge — ouvre et ferme la fenêtre de suivi : les protections continuent le suivi lors de soirées lumineuses après le coucher du soleil astronomique, et restent à la position de coucher de soleil lors des matins sombres et nuageux. Lorsqu'ils sont définis, ils REMPLACENT la limite de coucher/lever astronomique du soleil (les décalages de coucher/lever de soleil sont ignorés). Un capteur indisponible ou inconnu est traité comme jour, de sorte que le suivi ne s'arrête jamais simplement parce qu'un capteur n'a pas signalé. Laissez vide pour utiliser le calcul de coucher/lever de soleil astronomique.",
+          "daytime_gate_template": "Modèle Jinja2 Home Assistant optionnel qui décide si c'est « jour » pour le suivi du soleil. Lorsqu'il s'évalue comme vrai (on/true/1), l'intégration assure le suivi du soleil ; lorsqu'il s'évalue comme faux, elle applique la Position de coucher de soleil. La manière dont il se combine avec les capteurs du filtre ci-dessus (OR ou AND) est définie par « Logique du filtre de jour » ci-dessous. Il peut fonctionner seul sans capteurs. Exemple : un modèle d'élévation Sun2, ou une comparaison lux. Un modèle qui ne peut pas être évalué est traité comme jour, de sorte qu'un modèle cassé ne force jamais un coucher de soleil prématuré. Lorsqu'il est défini (seul ou avec des capteurs), il REMPLACE la limite de coucher/lever astronomique du soleil. Laissez vide pour désactiver.",
+          "irradiance_entity": "Capteur d'irradiance solaire optionnel (extérieur) pour une détection précise du soleil. Mesure la puissance solaire en W/m². Quand le capteur lit une valeur inférieure au seuil, le soleil direct est absent et le contrôle de l'éblouissement est supprimé. Laissez vide si vous ne disposez pas de ce capteur.",
+          "is_sunny_sensor": "Capteur binaire, input_boolean, interrupteur ou planning optionnel qui rapporte de manière fiable si le soleil frappe la fenêtre. Lorsque ACTIVÉ, le soleil est supposé présent ; lorsque DÉSACTIVÉ, le soleil est supposé absent et la suppression des nuages se déclenche indépendamment de l'état météorologique. En cas d'indisponibilité ou d'état inconnu, l'intégration revient à la logique de l'entité météo / conditions météorologiques ci-dessous. Utilisez ceci si vous calculez le soleil-sur-fenêtre en amont (par exemple, irradiance filtrée par azimut) et que vous souhaitez fournir à Adaptive Cover Pro un booléen épuré.",
+          "is_sunny_template": "Modèle Jinja2 Home Assistant optionnel qui détermine si le soleil brille sur la fenêtre. Lorsqu'il s'évalue à vrai (on/true/1), le soleil est supposé présent ; lorsqu'il est faux, il est supposé absent et la suppression nuageuse s'active. La façon dont il se combine avec le capteur binaire Is Sunny ci-dessus (OU ou ET) est définie par la « logique du modèle Is Sunny » ci-dessous ; il peut fonctionner seul sans capteur. Exemple : une comparaison azimut/élévation ou un seuil de lux. Un modèle vide ou qui ne s'évalue pas n'exprime aucune opinion, l'intégration revient donc au capteur, puis à la logique de l'entité météo / conditions météo. Laissez vide pour désactiver.",
+          "lux_entity": "Capteur d'éclairement optionnel (intérieur ou extérieur) pour une détection précise du soleil. Quand le capteur lit une valeur inférieure au seuil, le soleil direct est absent et le contrôle de l'éblouissement est supprimé. Valeurs typiques en plein soleil : 5 000-10 000 lux. Laissez vide si vous ne disposez pas de ce capteur.",
+          "outside_temp": "Capteur de température extérieure optionnel. Quand configuré, cette valeur (plutôt que le capteur intérieur) détermine la saison actuelle, et le seuil extérieur est appliqué pour éviter que le store se ferme comme en été lors d'une journée intérieure chaude mais extérieure froide.",
+          "sunrise_time_entity": "Entité optionnelle dont l'état est un datetime (par exemple Sun2 « lever du soleil à -4° d'élévation »). Quand défini, remplace l'heure de lever du soleil calculée par astral comme limite de fermeture de la fenêtre du matin. Accepte les entités sensor ou input_datetime. Le Décalage du lever du soleil s'applique toujours en plus. Revient à astral si l'entité n'est pas disponible.",
+          "sunset_time_entity": "Entité optionnelle dont l'état est un datetime (par exemple Sun2 « coucher du soleil à -4° d'élévation »). Quand défini, remplace l'heure de coucher du soleil calculée par astral comme limite de la fenêtre. Accepte les entités sensor ou input_datetime rapportant un datetime ISO-8601. Le Décalage du coucher du soleil s'applique toujours en plus. Revient à astral si l'entité n'est pas disponible.",
+          "weather_entity": "Intégration météo optionnelle utilisée pour détecter la couverture nuageuse. Quand l'état météo actuel ne figure pas dans la liste sélectionnée ci-dessous, le soleil direct est supposé absent et le contrôle de l'éblouissement est supprimé. Laissez vide pour ignorer l'état météo.",
+          "weather_is_raining_sensor": "Capteur binaire pour la détection de pluie. La dérogation s'active quand ce capteur est « activé ». Laissez vide pour ignorer.",
+          "weather_is_raining_template": "Modèle Jinja2 Home Assistant optionnel qui détermine s'il pleut. Lorsqu'il s'évalue à vrai (on/true/1), la dérogation s'active. La façon dont il se combine avec le capteur binaire Is Raining ci-dessus (OU ou ET) est définie par la « logique du modèle Is Raining » ci-dessous ; il peut fonctionner seul sans capteur et réagit instantanément quand le modèle bascule. Exemple : dériver « pluie » d'un seuil de taux de pluie numérique. Un modèle vide ou qui ne s'évalue pas n'exprime aucune opinion (pas de rétractation). Laissez vide pour désactiver.",
+          "weather_is_windy_sensor": "Capteur binaire pour la détection du vent. La dérogation s'active quand ce capteur est « activé ». Laissez vide pour ignorer.",
+          "weather_is_windy_template": "Modèle Jinja2 Home Assistant optionnel qui détermine s'il fait du vent. Lorsqu'il s'évalue à vrai (on/true/1), la dérogation s'active. La façon dont il se combine avec le capteur binaire Is Windy ci-dessus (OU ou ET) est définie par la « logique du modèle Is Windy » ci-dessous ; il peut fonctionner seul sans capteur et réagit instantanément quand le modèle bascule. Exemple : dériver « venteux » d'un seuil de vitesse du vent numérique. Un modèle vide ou qui ne s'évalue pas n'exprime aucune opinion (pas de rétractation). Laissez vide pour désactiver.",
+          "weather_rain_sensor": "Capteur numérique signalant le taux de pluie. La dérogation s'active quand la valeur atteint ou dépasse le seuil. Laissez vide pour ignorer le taux de pluie.",
+          "weather_severe_sensors": "Capteurs binaires pour les conditions graves (grêle, gel, tempête, etc.). La dérogation s'active quand N'IMPORTE QUEL capteur est « activé ». Laissez vide pour ignorer.",
+          "weather_wind_direction_sensor": "Optionnel : ne déclenchez la dérogation vent que quand le vent souffle vers l'azimut de cette fenêtre (dans la tolérance de direction). Laissez vide pour déclencher uniquement sur la vitesse du vent indépendamment de la direction.",
+          "weather_wind_speed_sensor": "Capteur numérique signalant la vitesse du vent. La dérogation s'active quand la valeur atteint ou dépasse le seuil. Laissez vide pour ignorer la vitesse du vent."
+        }
+      },
+      "profile_overview": {
+        "title": "Profil de bâtiment — Aperçu",
+        "description": "{overview}"
+      },
+      "profile_overrides": {
+        "data": {
+          "clear_overrides": "Effacer les dérogations sélectionnées"
+        },
+        "title": "Profil de bâtiment — Dérogations locales",
+        "description": "Capteurs qu'une couverture liée a dérogée, ou définis localement lorsque ce profil les laisse vides. Sélectionnez-en un pour réinitialiser — un capteur dérogaté réhérite la valeur du profil; un capteur local est effacé.\n\n{overrides}"
       }
     },
     "abort": {
@@ -1222,6 +1604,9 @@
           "winter_mode": "Mode hiver",
           "intermediate": "Intermédiaire"
         }
+      },
+      "solar_calculation": {
+        "name": "Calcul solaire"
       }
     },
     "switch": {
@@ -1249,6 +1634,13 @@
         "state": {
           "on": "On",
           "off": "Off"
+        }
+      },
+      "sun_tracking": {
+        "name": "Suivi du soleil",
+        "state": {
+          "on": "Activé",
+          "off": "Désactivé"
         }
       },
       "motion_control": {
@@ -1284,7 +1676,8 @@
         "cover_awning": "Store banne horizontal",
         "cover_tilt": "Store à inclinaison",
         "cover_venetian": "Store vénitien (double axe)",
-        "cover_oscillating_awning": "Store banne à bras articulé"
+        "cover_oscillating_awning": "Store banne à bras articulé",
+        "cover_roof_window": "Fenêtre de toit"
       }
     },
     "tilt_mode": {
@@ -1341,6 +1734,12 @@
       "options": {
         "or": "OU — la pièce est occupée si le modèle est vrai ou un détecteur est actif (par défaut)",
         "and": "ET — exiger que le modèle soit vrai et qu'un détecteur soit actif"
+      }
+    },
+    "blind_spot_elevation_mode": {
+      "options": {
+        "below": "En dessous — bloque le soleil bas (arbre ou avant-toit)",
+        "above": "Au-dessus — bloque le soleil haut (obstacle en surplomb, par ex. balcon)"
       }
     }
   },
@@ -1419,6 +1818,10 @@
         "blind_spot_right": {
           "description": "Bord droit de la zone d'éblouissement en degrés vers l'intérieur de la limite gauche de votre FOV. Doit être supérieur au bord gauche (plage 1–360°).",
           "name": "Bord droit (du FOV gauche)"
+        },
+        "blind_spot_elevation_mode": {
+          "name": "Mode d'élévation",
+          "description": "De quel côté du seuil d'élévation se trouve la zone cachée : « en dessous » (par défaut) bloque le soleil bas (un arbre ou avant-toit) ; « au-dessus » bloque le soleil haut (un obstacle en surplomb comme un balcon ou une alcôve profonde)."
         }
       },
       "name": "Définir la zone d'éblouissement"
@@ -1461,6 +1864,10 @@
         "winter_close_insulation": {
           "description": "Si vrai, fermer complètement la protection les jours froids pour améliorer l'isolation.",
           "name": "Fermer pour l'isolation hivernale"
+        },
+        "summer_close_bypass_sun_floor": {
+          "name": "Fermeture complète en cas de chaleur estivale",
+          "description": "Si vrai, la fermeture climatique estivale ignore le seuil minimal du soleil dans le champ de vision et atteint la position minimale globale."
         }
       },
       "name": "Définir les paramètres climatiques"
@@ -1910,6 +2317,20 @@
     "stop": {
       "name": "Arrêter la protection",
       "description": "Envoie stop_cover aux protections ciblées via le proxy ACP. Active la dérogation manuelle afin que le prochain cycle automatique ne contre-commande pas la protection. Utilisez ce service à la place de cover.stop_cover quand manual_ignore_external est activé."
+    },
+    "set_tilt": {
+      "name": "Définir l'inclinaison",
+      "description": "Définit l'axe inclinaison/lamelle de la protection. Sur les stores vénitiens (à double axe), cela entraîne uniquement les lamelles d'inclinaison et laisse le chariot inchangé ; sur les types de protection dont l'axe principal est déjà l'inclinaison, cela se comporte comme un mouvement d'inclinaison. Par défaut, l'appel engage la dérogation manuelle ; mettez force=true pour ignorer l'engagement de dérogation manuelle (correspondant à la sémantique de force de set_position).",
+      "fields": {
+        "tilt": {
+          "name": "Inclinaison",
+          "description": "Inclinaison cible (0–100%)."
+        },
+        "force": {
+          "name": "Forcer",
+          "description": "Lorsque cette option est activée, ignore l'engagement de dérogation manuelle. Par défaut false — les appels de service engagent la dérogation manuelle comme un curseur du tableau de bord."
+        }
+      }
     }
   }
 }
