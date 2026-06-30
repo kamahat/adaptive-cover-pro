@@ -9,8 +9,7 @@
 # make an ephemeral manifest-bump commit, tag it, and push ONLY the tag. The
 # existing `publish-release.yml` then builds + publishes the pre-release.
 #
-# Retention: at most one build per calendar day (earlier same-day builds are
-# pruned before the new tag is pushed), keeping the 7 most recent days.
+# Retention: keep the 7 most recent develop builds; older ones are pruned.
 #
 # The tag MUST be pushed with RELEASE_PAT: a tag pushed with the default
 # GITHUB_TOKEN does not trigger other workflows, so publish-release.yml would
@@ -87,27 +86,6 @@ jobs:
           fetch-depth: 0
           token: ${{ secrets.RELEASE_PAT }}
 
-      - name: Delete today's existing develop build (one per day)
-        env:
-          GH_TOKEN: ${{ secrets.RELEASE_PAT }}
-        run: |
-          set -euo pipefail
-          # Enforce one build per calendar day, race-free: any existing .dev
-          # release dated today is necessarily older than the one we're about to
-          # create, so remove it now — before the new tag is pushed. This does NOT
-          # depend on publish-release.yml having created the new release yet.
-          TODAY=$(date -u +%Y%m%d)
-          mapfile -t TAGS < <(gh release list --limit 100 --json tagName \
-            --jq '.[].tagName | select(test("\\.dev|-nightly\\."))')
-          for t in "${TAGS[@]:-}"; do
-            [ -z "$t" ] && continue
-            d=$(printf '%s' "$t" | sed -n 's/.*\.dev\([0-9]\{8\}\).*/\1/p')
-            if [ "$d" = "$TODAY" ]; then
-              echo "Deleting earlier same-day develop build ${t}"
-              gh release delete "$t" --cleanup-tag --yes
-            fi
-          done
-
       - name: Build ephemeral bump commit & push tag
         env:
           VERSION: ${{ needs.version.outputs.version }}
@@ -131,37 +109,22 @@ jobs:
           git push origin "refs/tags/${TAG}"
           echo "Pushed ${TAG}; publish-release.yml will build the pre-release."
 
-      - name: Prune develop builds (keep newest 7 days)
+      - name: Prune old develop builds (keep newest 7)
         env:
           GH_TOKEN: ${{ secrets.RELEASE_PAT }}
         run: |
           set -euo pipefail
-          # Keep the 7 most recent distinct dates; delete older builds, plus any
-          # legacy -nightly. / unparseable stragglers. Same-day dupes were already
-          # removed in the step above, so each kept date is a single build.
-          # gh returns newest-first by creation; --cleanup-tag removes the git tag
+          # Keep the 7 most recent develop builds; delete the rest (and any legacy
+          # -nightly. stragglers). gh release list returns newest-first, so we keep
+          # the first 7 and delete from there. --cleanup-tag removes the git tag
           # along with the release, so no orphan tags are left behind.
-          mapfile -t TAGS < <(gh release list --limit 100 --json tagName,createdAt \
-            --jq 'sort_by(.createdAt) | reverse | .[].tagName | select(test("\\.dev|-nightly\\."))')
-          declare -A seen
-          kept=0
+          mapfile -t TAGS < <(gh release list --limit 100 --json tagName \
+            --jq '.[].tagName | select(test("\\.dev|-nightly\\."))')
+          i=0
           for t in "${TAGS[@]:-}"; do
             [ -z "$t" ] && continue
-            d=$(printf '%s' "$t" | sed -n 's/.*\.dev\([0-9]\{8\}\).*/\1/p')
-            if [ -z "$d" ]; then
-              echo "Deleting legacy/unparseable develop build ${t}"
-              gh release delete "$t" --cleanup-tag --yes
-              continue
-            fi
-            if [ -n "${seen[$d]:-}" ]; then
-              echo "Deleting same-day duplicate develop build ${t}"
-              gh release delete "$t" --cleanup-tag --yes
-              continue
-            fi
-            kept=$((kept + 1))
-            seen[$d]=1
-            if [ "$kept" -gt 7 ]; then
-              echo "Deleting old develop build ${t} (beyond newest 7 days)"
-              gh release delete "$t" --cleanup-tag --yes
-            fi
+            i=$((i + 1))
+            [ "$i" -le 7 ] && continue
+            echo "Deleting old develop build ${t} (beyond newest 7)"
+            gh release delete "${t}" --cleanup-tag --yes
           done
