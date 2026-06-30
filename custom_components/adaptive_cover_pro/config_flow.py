@@ -137,6 +137,7 @@ from .const import (
     CONF_SUNSET_POS,
     CONF_SUNSET_TIME_ENTITY,
     CONF_SUNSET_TILT,
+    CONF_SYNC_SELECT_ALL,
     CONF_TEMP_ENTITY,
     CONF_TEMP_HIGH,
     CONF_TEMP_LOW,
@@ -4468,7 +4469,16 @@ class OptionsFlowHandler(OptionsFlow):
         ]
 
         if user_input is not None:
-            targets = user_input.get("target_entries", [])
+            # "Select all covers" (#772) turns target_entries into an exclude
+            # list: every same-type other cover is targeted except those
+            # checked. Off, target_entries is the usual explicit include list.
+            if user_input.get(CONF_SYNC_SELECT_ALL):
+                excluded = set(user_input.get("target_entries", []))
+                targets = [
+                    e.entry_id for e in other_entries if e.entry_id not in excluded
+                ]
+            else:
+                targets = user_input.get("target_entries", [])
             if not targets:
                 return await self.async_step_init()
             selected = user_input.get("sync_categories", [])
@@ -4491,6 +4501,9 @@ class OptionsFlowHandler(OptionsFlow):
                             ],
                         )
                     ),
+                    vol.Optional(
+                        CONF_SYNC_SELECT_ALL, default=False
+                    ): selector.BooleanSelector(),
                     vol.Required(
                         "sync_categories", default=[]
                     ): selector.SelectSelector(
