@@ -9,6 +9,7 @@ on:
 permissions:
   issues: write
   contents: read
+  pull-requests: read
 
 jobs:
   mark-awaiting-release:
@@ -25,16 +26,40 @@ jobs:
             // commit body; direct commits to develop carry them too. A single push
             // trigger therefore covers both paths — no PR event needed.
             const commits = context.payload.commits || [];
-            const allText = commits.map(c => c.message).join('\n');
 
             // Only keyword-prefixed references count, so squash titles like
             // "fix: foo (#754)" (a PR ref with no keyword) are ignored — we only
-            // want the issues a fix actually resolves.
-            const pattern = /(?:refs?|closes?|fixes?|resolves?)\s+#(\d+)/gi;
+            // want the issues a fix actually resolves. A fresh regex per call keeps
+            // the global lastIndex state from leaking between scans.
+            const collectRefs = (text, into) => {
+              const pattern = /(?:refs?|closes?|fixes?|resolves?)\s+#(\d+)/gi;
+              let match;
+              while ((match = pattern.exec(text || '')) !== null) {
+                into.add(parseInt(match[1], 10));
+              }
+            };
+
             const found = new Set();
-            let match;
-            while ((match = pattern.exec(allText)) !== null) {
-              found.add(parseInt(match[1], 10));
+            collectRefs(commits.map(c => c.message).join('\n'), found);
+
+            // Fallback: the keyword-ref can be lost when a squash merge uses a
+            // custom commit body that drops the PR's "Refs #NNN" line (issue #474
+            // shipped this way). The reference still lives in the PR body, so scan
+            // the PRs associated with each pushed commit. Idempotent with the
+            // commit scan above — dedup happens in the `found` Set.
+            for (const sha of new Set(commits.map(c => c.id).filter(Boolean))) {
+              try {
+                const prs = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  commit_sha: sha,
+                });
+                for (const pr of prs.data) {
+                  collectRefs(`${pr.title}\n${pr.body || ''}`, found);
+                }
+              } catch (e) {
+                console.log(`Could not list PRs for ${sha}: ${e.message}`);
+              }
             }
 
             if (found.size === 0) {
