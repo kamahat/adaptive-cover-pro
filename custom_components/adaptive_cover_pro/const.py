@@ -90,6 +90,16 @@ CONF_BUILDING_PROFILE_ID = (
 # model). Keys NOT in this list track the profile; keys in it keep the cover's
 # own value and are skipped by profile propagation. Absent = no overrides.
 CONF_PROFILE_SENSOR_OVERRIDES = "profile_sensor_overrides"
+# Transient OptionsFlow field for the "Copy to Other Covers" sync step (#772).
+# Never persisted to config_entry.options. When True, the sync targets every
+# same-type other cover except those checked in ``target_entries`` (the
+# multi-select becomes an exclude list instead of an include list).
+CONF_SYNC_SELECT_ALL = "select_all_targets"
+
+# Default name prefix used by the config flow when auto-naming a cover from its
+# entity's friendly name (no linked device available) — see config_flow.py's
+# cover_entities auto-fill and async_step_update finalization fallback (#771).
+ADAPTIVE_NAME_PREFIX = "Adaptive"
 
 
 # =============================================================================
@@ -186,6 +196,26 @@ CONF_MAX_TILT = "max_tilt"  # cap on sun-derived tilt %, 0-100
 DEFAULT_MAX_TILT = 100  # default: no upper cap
 CONF_MIN_TILT = "min_tilt"  # floor on sun-derived tilt %, 0-100
 DEFAULT_MIN_TILT = 0  # default: no lower floor
+# If True, min_tilt/max_tilt are only enforced during active sun tracking —
+# mirroring CONF_ENABLE_MIN/MAX_POSITION. False (default) = always enforce,
+# including the sun-invalid default_tilt path (issue #503/#629). Sunset and
+# custom-position tilts are deliberate carve-outs and are never affected.
+CONF_MIN_TILT_SUN_ONLY = "min_tilt_sun_only"
+DEFAULT_MIN_TILT_SUN_ONLY = False
+CONF_MAX_TILT_SUN_ONLY = "max_tilt_sun_only"
+DEFAULT_MAX_TILT_SUN_ONLY = False
+
+# Slat angle (degrees) at which the slats sit horizontal — the geometric pivot
+# the safety-margin transform closes away from. MODE1: 90° = fully open.
+TILT_HORIZONTAL_DEG = 90
+
+# Configurable venetian tilt safety margin (issue #783): scales the automatic
+# angle-dependent geometry margin (0.0 = no-op = today's exact grazing angle,
+# 1.0 = full geometry margin applied in the closing direction).
+CONF_VENETIAN_TILT_SAFETY_MARGIN = "venetian_tilt_safety_margin"
+DEFAULT_VENETIAN_TILT_SAFETY_MARGIN = 0.0
+MIN_VENETIAN_TILT_SAFETY_MARGIN = 0.0
+MAX_VENETIAN_TILT_SAFETY_MARGIN = 1.0
 
 
 # =============================================================================
@@ -195,7 +225,7 @@ DEFAULT_MIN_TILT = 0  # default: no lower floor
 # flags (some covers report 0=open instead of 0=closed), and the two named
 # fixed points POSITION_CLOSED / POSITION_OPEN used widely in calc code.
 
-CONF_MAX_POSITION = "max_position"  # upper clamp on commanded position (1-100)
+CONF_MAX_POSITION = "max_position"  # upper clamp on commanded position (0-100)
 CONF_MIN_POSITION = "min_position"  # lower clamp on commanded position (0-99)
 # Optional separate floor that applies only during sun tracking (0-99, optional).
 # When set, overrides CONF_MIN_POSITION for sun-tracking paths only.
@@ -962,6 +992,23 @@ VENETIAN_DRIFT_RETRY_DELAY_SECONDS = 2.0
 CONF_VENETIAN_POST_SETTLE_HOLD = "venetian_post_settle_hold"  # s, 0.0-10.0
 DEFAULT_VENETIAN_POST_SETTLE_HOLD_SECONDS = 3.0  # default post-settle hold
 
+# How the post-settle wait is performed (issue #801). ``fixed_delay`` (default,
+# back-compat) always sleeps ``post_settle_hold_seconds`` before the tilt
+# command. ``entity_state`` instead polls the cover entity's ``cover.state``
+# and proceeds the moment it is no longer opening/closing — better for
+# actuators (e.g. Shelly 2PM) with reliable motion states. Falls back to the
+# fixed-delay sleep when the entity state is unavailable, or when the
+# ``post_settle_hold_seconds`` budget elapses without the carriage going
+# stationary. Venetian-only enum.
+CONF_VENETIAN_POST_SETTLE_MODE = "venetian_post_settle_mode"  # one of below
+VENETIAN_POST_SETTLE_MODE_FIXED = "fixed_delay"  # always sleep the fixed hold (default)
+VENETIAN_POST_SETTLE_MODE_ENTITY_STATE = "entity_state"  # poll cover.state instead
+DEFAULT_VENETIAN_POST_SETTLE_MODE = VENETIAN_POST_SETTLE_MODE_FIXED  # back-compat
+VENETIAN_POST_SETTLE_MODES = (
+    VENETIAN_POST_SETTLE_MODE_FIXED,
+    VENETIAN_POST_SETTLE_MODE_ENTITY_STATE,
+)
+
 # Skip the tilt command when the commanded position exceeds this threshold —
 # at high positions the slats are retracted into the housing and tilting is
 # physically meaningless. The value is configurable per-instance.
@@ -993,6 +1040,36 @@ DEFAULT_VENETIAN_TILT_RESET_DIRECTION = VENETIAN_TILT_RESET_OPEN  # back-compat
 VENETIAN_TILT_RESET_DIRECTIONS = (
     VENETIAN_TILT_RESET_OPEN,
     VENETIAN_TILT_RESET_CLOSE,
+)
+
+# Scope that decides which tilt commands are eligible to accumulate drift and
+# trigger a reset (issue #808). ``all_tilt_commands`` keeps the original
+# behaviour (every real tilt send counts). ``sun_tracking_only`` restricts the
+# accumulator to solar-tracking commands (winning ControlMethod == SOLAR), so
+# custom-position / manual / climate-discrete tilts no longer trigger the
+# full-open-then-return reset cycle. Venetian-only enum.
+CONF_VENETIAN_TILT_RESET_SCOPE = "venetian_tilt_reset_scope"  # one of below
+VENETIAN_TILT_RESET_SCOPE_ALL = "all_tilt_commands"  # every tilt send (default)
+VENETIAN_TILT_RESET_SCOPE_SOLAR = "sun_tracking_only"  # solar tracking only
+DEFAULT_VENETIAN_TILT_RESET_SCOPE = VENETIAN_TILT_RESET_SCOPE_ALL  # back-compat
+VENETIAN_TILT_RESET_SCOPES = (
+    VENETIAN_TILT_RESET_SCOPE_ALL,
+    VENETIAN_TILT_RESET_SCOPE_SOLAR,
+)
+
+# How the tilt-skip-above guard behaves once the carriage is commanded above
+# ``venetian_tilt_skip_above`` (issue #748). ``neutral`` (default, back-compat)
+# sends a benign POSITION_OPEN tilt to overwrite the actuator's cache (the #33
+# behaviour KNX/Shelly need); ``suppress`` emits NO tilt command at all so
+# mechanically-coupled exterior venetians are not dragged off the open endpoint.
+# Venetian-only enum.
+CONF_VENETIAN_TILT_SKIP_MODE = "venetian_tilt_skip_mode"  # one of below
+VENETIAN_TILT_SKIP_NEUTRAL = "neutral"  # send neutral POSITION_OPEN tilt (default)
+VENETIAN_TILT_SKIP_SUPPRESS = "suppress"  # send no tilt command at all
+DEFAULT_VENETIAN_TILT_SKIP_MODE = VENETIAN_TILT_SKIP_NEUTRAL  # back-compat
+VENETIAN_TILT_SKIP_MODES = (
+    VENETIAN_TILT_SKIP_NEUTRAL,
+    VENETIAN_TILT_SKIP_SUPPRESS,
 )
 
 # Venetian cover operating mode.  position_and_tilt tracks both axes with solar
@@ -1181,6 +1258,10 @@ _RANGE_TILT_DEPTH = (0.1, 15.0)  # CONF_TILT_DEPTH, cm
 _RANGE_TILT_DISTANCE = (0.1, 15.0)  # CONF_TILT_DISTANCE, cm
 _RANGE_MAX_TILT = (0, 100)  # CONF_MAX_TILT, percent
 _RANGE_MIN_TILT = (0, 100)  # CONF_MIN_TILT, percent
+_RANGE_VENETIAN_TILT_SAFETY_MARGIN = (
+    MIN_VENETIAN_TILT_SAFETY_MARGIN,
+    MAX_VENETIAN_TILT_SAFETY_MARGIN,
+)  # CONF_VENETIAN_TILT_SAFETY_MARGIN, 0.0-1.0 scale factor
 
 # Sun tracking.
 _RANGE_AZIMUTH = (0, 359)  # CONF_AZIMUTH, degrees
@@ -1196,7 +1277,7 @@ _RANGE_BLIND_SPOT_ELEVATION = (0, 90)  # CONF_BLIND_SPOT_ELEVATION, degrees
 
 # Position limits & sunset.
 _RANGE_DEFAULT_HEIGHT = (0, 100)  # CONF_DEFAULT_HEIGHT, percent
-_RANGE_MAX_POSITION = (1, 100)  # CONF_MAX_POSITION, percent
+_RANGE_MAX_POSITION = (0, 100)  # CONF_MAX_POSITION, percent (0 = always closed, #806)
 _RANGE_MIN_POSITION = (0, 99)  # CONF_MIN_POSITION, percent
 _RANGE_SUNSET_POS = (0, 100)  # CONF_SUNSET_POS, percent
 _RANGE_END_OF_WINDOW_POS = (0, 100)  # CONF_END_OF_WINDOW_POS, percent

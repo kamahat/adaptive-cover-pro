@@ -148,8 +148,11 @@ from .const import (
     CONF_VENETIAN_MODE,
     CONF_VENETIAN_POST_SETTLE_HOLD,
     CONF_VENETIAN_TILT_RESET_DIRECTION,
+    CONF_VENETIAN_TILT_RESET_SCOPE,
     CONF_VENETIAN_TILT_RESET_THRESHOLD,
+    CONF_VENETIAN_TILT_SAFETY_MARGIN,
     CONF_VENETIAN_TILT_SKIP_ABOVE,
+    CONF_VENETIAN_TILT_SKIP_MODE,
     CONF_WEATHER_BYPASS_AUTO_CONTROL,
     CONF_WEATHER_ENTITY,
     CONF_WEATHER_IS_RAINING_SENSOR,
@@ -459,29 +462,34 @@ _SUN_TRACKING_SPECS = _spec(
         required=True,
         make_selector=_bool(),
     ),
+    # Azimuth / FOV / shaded distance moved to the geometry step (#778); the
+    # section metadata follows so the registry (and the config-summary grouping)
+    # reflects where they now render. The stored option keys are unchanged, and
+    # ``services.options_service._SECTION_SUN_TRACKING`` deliberately still groups
+    # them for the stable ``acp.set_sun_tracking`` service API.
     FieldSpec(
         CONF_AZIMUTH,
-        SECTION_SUN_TRACKING,
+        SECTION_GEOMETRY,
         ValidatorKind.RANGE,
         rng=const._RANGE_AZIMUTH,
         default=DEFAULT_WINDOW_AZIMUTH,
         required=True,
         make_selector=_number(minimum=0, maximum=359, unit="°"),
     ),
-    # "Generate FOV from measurements" button (#565). Vertical-blind only —
-    # BlindPolicy advertises it as a sun-tracking extra; awning/tilt never render
-    # it. A transient toggle: ticking it fills fov_left/right from the window
-    # width + reveal depth on submit, then re-renders un-ticked. Never persisted.
+    # "Generate FOV from measurements" button (#565). Vertical-blind + venetian
+    # + roof only — those policies advertise it; awning/tilt never render it. A
+    # transient toggle: ticking it fills fov_left/right from the window width +
+    # reveal depth on submit, then re-renders un-ticked. Never persisted.
     FieldSpec(
         CONF_FOV_COMPUTE,
-        SECTION_SUN_TRACKING,
+        SECTION_GEOMETRY,
         ValidatorKind.BOOL,
         default=False,
         make_selector=_bool(),
     ),
     FieldSpec(
         CONF_FOV_LEFT,
-        SECTION_SUN_TRACKING,
+        SECTION_GEOMETRY,
         ValidatorKind.RANGE,
         rng=const._RANGE_FOV,
         default=90,
@@ -490,7 +498,7 @@ _SUN_TRACKING_SPECS = _spec(
     ),
     FieldSpec(
         CONF_FOV_RIGHT,
-        SECTION_SUN_TRACKING,
+        SECTION_GEOMETRY,
         ValidatorKind.RANGE,
         rng=const._RANGE_FOV,
         default=90,
@@ -512,10 +520,11 @@ _SUN_TRACKING_SPECS = _spec(
         make_selector=_number(minimum=0, maximum=90, step=1, unit="°"),
     ),
     # CONF_DISTANCE is length/locale-aware → dynamic builder owns the selector,
-    # but the spec records its range + canonical default-in-metres role.
+    # but the spec records its range + canonical default-in-metres role. Moved to
+    # the geometry step with the other window-facing fields (#778).
     FieldSpec(
         CONF_DISTANCE,
-        SECTION_SUN_TRACKING,
+        SECTION_GEOMETRY,
         ValidatorKind.RANGE,
         rng=const._RANGE_DISTANCE,
         required=True,
@@ -572,7 +581,14 @@ _POSITION_SPECS = _spec(
         ValidatorKind.RANGE,
         rng=const._RANGE_MAX_POSITION,
         default=100,
-        make_selector=_number(minimum=1, maximum=100, step=1, unit="%"),
+        # Selector bounds derive from the range so 0 ("always closed", #806) can't
+        # drift back out of sync with the validator.
+        make_selector=_number(
+            minimum=const._RANGE_MAX_POSITION[0],
+            maximum=const._RANGE_MAX_POSITION[1],
+            step=1,
+            unit="%",
+        ),
     ),
     FieldSpec(
         CONF_ENABLE_MIN_POSITION,
@@ -1625,6 +1641,12 @@ _GEOMETRY_SPECS = _spec(
         CONF_MIN_TILT, SECTION_GEOMETRY, ValidatorKind.RANGE, rng=const._RANGE_MIN_TILT
     ),
     FieldSpec(
+        CONF_VENETIAN_TILT_SAFETY_MARGIN,
+        SECTION_GEOMETRY,
+        ValidatorKind.RANGE,
+        rng=const._RANGE_VENETIAN_TILT_SAFETY_MARGIN,
+    ),
+    FieldSpec(
         CONF_VENETIAN_POST_SETTLE_HOLD,
         SECTION_GEOMETRY,
         ValidatorKind.RANGE,
@@ -1635,6 +1657,12 @@ _GEOMETRY_SPECS = _spec(
         SECTION_GEOMETRY,
         ValidatorKind.RANGE,
         rng=const._RANGE_VENETIAN_TILT_SKIP_ABOVE,
+    ),
+    FieldSpec(
+        CONF_VENETIAN_TILT_SKIP_MODE,
+        SECTION_GEOMETRY,
+        ValidatorKind.SELECT,
+        select_options=const.VENETIAN_TILT_SKIP_MODES,
     ),
     FieldSpec(
         CONF_VENETIAN_TILT_RESET_THRESHOLD,
@@ -1659,6 +1687,12 @@ _GEOMETRY_SPECS = _spec(
         SECTION_GEOMETRY,
         ValidatorKind.SELECT,
         select_options=const.VENETIAN_TILT_RESET_DIRECTIONS,
+    ),
+    FieldSpec(
+        CONF_VENETIAN_TILT_RESET_SCOPE,
+        SECTION_GEOMETRY,
+        ValidatorKind.SELECT,
+        select_options=const.VENETIAN_TILT_RESET_SCOPES,
     ),
 )
 

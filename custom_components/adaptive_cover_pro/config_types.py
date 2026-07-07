@@ -210,7 +210,11 @@ class CoverConfig:
                 CONF_SUNRISE_OFFSET, options.get(CONF_SUNSET_OFFSET)
             )
             or 0,
-            max_pos=options.get(CONF_MAX_POSITION) or 100,
+            max_pos=(  # no `or` — 0 ("always closed", #806) must survive, not fall back to 100
+                options[CONF_MAX_POSITION]
+                if options.get(CONF_MAX_POSITION) is not None
+                else 100
+            ),
             min_pos=options.get(CONF_MIN_POSITION) or 0,
             max_pos_sun_only=options.get(CONF_ENABLE_MAX_POSITION, False),
             min_pos_sun_only=options.get(CONF_ENABLE_MIN_POSITION, False),
@@ -348,6 +352,16 @@ class TiltConfig:
     mode: TiltMode | str
     max_tilt: int = 100
     min_tilt: int = 0
+    # When True, the corresponding tilt limit is only enforced during active sun
+    # tracking (mirrors enable_min/max_position). False (default) = always
+    # enforce. Issue #503/#629.
+    min_tilt_sun_only: bool = False
+    max_tilt_sun_only: bool = False
+    # Configurable venetian tilt safety margin (issue #783): 0.0 (default) is a
+    # provable no-op; 1.0 applies the full angle-dependent geometry margin in the
+    # slat-closing direction. Scales the automatic ``SafetyMarginCalculator``
+    # factor — see ``engine/covers/tilt.py``.
+    safety_margin: float = 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +374,16 @@ class VenetianSlice:
     """Venetian-specific runtime options."""
 
     post_settle_hold_seconds: float
+    # How the post-settle wait is performed (issue #801): ``fixed_delay``
+    # (default) always sleeps ``post_settle_hold_seconds``; ``entity_state``
+    # polls ``cover.state`` and proceeds as soon as the carriage is no longer
+    # opening/closing, falling back to the fixed sleep on timeout.
+    post_settle_mode: str
     tilt_skip_above: int
+    # Above-threshold tilt behaviour (issue #748): ``neutral`` (default) sends a
+    # benign POSITION_OPEN tilt to overwrite the actuator cache; ``suppress``
+    # emits no tilt at all so coupled-axis covers stay on the open endpoint.
+    tilt_skip_mode: str
     venetian_mode: str
     # Accumulated commanded tilt-% change that triggers a mechanical drift
     # reset (issue #663). 0 disables. Consumed by ``DualAxisSequencer`` via a
@@ -370,6 +393,12 @@ class VenetianSlice:
     # (issue #686): ``open`` (default, back-compat) or ``close``. Consumed by
     # ``DualAxisSequencer`` via a live ``get_tilt_reset_direction`` lambda.
     tilt_reset_direction: str
+    # Scope that decides which tilt commands accumulate drift (issue #808):
+    # ``all_tilt_commands`` (default, back-compat) counts every tilt send;
+    # ``sun_tracking_only`` restricts the accumulator to solar-tracking commands
+    # (winning ``ControlMethod == SOLAR``). Consumed by ``VenetianPolicy`` via a
+    # live ``get_tilt_reset_scope`` lambda threaded through ``attach()``.
+    tilt_reset_scope: str
     # Width (seconds) of the publish-lag suppression window anchored to the
     # cover's ``moving → settled`` transition (issue #33 Phase 5). Used by
     # ``DualAxisSequencer.is_in_suppression_with_cap`` for the tilt axis and
@@ -546,9 +575,12 @@ class RuntimeConfig:
             CONF_VENETIAN_BACKROTATE_PUBLISH_LAG,
             CONF_VENETIAN_MODE,
             CONF_VENETIAN_POST_SETTLE_HOLD,
+            CONF_VENETIAN_POST_SETTLE_MODE,
             CONF_VENETIAN_TILT_RESET_DIRECTION,
+            CONF_VENETIAN_TILT_RESET_SCOPE,
             CONF_VENETIAN_TILT_RESET_THRESHOLD,
             CONF_VENETIAN_TILT_SKIP_ABOVE,
+            CONF_VENETIAN_TILT_SKIP_MODE,
             CONF_WEATHER_ENABLED,
             CONF_WEATHER_IS_RAINING_SENSOR,
             CONF_WEATHER_IS_RAINING_TEMPLATE,
@@ -574,9 +606,12 @@ class RuntimeConfig:
             DEFAULT_VENETIAN_BACKROTATE_PUBLISH_LAG_SECONDS,
             DEFAULT_VENETIAN_MODE,
             DEFAULT_VENETIAN_POST_SETTLE_HOLD_SECONDS,
+            DEFAULT_VENETIAN_POST_SETTLE_MODE,
             DEFAULT_VENETIAN_TILT_RESET_DIRECTION,
+            DEFAULT_VENETIAN_TILT_RESET_SCOPE,
             DEFAULT_VENETIAN_TILT_RESET_THRESHOLD,
             DEFAULT_VENETIAN_TILT_SKIP_ABOVE,
+            DEFAULT_VENETIAN_TILT_SKIP_MODE,
             DEFAULT_WEATHER_ENABLED,
             DEFAULT_WEATHER_RAIN_THRESHOLD,
             DEFAULT_WEATHER_TIMEOUT,
@@ -693,8 +728,15 @@ class RuntimeConfig:
                     CONF_VENETIAN_POST_SETTLE_HOLD,
                     DEFAULT_VENETIAN_POST_SETTLE_HOLD_SECONDS,
                 ),
+                post_settle_mode=options.get(
+                    CONF_VENETIAN_POST_SETTLE_MODE,
+                    DEFAULT_VENETIAN_POST_SETTLE_MODE,
+                ),
                 tilt_skip_above=options.get(
                     CONF_VENETIAN_TILT_SKIP_ABOVE, DEFAULT_VENETIAN_TILT_SKIP_ABOVE
+                ),
+                tilt_skip_mode=options.get(
+                    CONF_VENETIAN_TILT_SKIP_MODE, DEFAULT_VENETIAN_TILT_SKIP_MODE
                 ),
                 venetian_mode=options.get(CONF_VENETIAN_MODE, DEFAULT_VENETIAN_MODE),
                 tilt_reset_threshold=options.get(
@@ -704,6 +746,10 @@ class RuntimeConfig:
                 tilt_reset_direction=options.get(
                     CONF_VENETIAN_TILT_RESET_DIRECTION,
                     DEFAULT_VENETIAN_TILT_RESET_DIRECTION,
+                ),
+                tilt_reset_scope=options.get(
+                    CONF_VENETIAN_TILT_RESET_SCOPE,
+                    DEFAULT_VENETIAN_TILT_RESET_SCOPE,
                 ),
                 backrotate_publish_lag_seconds=options.get(
                     CONF_VENETIAN_BACKROTATE_PUBLISH_LAG,

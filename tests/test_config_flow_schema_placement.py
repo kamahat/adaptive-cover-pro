@@ -155,6 +155,25 @@ def test_venetian_mode_in_geometry_venetian_schema() -> None:
     assert CONF_VENETIAN_MODE in keys
 
 
+def test_tilt_sun_only_toggles_in_venetian_schema_default_false() -> None:
+    """min/max_tilt_sun_only toggles live on the venetian schema, default False (#503)."""
+    from custom_components.adaptive_cover_pro.const import (
+        CONF_MAX_TILT_SUN_ONLY,
+        CONF_MIN_TILT_SUN_ONLY,
+    )
+    from custom_components.adaptive_cover_pro.cover_types.venetian import (
+        GEOMETRY_VENETIAN_SCHEMA,
+    )
+
+    schema = GEOMETRY_VENETIAN_SCHEMA.schema
+    keys = {str(k) for k in schema}
+    assert CONF_MAX_TILT_SUN_ONLY in keys
+    assert CONF_MIN_TILT_SUN_ONLY in keys
+    for marker in schema:
+        if str(marker) in (CONF_MAX_TILT_SUN_ONLY, CONF_MIN_TILT_SUN_ONLY):
+            assert marker.default() is False
+
+
 # ---------------------------------------------------------------------------
 # Per-slot tilt slider — venetian only (Step 12)
 # ---------------------------------------------------------------------------
@@ -355,6 +374,53 @@ def test_daytime_gate_mode_default_is_shared_combine_default() -> None:
 # Weather override master toggle (#719): the on/off switch must be the FIRST
 # field of the weather schema and default to off for new covers.
 # ---------------------------------------------------------------------------
+
+
+# ---------------------------------------------------------------------------
+# Window-facing fields moved to the Geometry step (#778): azimuth, FOV left/
+# right, and shaded distance now render on Geometry, not Sun Tracking. The
+# behavioural sun-tracking settings (enable, elevation limits, blind spot) stay.
+# ---------------------------------------------------------------------------
+
+
+_WINDOW_FACING_TYPES = ["cover_blind", "cover_awning", "cover_tilt", "cover_venetian"]
+
+_WINDOW_FACING_KEYS = ("set_azimuth", "fov_left", "fov_right", "distance_shaded_area")
+
+
+@pytest.mark.parametrize("cover_type", _WINDOW_FACING_TYPES)
+def test_window_facing_fields_on_geometry_step(cover_type) -> None:
+    keys = _schema_keys(cf._get_geometry_schema(cover_type))
+    for key in _WINDOW_FACING_KEYS:
+        assert key in keys, f"{key} should be on the geometry step for {cover_type}"
+
+
+@pytest.mark.parametrize("cover_type", _WINDOW_FACING_TYPES)
+def test_window_facing_fields_not_on_sun_tracking_step(cover_type) -> None:
+    keys = _schema_keys(cf._get_sun_tracking_schema(cover_type))
+    for key in _WINDOW_FACING_KEYS:
+        assert (
+            key not in keys
+        ), f"{key} must not be on the sun_tracking step for {cover_type}"
+
+
+@pytest.mark.parametrize("cover_type", _WINDOW_FACING_TYPES)
+def test_window_facing_keys_still_live_option_keys(cover_type) -> None:
+    # Regression guard: moving the fields between steps must NOT drop them from
+    # live_option_keys, or the options-service would reject azimuth/fov/distance.
+    from custom_components.adaptive_cover_pro.cover_types import get_policy
+
+    live = get_policy(cover_type).live_option_keys()
+    for key in _WINDOW_FACING_KEYS:
+        assert key in live, f"{key} missing from live_option_keys for {cover_type}"
+
+
+def test_geometry_field_order_places_azimuth_before_fov_before_distance() -> None:
+    # Order on the geometry step: window dims → azimuth → fov L/R → distance.
+    keys = [str(k) for k in cf._get_geometry_schema("cover_blind").schema]
+    assert keys.index("set_azimuth") < keys.index("fov_left")
+    assert keys.index("fov_left") < keys.index("fov_right")
+    assert keys.index("fov_right") < keys.index("distance_shaded_area")
 
 
 def test_weather_enabled_is_first_key_with_default_false() -> None:

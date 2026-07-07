@@ -25,17 +25,23 @@ from ..const import (
     CONF_HEIGHT_WIN,
     CONF_LENGTH_AWNING,
     CONF_MAX_TILT,
+    CONF_MAX_TILT_SUN_ONLY,
     CONF_MIN_TILT,
+    CONF_MIN_TILT_SUN_ONLY,
     CONF_SILL_HEIGHT,
     CONF_TILT_DEPTH,
     CONF_TILT_DISTANCE,
     CONF_TILT_MODE,
+    CONF_VENETIAN_TILT_SAFETY_MARGIN,
     CONF_WINDOW_DEPTH,
     CONF_WINDOW_WIDTH,
     DEFAULT_DISTANCE,
     DEFAULT_GLARE_ZONE_Z,
     DEFAULT_MAX_TILT,
+    DEFAULT_MAX_TILT_SUN_ONLY,
     DEFAULT_MIN_TILT,
+    DEFAULT_MIN_TILT_SUN_ONLY,
+    DEFAULT_VENETIAN_TILT_SAFETY_MARGIN,
     DEFAULT_WINDOW_HEIGHT,
 )
 
@@ -144,6 +150,18 @@ class ConfigurationService:
             mode=options.get(CONF_TILT_MODE),
             max_tilt=options.get(CONF_MAX_TILT, DEFAULT_MAX_TILT),
             min_tilt=options.get(CONF_MIN_TILT, DEFAULT_MIN_TILT),
+            min_tilt_sun_only=bool(
+                options.get(CONF_MIN_TILT_SUN_ONLY, DEFAULT_MIN_TILT_SUN_ONLY)
+            ),
+            max_tilt_sun_only=bool(
+                options.get(CONF_MAX_TILT_SUN_ONLY, DEFAULT_MAX_TILT_SUN_ONLY)
+            ),
+            safety_margin=float(
+                options.get(
+                    CONF_VENETIAN_TILT_SAFETY_MARGIN,
+                    DEFAULT_VENETIAN_TILT_SAFETY_MARGIN,
+                )
+            ),
         )
 
     def get_glare_zones_config(self, options: dict) -> GlareZonesConfig | None:

@@ -1066,8 +1066,13 @@ async def test_apply_position_proceeds_when_state_loaded_with_unknown_position(
 # --- same-position exact-equality gate + reconciliation tolerance (issues #507/#567) ---
 
 
-def _ctx_with_special() -> PositionContext:
-    """PositionContext that passes every gate except same-position."""
+def _ctx_with_special(*, use_my_position: bool = False) -> PositionContext:
+    """PositionContext that passes every gate except same-position.
+
+    ``use_my_position=True`` selects the My-preset routing variant (issue
+    #779 follow-up) so tests can exercise the ``stop_cover``/My path through
+    the same shared context builder used by every other test in this file.
+    """
     return PositionContext(
         auto_control=True,
         manual_override=False,
@@ -1075,6 +1080,7 @@ def _ctx_with_special() -> PositionContext:
         min_change=10,
         time_threshold=0,
         special_positions=[0, 100],
+        use_my_position=use_my_position,
     )
 
 
@@ -1090,10 +1096,14 @@ def _make_svc_with_tolerance(mock_hass, logger, grace_mgr, tolerance: int):
     return svc
 
 
-def _stub_state(mock_hass, current_position: int) -> None:
-    """Wire mock_hass so apply_position sees an available cover at *current_position*."""
+def _stub_state(mock_hass, current_position: int, state: str = "open") -> None:
+    """Wire mock_hass so apply_position sees an available cover at *current_position*.
+
+    ``state`` is the HA entity state string (e.g. "open", "closed") used by the
+    mechanical-stop check (issue #755).
+    """
     state_obj = MagicMock()
-    state_obj.state = "open"
+    state_obj.state = state
     state_obj.attributes = {
         "current_position": current_position,
         "supported_features": 15,
@@ -1168,6 +1178,221 @@ async def test_endpoint_zero_within_tolerance_skips_on_main_path(
     assert outcome == "skipped"
     assert reason == "same_position"
     mock_hass.services.async_call.assert_not_called()
+
+
+# --- full mechanical endpoint forcing (issue #755) ---
+
+
+def _ctx_full_endpoint(
+    *, full_endpoint_target: bool, tilt: int | None
+) -> PositionContext:
+    """PositionContext for a venetian whose desired final state is a full endpoint."""
+    return PositionContext(
+        auto_control=True,
+        manual_override=False,
+        sun_just_appeared=False,
+        min_change=10,
+        time_threshold=0,
+        special_positions=[0, 100],
+        tilt=tilt,
+        full_endpoint_target=full_endpoint_target,
+    )
+
+
+@pytest.mark.asyncio
+async def test_full_endpoint_zero_forces_close_cover_when_not_closed(
+    mock_hass, logger, grace_mgr
+):
+    """Issue #755 — venetian 0/0 within tolerance but not mechanically closed: SENT.
+
+    Cover reports current_position=3 and HA state "open". The full-endpoint
+    flag is set (0/0), endpoint_use_open_close is on, so the same-position band
+    must be bypassed and close_cover issued.
+    """
+    svc = _make_svc_with_tolerance(mock_hass, logger, grace_mgr, tolerance=3)
+    _stub_state(mock_hass, current_position=3, state="open")
+
+    with (
+        patch.object(svc, "_get_current_position", return_value=3),
+        patch.object(svc, "_check_time_delta", return_value=True),
+        patch.object(
+            svc,
+            "_prepare_service_call",
+            return_value=("close_cover", {"entity_id": "cover.test"}, True),
+        ),
+    ):
+        outcome, reason = await svc.apply_position(
+            "cover.test",
+            0,
+            "custom_position",
+            _ctx_full_endpoint(full_endpoint_target=True, tilt=0),
+        )
+
+    assert outcome == "sent"
+    assert reason == "close_cover"
+    mock_hass.services.async_call.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_full_endpoint_hundred_forces_open_cover_when_not_open(
+    mock_hass, logger, grace_mgr
+):
+    """Issue #755 — venetian 100/100 within tolerance but not mechanically open: SENT."""
+    svc = _make_svc_with_tolerance(mock_hass, logger, grace_mgr, tolerance=3)
+    _stub_state(mock_hass, current_position=97, state="closed")
+
+    with (
+        patch.object(svc, "_get_current_position", return_value=97),
+        patch.object(svc, "_check_time_delta", return_value=True),
+        patch.object(
+            svc,
+            "_prepare_service_call",
+            return_value=("open_cover", {"entity_id": "cover.test"}, True),
+        ),
+    ):
+        outcome, reason = await svc.apply_position(
+            "cover.test",
+            100,
+            "custom_position",
+            _ctx_full_endpoint(full_endpoint_target=True, tilt=100),
+        )
+
+    assert outcome == "sent"
+    assert reason == "open_cover"
+    mock_hass.services.async_call.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_solar_zero_tilt_open_does_not_force(mock_hass, logger, grace_mgr):
+    """Issue #679 regression guard — solar 0/100 is NOT a full endpoint: SKIPPED.
+
+    Position 0 with tilt 100 is a legitimate non-endpoint state. With the
+    full-endpoint flag absent, the existing same-position band still suppresses
+    the no-op move at current_position=3.
+    """
+    svc = _make_svc_with_tolerance(mock_hass, logger, grace_mgr, tolerance=3)
+    _stub_state(mock_hass, current_position=3, state="open")
+
+    with (
+        patch.object(svc, "_get_current_position", return_value=3),
+        patch.object(svc, "_check_time_delta", return_value=True),
+        patch.object(
+            svc,
+            "_prepare_service_call",
+            return_value=("close_cover", {"entity_id": "cover.test"}, True),
+        ),
+    ):
+        outcome, reason = await svc.apply_position(
+            "cover.test",
+            0,
+            "solar",
+            _ctx_full_endpoint(full_endpoint_target=False, tilt=100),
+        )
+
+    assert outcome == "skipped"
+    assert reason == "same_position"
+    mock_hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_full_endpoint_zero_already_closed_skips(mock_hass, logger, grace_mgr):
+    """Issue #755 idempotency — already mechanically closed (state closed): SKIPPED."""
+    svc = _make_svc_with_tolerance(mock_hass, logger, grace_mgr, tolerance=3)
+    _stub_state(mock_hass, current_position=0, state="closed")
+
+    with (
+        patch.object(svc, "_get_current_position", return_value=0),
+        patch.object(svc, "_check_time_delta", return_value=True),
+        patch.object(
+            svc,
+            "_prepare_service_call",
+            return_value=("close_cover", {"entity_id": "cover.test"}, True),
+        ),
+    ):
+        outcome, reason = await svc.apply_position(
+            "cover.test",
+            0,
+            "custom_position",
+            _ctx_full_endpoint(full_endpoint_target=True, tilt=0),
+        )
+
+    assert outcome == "skipped"
+    assert reason == "same_position"
+    mock_hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_full_endpoint_no_force_when_open_close_disabled(
+    mock_hass, logger, grace_mgr
+):
+    """Issue #755 scoping (#507 guard) — endpoint_use_open_close off: SKIPPED.
+
+    The forcing is scoped to the endpoint_use_open_close feature. With it
+    disabled the same-position band behaves exactly as before #755.
+    """
+    svc = CoverCommandService(
+        hass=mock_hass,
+        logger=logger,
+        cover_type="cover_blind",
+        grace_mgr=grace_mgr,
+        position_tolerance=3,
+        endpoint_use_open_close=False,
+    )
+    _stub_state(mock_hass, current_position=3, state="open")
+
+    with (
+        patch.object(svc, "_get_current_position", return_value=3),
+        patch.object(svc, "_check_time_delta", return_value=True),
+        patch.object(
+            svc,
+            "_prepare_service_call",
+            return_value=("close_cover", {"entity_id": "cover.test"}, True),
+        ),
+    ):
+        outcome, reason = await svc.apply_position(
+            "cover.test",
+            0,
+            "custom_position",
+            _ctx_full_endpoint(full_endpoint_target=True, tilt=0),
+        )
+
+    assert outcome == "skipped"
+    assert reason == "same_position"
+    mock_hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_full_endpoint_inverted_zero_forces_open_cover(
+    mock_hass, logger, grace_mgr
+):
+    """Issue #755 inversion lock — post-inverse 0/0 intent arrives as 100: SENT.
+
+    Inversion happens upstream of apply_position. ACP's 0/0 intent under
+    inverse_state becomes position 100; the manager adds no inversion logic and
+    simply forces open_cover because the cover is not mechanically open.
+    """
+    svc = _make_svc_with_tolerance(mock_hass, logger, grace_mgr, tolerance=3)
+    _stub_state(mock_hass, current_position=97, state="closed")
+
+    with (
+        patch.object(svc, "_get_current_position", return_value=97),
+        patch.object(svc, "_check_time_delta", return_value=True),
+        patch.object(
+            svc,
+            "_prepare_service_call",
+            return_value=("open_cover", {"entity_id": "cover.test"}, True),
+        ),
+    ):
+        outcome, reason = await svc.apply_position(
+            "cover.test",
+            100,
+            "custom_position",
+            _ctx_full_endpoint(full_endpoint_target=True, tilt=100),
+        )
+
+    assert outcome == "sent"
+    assert reason == "open_cover"
+    mock_hass.services.async_call.assert_called_once()
 
 
 @pytest.mark.asyncio
@@ -1542,3 +1767,239 @@ async def test_reconcile_gives_up_on_unreachable_target(mock_hass, logger, grace
     mock_hass.services.async_call.assert_not_called()
     assert svc.state("cover.unreachable").gave_up is True
     assert svc.state("cover.unreachable").retry_count == 2  # not incremented
+
+
+# --- same-position gate: unknown current position fallback (issue #779) ---
+
+
+@pytest.mark.asyncio
+async def test_apply_position_same_position_gate_uses_last_target_when_current_unknown(
+    cmd_svc, mock_hass
+):
+    """Issue #779: Somfy RTS covers sit at HA state unknown/unavailable forever,
+    so _get_current_position always returns None and the same-position gate
+    never fires — open_cover/close_cover gets resent every cycle even though
+    the cover was already commanded to that state.
+
+    First call (current unknown, no prior target): must proceed and send
+    close_cover, recording routed_target=0 as the commanded target. Second
+    call with the same continuously-computed position (30, which is not
+    itself an endpoint but still routes to close_cover) must be recognised
+    as a no-op via the routed-decision fallback and skipped as
+    same_position.
+    """
+    mock_hass.states.get.return_value = MagicMock(state="unknown", attributes={})
+    mock_hass.services.async_call = AsyncMock(return_value=None)
+    caps = {
+        "has_set_position": False,
+        "has_set_tilt_position": False,
+        "has_open": True,
+        "has_close": True,
+    }
+
+    with (
+        patch.object(cmd_svc, "_get_current_position", return_value=None),
+        patch.object(cmd_svc, "_check_time_delta", return_value=True),
+        patch(
+            "custom_components.adaptive_cover_pro.managers.cover_command.check_cover_features",
+            return_value=caps,
+        ),
+    ):
+        outcome, reason = await cmd_svc.apply_position(
+            "cover.rts", 30, "solar", _ctx_with_special()
+        )
+        assert (outcome, reason) == ("sent", "close_cover")
+        assert cmd_svc.get_target("cover.rts") == 0
+
+        mock_hass.services.async_call.reset_mock()
+        outcome2, reason2 = await cmd_svc.apply_position(
+            "cover.rts", 30, "solar", _ctx_with_special()
+        )
+
+    assert (outcome2, reason2) == ("skipped", "same_position")
+    mock_hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_apply_position_same_position_gate_literal_endpoint_when_current_unknown(
+    cmd_svc, mock_hass
+):
+    """Issue #779 boundary case: raw position is itself a literal endpoint (0).
+
+    Confirms the amended fallback still suppresses the resend in the
+    "parked at a literal 0/100 default" case that the reporter's original
+    (unamended) proposal handled, not just the general mid-range case
+    covered above.
+    """
+    mock_hass.states.get.return_value = MagicMock(state="unknown", attributes={})
+    mock_hass.services.async_call = AsyncMock(return_value=None)
+    caps = {
+        "has_set_position": False,
+        "has_set_tilt_position": False,
+        "has_open": True,
+        "has_close": True,
+    }
+
+    with (
+        patch.object(cmd_svc, "_get_current_position", return_value=None),
+        patch.object(cmd_svc, "_check_time_delta", return_value=True),
+        patch(
+            "custom_components.adaptive_cover_pro.managers.cover_command.check_cover_features",
+            return_value=caps,
+        ),
+    ):
+        outcome, reason = await cmd_svc.apply_position(
+            "cover.rts_endpoint", 0, "solar", _ctx_with_special()
+        )
+        assert (outcome, reason) == ("sent", "close_cover")
+        assert cmd_svc.get_target("cover.rts_endpoint") == 0
+
+        mock_hass.services.async_call.reset_mock()
+        outcome2, reason2 = await cmd_svc.apply_position(
+            "cover.rts_endpoint", 0, "solar", _ctx_with_special()
+        )
+
+    assert (outcome2, reason2) == ("skipped", "same_position")
+    mock_hass.services.async_call.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_apply_position_position_capable_current_unknown_uses_raw_target_fallback(
+    cmd_svc, mock_hass
+):
+    """Position-capable axis: no regression from the issue #779 fallback.
+
+    For a position-capable axis, routed_target == the raw commanded position
+    (see route_service_call), so the fallback must compare the last
+    commanded target against ``position`` directly (no routed-decision
+    translation) — the same outcome as if ``_current`` had been read
+    successfully.
+    """
+    mock_hass.states.get.return_value = MagicMock(
+        state="unknown", attributes={"current_position": None}
+    )
+    mock_hass.services.async_call = AsyncMock(return_value=None)
+    caps = {
+        "has_set_position": True,
+        "has_set_tilt_position": False,
+        "has_open": True,
+        "has_close": True,
+    }
+    cmd_svc.set_target("cover.rts_pos", 42)
+
+    with (
+        patch.object(cmd_svc, "_get_current_position", return_value=None),
+        patch.object(cmd_svc, "_check_time_delta", return_value=True),
+        patch(
+            "custom_components.adaptive_cover_pro.managers.cover_command.check_cover_features",
+            return_value=caps,
+        ),
+    ):
+        outcome, reason = await cmd_svc.apply_position(
+            "cover.rts_pos", 42, "solar", _ctx_with_special()
+        )
+
+    assert (outcome, reason) == ("skipped", "same_position")
+    mock_hass.services.async_call.assert_not_called()
+
+
+# --- same-position gate: My-preset fallback correctness (issue #779 regression
+# from PR #781 — the fallback ignored use_my_position and hand-rolled the
+# open/close threshold math, so a My move collapsed to the same routed
+# decision as a stored full-close target) ---
+
+
+@pytest.mark.asyncio
+async def test_apply_position_my_preset_move_not_suppressed_by_stored_close_target_when_current_unknown(
+    cmd_svc, mock_hass
+):
+    """A My-preset move to a sub-threshold value (e.g. 2%) must not be
+    swallowed by a stored full-close target (0).
+
+    ``_same_position_via_target_fallback`` used to hand-roll
+    ``100 if position >= threshold else 0``, which ignores
+    ``use_my_position`` entirely: a My move to 2% collapsed to the same
+    routed decision (0) as a prior full close, so the gate suppressed the
+    My move as ``same_position`` and the cover never received
+    ``stop_cover``. The fallback must delegate to ``route_service_call``
+    (the single routing source of truth) so a My target routes to its real
+    decision (``stop_cover``, routed_target=2) instead of the hand-rolled
+    open/close snap.
+    """
+    mock_hass.states.get.return_value = MagicMock(state="unknown", attributes={})
+    mock_hass.services.async_call = AsyncMock(return_value=None)
+    caps = {
+        "has_set_position": False,
+        "has_set_tilt_position": False,
+        "has_open": True,
+        "has_close": True,
+        "has_stop": True,
+    }
+
+    with (
+        patch.object(cmd_svc, "_get_current_position", return_value=None),
+        patch.object(cmd_svc, "_check_time_delta", return_value=True),
+        patch(
+            "custom_components.adaptive_cover_pro.managers.cover_command.check_cover_features",
+            return_value=caps,
+        ),
+    ):
+        outcome, reason = await cmd_svc.apply_position(
+            "cover.rts_my", 0, "solar", _ctx_with_special()
+        )
+        assert (outcome, reason) == ("sent", "close_cover")
+        assert cmd_svc.get_target("cover.rts_my") == 0
+
+        mock_hass.services.async_call.reset_mock()
+        outcome2, reason2 = await cmd_svc.apply_position(
+            "cover.rts_my", 2, "solar", _ctx_with_special(use_my_position=True)
+        )
+
+    assert (outcome2, reason2) == ("sent", "stop_cover")
+
+
+@pytest.mark.asyncio
+async def test_apply_position_repeated_my_preset_suppressed_when_current_unknown(
+    cmd_svc, mock_hass
+):
+    """A second identical My-preset move must be suppressed as
+    ``same_position``, not resent — the residual #779 relay-click bug for
+    the My path.
+
+    ``_same_position_via_target_fallback`` stores the raw My value
+    (``routed_target=state``) but compared it against the hand-rolled
+    ``100 if position >= threshold else 0`` snap, which never matches a
+    mid-range My value — so every cycle re-sent ``stop_cover`` even though
+    the cover was already commanded to the same My preset.
+    """
+    mock_hass.states.get.return_value = MagicMock(state="unknown", attributes={})
+    mock_hass.services.async_call = AsyncMock(return_value=None)
+    caps = {
+        "has_set_position": False,
+        "has_set_tilt_position": False,
+        "has_open": True,
+        "has_close": True,
+        "has_stop": True,
+    }
+
+    with (
+        patch.object(cmd_svc, "_get_current_position", return_value=None),
+        patch.object(cmd_svc, "_check_time_delta", return_value=True),
+        patch(
+            "custom_components.adaptive_cover_pro.managers.cover_command.check_cover_features",
+            return_value=caps,
+        ),
+    ):
+        outcome, reason = await cmd_svc.apply_position(
+            "cover.rts_my_repeat", 2, "solar", _ctx_with_special(use_my_position=True)
+        )
+        assert (outcome, reason) == ("sent", "stop_cover")
+        assert cmd_svc.get_target("cover.rts_my_repeat") == 2
+
+        mock_hass.services.async_call.reset_mock()
+        outcome2, reason2 = await cmd_svc.apply_position(
+            "cover.rts_my_repeat", 2, "solar", _ctx_with_special(use_my_position=True)
+        )
+
+    assert (outcome2, reason2) == ("skipped", "same_position")
+    mock_hass.services.async_call.assert_not_called()

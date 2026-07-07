@@ -117,18 +117,27 @@ from ..const import (
     CONF_TEMP_HIGH,
     CONF_TEMP_LOW,
     CONF_MAX_TILT,
+    CONF_MAX_TILT_SUN_ONLY,
     CONF_MIN_TILT,
+    CONF_MIN_TILT_SUN_ONLY,
     CONF_TILT_DEPTH,
     CONF_TILT_DISTANCE,
     CONF_TILT_MODE,
     CONF_VENETIAN_BACKROTATE_PUBLISH_LAG,
     CONF_VENETIAN_MODE,
     CONF_VENETIAN_POST_SETTLE_HOLD,
+    CONF_VENETIAN_POST_SETTLE_MODE,
     CONF_VENETIAN_TILT_RESET_DIRECTION,
+    CONF_VENETIAN_TILT_RESET_SCOPE,
     CONF_VENETIAN_TILT_RESET_THRESHOLD,
+    CONF_VENETIAN_TILT_SAFETY_MARGIN,
     CONF_VENETIAN_TILT_SKIP_ABOVE,
+    CONF_VENETIAN_TILT_SKIP_MODE,
     VENETIAN_MODES,
+    VENETIAN_POST_SETTLE_MODES,
     VENETIAN_TILT_RESET_DIRECTIONS,
+    VENETIAN_TILT_RESET_SCOPES,
+    VENETIAN_TILT_SKIP_MODES,
     TemplateCombineMode,
     CONF_SUMMER_CLOSE_BYPASS_SUN_FLOOR,
     CONF_TRANSPARENT_BLIND,
@@ -316,12 +325,18 @@ FIELD_VALIDATORS: dict[str, Any] = {
     CONF_TILT_DISTANCE: _range(CONF_TILT_DISTANCE),
     CONF_TILT_MODE: _select_v("mode1", "mode2"),
     CONF_MAX_TILT: _range(CONF_MAX_TILT),
+    CONF_MAX_TILT_SUN_ONLY: _bool_v(),
     CONF_MIN_TILT: _range(CONF_MIN_TILT),
+    CONF_MIN_TILT_SUN_ONLY: _bool_v(),
     # Venetian-specific options
+    CONF_VENETIAN_TILT_SAFETY_MARGIN: _range(CONF_VENETIAN_TILT_SAFETY_MARGIN),
     CONF_VENETIAN_POST_SETTLE_HOLD: _range(CONF_VENETIAN_POST_SETTLE_HOLD),
+    CONF_VENETIAN_POST_SETTLE_MODE: _select_v(*VENETIAN_POST_SETTLE_MODES),
     CONF_VENETIAN_TILT_SKIP_ABOVE: _range(CONF_VENETIAN_TILT_SKIP_ABOVE),
+    CONF_VENETIAN_TILT_SKIP_MODE: _select_v(*VENETIAN_TILT_SKIP_MODES),
     CONF_VENETIAN_TILT_RESET_THRESHOLD: _range(CONF_VENETIAN_TILT_RESET_THRESHOLD),
     CONF_VENETIAN_TILT_RESET_DIRECTION: _select_v(*VENETIAN_TILT_RESET_DIRECTIONS),
+    CONF_VENETIAN_TILT_RESET_SCOPE: _select_v(*VENETIAN_TILT_RESET_SCOPES),
     CONF_VENETIAN_BACKROTATE_PUBLISH_LAG: _range(CONF_VENETIAN_BACKROTATE_PUBLISH_LAG),
     CONF_VENETIAN_MODE: _select_v(*VENETIAN_MODES),
     # Sun tracking
@@ -738,17 +753,29 @@ _CUSTOM_SLOT_KEYS = CUSTOM_POSITION_SLOTS
 # ---------------------------------------------------------------------------
 
 
+# Service field names that differ from their internal option key. The canonical
+# service field is now `default_percentage`, matching CONF_DEFAULT_HEIGHT; the
+# older `default_height` wire-format name is kept as a deprecated alias so
+# existing automations keep working (issue #792).
+_SERVICE_FIELD_ALIASES: dict[str, str] = {
+    "default_height": CONF_DEFAULT_HEIGHT,
+}
+
+
 def _build_patch(call_data: dict, allowed_keys: frozenset[str]) -> dict:
     """Extract allowed keys from a service call's data dict.
 
-    Keys whose value is None are included (they signal "clear this option").
-    HA plumbing keys (entity_id, device_id, area_id) are always excluded.
+    Any known field-name alias (_SERVICE_FIELD_ALIASES) is resolved to its
+    internal option key before filtering. Keys whose value is None are included
+    (they signal "clear this option"). HA plumbing keys (entity_id, device_id,
+    area_id) are always excluded.
     """
-    return {
-        k: v
-        for k, v in call_data.items()
-        if k in allowed_keys and k not in _PLUMBING_KEYS
-    }
+    patch: dict = {}
+    for k, v in call_data.items():
+        key = _SERVICE_FIELD_ALIASES.get(k, k)
+        if key in allowed_keys and key not in _PLUMBING_KEYS:
+            patch[key] = v
+    return patch
 
 
 def _validate_fields(patch: dict) -> None:

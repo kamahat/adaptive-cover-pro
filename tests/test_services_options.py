@@ -83,6 +83,10 @@ from custom_components.adaptive_cover_pro.services.options_service import (
     IDENTITY_KEYS,
     OPTIONS_SERVICE_NAMES,
     _SECTION_CLIMATE,
+    _SECTION_POSITION_LIMITS,
+    _SECTION_SUNSET_SUNRISE,
+    _SERVICE_FIELD_ALIASES,
+    _build_patch,
     _cross_field_validate,
     apply_options_patch,
     validate_options_patch,
@@ -210,7 +214,10 @@ class TestFieldValidators:
             (CONF_DEFAULT_HEIGHT, 100),
             (CONF_MIN_POSITION, 0),
             (CONF_MIN_POSITION, 99),
-            (CONF_MAX_POSITION, 1),
+            (
+                CONF_MAX_POSITION,
+                0,
+            ),  # issue #806: 0 = "always closed" (roof-window impulse motor)
             (CONF_MAX_POSITION, 100),
             (CONF_AZIMUTH, 0),
             (CONF_AZIMUTH, 359),
@@ -387,6 +394,41 @@ class TestFieldValidators:
 
         assert CONF_VENETIAN_MODE in FIELD_VALIDATORS
         assert CONF_VENETIAN_TILT_SKIP_ABOVE in FIELD_VALIDATORS
+
+    def test_field_validators_venetian_tilt_skip_mode(self):
+        """venetian_tilt_skip_mode accepts neutral/suppress; rejects out-of-set."""
+        import voluptuous as vol
+
+        from custom_components.adaptive_cover_pro.const import (
+            CONF_VENETIAN_TILT_SKIP_MODE,
+            VENETIAN_TILT_SKIP_NEUTRAL,
+            VENETIAN_TILT_SKIP_SUPPRESS,
+        )
+
+        v = FIELD_VALIDATORS[CONF_VENETIAN_TILT_SKIP_MODE]
+        v(VENETIAN_TILT_SKIP_NEUTRAL)
+        v(VENETIAN_TILT_SKIP_SUPPRESS)
+        v(None)  # optional clear
+
+        with pytest.raises(vol.Invalid):
+            v("bogus")
+
+    def test_field_validators_venetian_post_settle_mode(self):
+        """venetian_post_settle_mode accepts fixed_delay/entity_state; rejects bogus (issue #801)."""
+        import voluptuous as vol
+
+        from custom_components.adaptive_cover_pro.const import (
+            CONF_VENETIAN_POST_SETTLE_MODE,
+            VENETIAN_POST_SETTLE_MODE_ENTITY_STATE,
+            VENETIAN_POST_SETTLE_MODE_FIXED,
+        )
+
+        v = FIELD_VALIDATORS[CONF_VENETIAN_POST_SETTLE_MODE]
+        v(VENETIAN_POST_SETTLE_MODE_FIXED)
+        v(VENETIAN_POST_SETTLE_MODE_ENTITY_STATE)
+        v(None)  # optional clear
+        with pytest.raises(vol.Invalid):
+            v("bogus")
 
 
 class TestCrossFieldValidate:
@@ -607,16 +649,57 @@ class TestServiceRegistration:
             ), f"Service '{service}' not registered"
 
 
+class TestBuildPatchAliasing:
+    """Unit tests for _build_patch's field-name alias resolution (issue #792)."""
+
+    def test_known_alias_resolves_to_option_key(self):
+        patch = _build_patch({"default_height": 75}, _SECTION_POSITION_LIMITS)
+        assert patch == {CONF_DEFAULT_HEIGHT: 75}
+
+    def test_canonical_key_still_works_unaliased(self):
+        patch = _build_patch({CONF_DEFAULT_HEIGHT: 75}, _SECTION_POSITION_LIMITS)
+        assert patch == {CONF_DEFAULT_HEIGHT: 75}
+
+    def test_unknown_key_still_dropped(self):
+        patch = _build_patch({"not_a_real_field": 1}, _SECTION_POSITION_LIMITS)
+        assert patch == {}
+
+    def test_alias_outside_its_section_still_filtered(self):
+        # default_height's alias resolves to CONF_DEFAULT_HEIGHT; a section that
+        # does not include that key must still drop it.
+        patch = _build_patch({"default_height": 75}, _SECTION_SUNSET_SUNRISE)
+        assert patch == {}
+
+    def test_default_height_alias_is_registered(self):
+        assert _SERVICE_FIELD_ALIASES["default_height"] == CONF_DEFAULT_HEIGHT
+
+
 class TestSetPositionLimits:
     """Integration tests for set_position_limits service."""
 
-    async def test_updates_default_height(self, hass: HomeAssistant):
+    async def test_updates_default_percentage(self, hass: HomeAssistant):
+        """The canonical field name (== CONF_DEFAULT_HEIGHT, 'default_percentage')."""
         await _setup(hass, entry_id="pos_01")
         with (
             patch.object(hass.config_entries, "async_update_entry") as mock_update,
             patch.object(hass.config_entries, "async_reload", new_callable=AsyncMock),
         ):
             await _call(hass, "set_position_limits", {CONF_DEFAULT_HEIGHT: 75})
+
+        mock_update.assert_called_once()
+        new_opts = mock_update.call_args[1]["options"]
+        assert new_opts[CONF_DEFAULT_HEIGHT] == 75
+
+    async def test_updates_default_height_deprecated_alias(self, hass: HomeAssistant):
+        """Issue #792: the pre-rename wire field name 'default_height' must keep
+        working via the deprecated alias, resolving to CONF_DEFAULT_HEIGHT.
+        """
+        await _setup(hass, entry_id="pos_alias_01")
+        with (
+            patch.object(hass.config_entries, "async_update_entry") as mock_update,
+            patch.object(hass.config_entries, "async_reload", new_callable=AsyncMock),
+        ):
+            await _call(hass, "set_position_limits", {"default_height": 75})
 
         mock_update.assert_called_once()
         new_opts = mock_update.call_args[1]["options"]

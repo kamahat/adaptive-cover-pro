@@ -139,6 +139,44 @@ def test_geometry_schema_accepts_min_tilt() -> None:
         GEOMETRY_VENETIAN_SCHEMA({CONF_MIN_TILT: -5})
 
 
+def test_tilt_safety_margin_constants_exist() -> None:
+    """Issue #783 exposes the tilt safety margin CONF/DEFAULT/MIN/MAX constants."""
+    from custom_components.adaptive_cover_pro.const import (
+        CONF_VENETIAN_TILT_SAFETY_MARGIN,
+        DEFAULT_VENETIAN_TILT_SAFETY_MARGIN,
+        MAX_VENETIAN_TILT_SAFETY_MARGIN,
+        MIN_VENETIAN_TILT_SAFETY_MARGIN,
+    )
+
+    assert CONF_VENETIAN_TILT_SAFETY_MARGIN == "venetian_tilt_safety_margin"
+    assert DEFAULT_VENETIAN_TILT_SAFETY_MARGIN == 0.0
+    assert MIN_VENETIAN_TILT_SAFETY_MARGIN == 0.0
+    assert MAX_VENETIAN_TILT_SAFETY_MARGIN == 1.0
+
+
+def test_geometry_schema_accepts_tilt_safety_margin() -> None:
+    """GEOMETRY_VENETIAN_SCHEMA validates the tilt safety margin: 0.0–1.0, default 0.0."""
+    import voluptuous as vol
+
+    from custom_components.adaptive_cover_pro.const import (
+        CONF_VENETIAN_TILT_SAFETY_MARGIN,
+    )
+    from custom_components.adaptive_cover_pro.cover_types.venetian import (
+        GEOMETRY_VENETIAN_SCHEMA,
+    )
+
+    result_default = GEOMETRY_VENETIAN_SCHEMA({})
+    assert result_default[CONF_VENETIAN_TILT_SAFETY_MARGIN] == 0.0
+
+    result_custom = GEOMETRY_VENETIAN_SCHEMA({CONF_VENETIAN_TILT_SAFETY_MARGIN: 0.5})
+    assert result_custom[CONF_VENETIAN_TILT_SAFETY_MARGIN] == 0.5
+
+    with pytest.raises(vol.Invalid):
+        GEOMETRY_VENETIAN_SCHEMA({CONF_VENETIAN_TILT_SAFETY_MARGIN: 1.5})
+    with pytest.raises(vol.Invalid):
+        GEOMETRY_VENETIAN_SCHEMA({CONF_VENETIAN_TILT_SAFETY_MARGIN: -0.1})
+
+
 def test_geometry_schema_accepts_venetian_mode() -> None:
     """GEOMETRY_VENETIAN_SCHEMA validates both allowed mode values."""
     from custom_components.adaptive_cover_pro.const import (
@@ -465,6 +503,216 @@ async def test_after_position_command_skips_when_service_is_not_set_position() -
     policy._sequencer.run_sequence.assert_not_awaited()
 
 
+# ---------------------------------------------------------------------------
+# venetian_tilt_skip_mode: suppress vs neutral (issue #748)
+# ---------------------------------------------------------------------------
+
+
+def test_tilt_skip_mode_constants_exist() -> None:
+    """CONF/DEFAULT/value/tuple constants for the skip mode must be exported."""
+    from custom_components.adaptive_cover_pro.const import (
+        CONF_VENETIAN_TILT_SKIP_MODE,
+        DEFAULT_VENETIAN_TILT_SKIP_MODE,
+        VENETIAN_TILT_SKIP_MODES,
+        VENETIAN_TILT_SKIP_NEUTRAL,
+        VENETIAN_TILT_SKIP_SUPPRESS,
+    )
+
+    assert CONF_VENETIAN_TILT_SKIP_MODE == "venetian_tilt_skip_mode"
+    assert VENETIAN_TILT_SKIP_NEUTRAL == "neutral"
+    assert VENETIAN_TILT_SKIP_SUPPRESS == "suppress"
+    # Default MUST stay neutral — preserves the #33 cache-overwrite behaviour.
+    assert DEFAULT_VENETIAN_TILT_SKIP_MODE == VENETIAN_TILT_SKIP_NEUTRAL
+    assert VENETIAN_TILT_SKIP_MODES == (
+        VENETIAN_TILT_SKIP_NEUTRAL,
+        VENETIAN_TILT_SKIP_SUPPRESS,
+    )
+
+
+def test_geometry_schema_skip_mode_default_and_validation() -> None:
+    """GEOMETRY_VENETIAN_SCHEMA defaults skip_mode to neutral and rejects bad values."""
+    import voluptuous as vol
+
+    from custom_components.adaptive_cover_pro.const import (
+        CONF_VENETIAN_TILT_SKIP_MODE,
+        DEFAULT_VENETIAN_TILT_SKIP_MODE,
+        VENETIAN_TILT_SKIP_SUPPRESS,
+    )
+    from custom_components.adaptive_cover_pro.cover_types.venetian import (
+        GEOMETRY_VENETIAN_SCHEMA,
+    )
+
+    assert (
+        GEOMETRY_VENETIAN_SCHEMA({})[CONF_VENETIAN_TILT_SKIP_MODE]
+        == DEFAULT_VENETIAN_TILT_SKIP_MODE
+    )
+    out = GEOMETRY_VENETIAN_SCHEMA(
+        {CONF_VENETIAN_TILT_SKIP_MODE: VENETIAN_TILT_SKIP_SUPPRESS}
+    )
+    assert out[CONF_VENETIAN_TILT_SKIP_MODE] == VENETIAN_TILT_SKIP_SUPPRESS
+    with pytest.raises(vol.Invalid):
+        GEOMETRY_VENETIAN_SCHEMA({CONF_VENETIAN_TILT_SKIP_MODE: "bogus"})
+
+
+# ---------------------------------------------------------------------------
+# venetian_post_settle_mode: fixed_delay vs entity_state (issue #801)
+# ---------------------------------------------------------------------------
+
+
+def test_post_settle_mode_constants_exist() -> None:
+    """CONF/DEFAULT/value/tuple constants for the post-settle mode must be exported."""
+    from custom_components.adaptive_cover_pro.const import (
+        CONF_VENETIAN_POST_SETTLE_MODE,
+        DEFAULT_VENETIAN_POST_SETTLE_MODE,
+        VENETIAN_POST_SETTLE_MODE_ENTITY_STATE,
+        VENETIAN_POST_SETTLE_MODE_FIXED,
+        VENETIAN_POST_SETTLE_MODES,
+    )
+
+    assert CONF_VENETIAN_POST_SETTLE_MODE == "venetian_post_settle_mode"
+    assert VENETIAN_POST_SETTLE_MODE_FIXED == "fixed_delay"
+    assert VENETIAN_POST_SETTLE_MODE_ENTITY_STATE == "entity_state"
+    # Default MUST stay fixed_delay — preserves back-compat behaviour.
+    assert DEFAULT_VENETIAN_POST_SETTLE_MODE == VENETIAN_POST_SETTLE_MODE_FIXED
+    assert VENETIAN_POST_SETTLE_MODES == (
+        VENETIAN_POST_SETTLE_MODE_FIXED,
+        VENETIAN_POST_SETTLE_MODE_ENTITY_STATE,
+    )
+
+
+def test_geometry_schema_post_settle_mode_default_and_validation() -> None:
+    """GEOMETRY_VENETIAN_SCHEMA defaults post_settle_mode to fixed_delay and rejects bad values."""
+    import voluptuous as vol
+
+    from custom_components.adaptive_cover_pro.const import (
+        CONF_VENETIAN_POST_SETTLE_MODE,
+        DEFAULT_VENETIAN_POST_SETTLE_MODE,
+        VENETIAN_POST_SETTLE_MODE_ENTITY_STATE,
+    )
+    from custom_components.adaptive_cover_pro.cover_types.venetian import (
+        GEOMETRY_VENETIAN_SCHEMA,
+    )
+
+    assert (
+        GEOMETRY_VENETIAN_SCHEMA({})[CONF_VENETIAN_POST_SETTLE_MODE]
+        == DEFAULT_VENETIAN_POST_SETTLE_MODE
+    )
+    out = GEOMETRY_VENETIAN_SCHEMA(
+        {CONF_VENETIAN_POST_SETTLE_MODE: VENETIAN_POST_SETTLE_MODE_ENTITY_STATE}
+    )
+    assert out[CONF_VENETIAN_POST_SETTLE_MODE] == VENETIAN_POST_SETTLE_MODE_ENTITY_STATE
+    with pytest.raises(vol.Invalid):
+        GEOMETRY_VENETIAN_SCHEMA({CONF_VENETIAN_POST_SETTLE_MODE: "bogus"})
+
+
+def test_default_skip_mode_is_neutral() -> None:
+    """A freshly constructed policy defaults to neutral skip behaviour."""
+    from custom_components.adaptive_cover_pro.const import VENETIAN_TILT_SKIP_NEUTRAL
+
+    policy = VenetianPolicy()
+    assert policy._tilt_skip_mode == VENETIAN_TILT_SKIP_NEUTRAL
+
+
+def test_resolve_skip_above_tilt_neutral_returns_position_open() -> None:
+    """Neutral mode keeps the #33 behaviour: above threshold → POSITION_OPEN."""
+    policy = _make_policy(tilt_skip_above=95)
+    assert policy._resolve_skip_above_tilt(98, 40) == POSITION_OPEN
+
+
+def test_resolve_skip_above_tilt_suppress_returns_none() -> None:
+    """Suppress mode returns None above the threshold so no tilt is emitted."""
+    from custom_components.adaptive_cover_pro.const import VENETIAN_TILT_SKIP_SUPPRESS
+
+    policy = _make_policy(tilt_skip_above=95)
+    policy._tilt_skip_mode = VENETIAN_TILT_SKIP_SUPPRESS
+    assert policy._resolve_skip_above_tilt(98, 40) is None
+
+
+def test_resolve_skip_above_tilt_suppress_below_threshold_uses_fallback() -> None:
+    """Suppress mode below the threshold still returns the fallback tilt."""
+    from custom_components.adaptive_cover_pro.const import VENETIAN_TILT_SKIP_SUPPRESS
+
+    policy = _make_policy(tilt_skip_above=95)
+    policy._tilt_skip_mode = VENETIAN_TILT_SKIP_SUPPRESS
+    assert policy._resolve_skip_above_tilt(60, 40) == 40
+
+
+@pytest.mark.asyncio
+async def test_after_position_command_suppress_mode_skips_tilt_above_threshold() -> (
+    None
+):
+    """Suppress mode: above the threshold NO tilt is sequenced at the open endpoint.
+
+    Coupled-axis exterior venetians (Somfy + Shelly) get dragged off 100 when
+    ANY tilt command is sent at the fully-open endpoint, so the suppress mode
+    emits nothing there (issue #748).
+    """
+    from custom_components.adaptive_cover_pro.const import VENETIAN_TILT_SKIP_SUPPRESS
+
+    policy = _make_policy(tilt_skip_above=95)
+    policy._tilt_skip_mode = VENETIAN_TILT_SKIP_SUPPRESS
+
+    await policy.after_position_command(
+        cmd_svc=MagicMock(),
+        entity_id="cover.venetian_x",
+        service=SERVICE_SET_COVER_POSITION,
+        position=100,
+        context=_ctx(policy),
+        reason="solar",
+    )
+
+    policy._sequencer.stamp_position_command.assert_not_called()
+    policy._sequencer.run_sequence.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_after_position_command_suppress_mode_still_sends_below_threshold() -> (
+    None
+):
+    """Suppress mode below the threshold still runs the full dual-axis sequence."""
+    from custom_components.adaptive_cover_pro.const import VENETIAN_TILT_SKIP_SUPPRESS
+
+    policy = _make_policy(tilt_skip_above=95)
+    policy._tilt_skip_mode = VENETIAN_TILT_SKIP_SUPPRESS
+
+    await policy.after_position_command(
+        cmd_svc=MagicMock(),
+        entity_id="cover.venetian_x",
+        service=SERVICE_SET_COVER_POSITION,
+        position=60,
+        context=_ctx(policy, tilt=80),
+        reason="solar",
+    )
+
+    policy._sequencer.run_sequence.assert_awaited_once()
+    kwargs = policy._sequencer.run_sequence.await_args.kwargs
+    assert kwargs["tilt_target"] == 80
+
+
+@pytest.mark.asyncio
+async def test_maybe_update_tilt_only_suppress_mode_skips_above_threshold() -> None:
+    """Suppress mode: a tilt-only update above the threshold sends nothing.
+
+    The None-guard added after ``_resolve_skip_above_tilt`` short-circuits the
+    tilt-only path so coupled-axis covers are not nudged off the open endpoint.
+    """
+    from custom_components.adaptive_cover_pro.const import VENETIAN_TILT_SKIP_SUPPRESS
+
+    policy = _make_policy(tilt_skip_above=95)
+    policy._tilt_skip_mode = VENETIAN_TILT_SKIP_SUPPRESS
+    policy._last_tilt = 40
+    mock_seq = MagicMock()
+    mock_seq.update_tilt_only = AsyncMock()
+    mock_seq.is_in_suppression = MagicMock(return_value=False)
+    policy._sequencer = mock_seq
+
+    await policy.maybe_update_tilt_only(
+        "cover.x", current_position=98, context=MagicMock(), reason="solar"
+    )
+
+    policy._sequencer.update_tilt_only.assert_not_awaited()
+
+
 def test_disallowed_geometry_fields_rejects_only_awning_only() -> None:
     """Venetian accepts vertical and tilt geometry; awning-only fields are rejected."""
     policy = VenetianPolicy()
@@ -539,6 +787,38 @@ def test_position_context_overrides_returns_empty_when_no_tilt() -> None:
     assert policy.position_context_overrides(None) == {}
 
 
+@pytest.mark.parametrize(
+    ("position", "tilt", "expect_flag"),
+    [
+        (0, 0, True),  # full closed endpoint
+        (100, 100, True),  # full open endpoint
+        (0, 100, False),  # solar 0/100 — legitimate non-endpoint
+        (100, 0, False),  # carriage open, slats closed — not a full endpoint
+        (0, 50, False),  # mismatched axes
+        (40, 40, False),  # equal but mid-range, not a mechanical stop
+    ],
+)
+def test_position_context_overrides_sets_full_endpoint_flag(
+    position: int, tilt: int, expect_flag: bool
+) -> None:
+    """A paired full mechanical endpoint (0/0 or 100/100) sets the bypass flag.
+
+    Issue #755 — the venetian policy is the only place that knows both axes,
+    so it owns the "is this a full endpoint" decision and exposes it via a
+    cover-type-agnostic PositionContext flag. Tilt must still be threaded in
+    every case.
+    """
+    policy = VenetianPolicy()
+    result = MagicMock()
+    result.position = position
+    result.tilt = tilt
+
+    overrides = policy.position_context_overrides(result)
+
+    assert overrides["tilt"] == tilt  # tilt always threaded
+    assert overrides.get("full_endpoint_target", False) is expect_flag
+
+
 def test_sequencer_property_exposes_attached_sequencer() -> None:
     """The ``sequencer`` property returns whatever attach() wired in."""
     policy = VenetianPolicy()
@@ -596,6 +876,35 @@ def test_attach_forwards_post_settle_hold_to_sequencer() -> None:
         )
         _, kwargs = MockSeq.call_args
         assert kwargs.get("post_settle_hold_seconds") == 7.0
+
+
+def test_attach_forwards_post_settle_mode_to_sequencer() -> None:
+    """attach() with post_settle_mode="entity_state" wires that value into DualAxisSequencer."""
+    from unittest.mock import MagicMock, patch
+
+    from custom_components.adaptive_cover_pro.const import (
+        VENETIAN_POST_SETTLE_MODE_ENTITY_STATE,
+    )
+
+    policy = VenetianPolicy()
+    hass = MagicMock()
+
+    with patch(
+        "custom_components.adaptive_cover_pro.cover_types.venetian.policy.DualAxisSequencer"
+    ) as MockSeq:
+        MockSeq.return_value = MagicMock()
+        policy.attach(
+            hass=hass,
+            logger=MagicMock(),
+            grace_mgr=MagicMock(),
+            get_current_position=lambda _: None,
+            set_commanded_position=lambda *_: None,
+            position_tolerance=5,
+            is_dry_run=lambda: False,
+            post_settle_mode=VENETIAN_POST_SETTLE_MODE_ENTITY_STATE,
+        )
+        _, kwargs = MockSeq.call_args
+        assert kwargs.get("post_settle_mode") == VENETIAN_POST_SETTLE_MODE_ENTITY_STATE
 
 
 def test_attach_threads_invert_tilt_callable_into_sequencer() -> None:

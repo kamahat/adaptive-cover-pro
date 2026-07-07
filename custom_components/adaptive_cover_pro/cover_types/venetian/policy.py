@@ -29,30 +29,44 @@ from ...const import (
     CONF_INVERSE_TILT,
     CONF_MAX_COVERAGE_STEPS,
     CONF_MAX_TILT,
+    CONF_MAX_TILT_SUN_ONLY,
     CONF_MIN_TILT,
+    CONF_MIN_TILT_SUN_ONLY,
     CONF_MINIMIZE_MOVEMENTS,
     CONF_VENETIAN_BACKROTATE_PUBLISH_LAG,
     CONF_VENETIAN_MODE,
     CONF_VENETIAN_POST_SETTLE_HOLD,
+    CONF_VENETIAN_POST_SETTLE_MODE,
     CONF_VENETIAN_TILT_RESET_DIRECTION,
+    CONF_VENETIAN_TILT_RESET_SCOPE,
     CONF_VENETIAN_TILT_RESET_THRESHOLD,
+    CONF_VENETIAN_TILT_SAFETY_MARGIN,
     CONF_VENETIAN_TILT_SKIP_ABOVE,
+    CONF_VENETIAN_TILT_SKIP_MODE,
     ControlMethod,
     DEFAULT_MAX_COVERAGE_STEPS,
     DEFAULT_MAX_TILT,
+    DEFAULT_MAX_TILT_SUN_ONLY,
     DEFAULT_MIN_TILT,
+    DEFAULT_MIN_TILT_SUN_ONLY,
     DEFAULT_MINIMIZE_MOVEMENTS,
     DEFAULT_VENETIAN_BACKROTATE_PUBLISH_LAG_SECONDS,
     DEFAULT_VENETIAN_MODE,
     DEFAULT_VENETIAN_POST_SETTLE_HOLD_SECONDS,
+    DEFAULT_VENETIAN_POST_SETTLE_MODE,
     DEFAULT_VENETIAN_TILT_RESET_DIRECTION,
+    DEFAULT_VENETIAN_TILT_RESET_SCOPE,
     DEFAULT_VENETIAN_TILT_RESET_THRESHOLD,
+    DEFAULT_VENETIAN_TILT_SAFETY_MARGIN,
     DEFAULT_VENETIAN_TILT_SKIP_ABOVE,
+    DEFAULT_VENETIAN_TILT_SKIP_MODE,
     MAX_VENETIAN_BACKROTATE_PUBLISH_LAG,
     MAX_VENETIAN_TILT_RESET_THRESHOLD,
+    MAX_VENETIAN_TILT_SAFETY_MARGIN,
     MAX_VENETIAN_TILT_SKIP_ABOVE,
     MIN_VENETIAN_BACKROTATE_PUBLISH_LAG,
     MIN_VENETIAN_TILT_RESET_THRESHOLD,
+    MIN_VENETIAN_TILT_SAFETY_MARGIN,
     MIN_VENETIAN_TILT_SKIP_ABOVE,
     POSITION_CLOSED,
     POSITION_OPEN,
@@ -60,7 +74,13 @@ from ...const import (
     VENETIAN_MODE_POSITION_AND_TILT,
     VENETIAN_MODE_TILT_ONLY,
     VENETIAN_MODES,
+    VENETIAN_POST_SETTLE_MODES,
     VENETIAN_TILT_RESET_DIRECTIONS,
+    VENETIAN_TILT_RESET_SCOPE_ALL,
+    VENETIAN_TILT_RESET_SCOPE_SOLAR,
+    VENETIAN_TILT_RESET_SCOPES,
+    VENETIAN_TILT_SKIP_MODES,
+    VENETIAN_TILT_SKIP_SUPPRESS,
 )
 from ...engine.covers import AdaptiveVerticalCover, VenetianCoverCalculation
 from ...managers.manual_override import SecondaryAxisCheck
@@ -102,12 +122,16 @@ _POSITION_AXIS_SERVICES = frozenset(
 # Re-exported for callers that want the unit-independent venetian-only keys.
 _VENETIAN_EXTRA_KEYS = (
     CONF_VENETIAN_TILT_SKIP_ABOVE,
+    CONF_VENETIAN_TILT_SKIP_MODE,
     CONF_VENETIAN_MODE,
     CONF_VENETIAN_POST_SETTLE_HOLD,
+    CONF_VENETIAN_POST_SETTLE_MODE,
     CONF_VENETIAN_BACKROTATE_PUBLISH_LAG,
     CONF_INVERSE_TILT,
     CONF_MAX_TILT,
+    CONF_MAX_TILT_SUN_ONLY,
     CONF_MIN_TILT,
+    CONF_MIN_TILT_SUN_ONLY,
 )
 
 # Control methods that carry an explicit, user-specified position.
@@ -136,6 +160,9 @@ def _venetian_extras_schema() -> dict:
             ),
         ),
         vol.Optional(
+            CONF_VENETIAN_TILT_SKIP_MODE, default=DEFAULT_VENETIAN_TILT_SKIP_MODE
+        ): vol.In(VENETIAN_TILT_SKIP_MODES),
+        vol.Optional(
             CONF_VENETIAN_TILT_RESET_THRESHOLD,
             default=DEFAULT_VENETIAN_TILT_RESET_THRESHOLD,
         ): vol.All(
@@ -149,6 +176,10 @@ def _venetian_extras_schema() -> dict:
             CONF_VENETIAN_TILT_RESET_DIRECTION,
             default=DEFAULT_VENETIAN_TILT_RESET_DIRECTION,
         ): vol.In(VENETIAN_TILT_RESET_DIRECTIONS),
+        vol.Optional(
+            CONF_VENETIAN_TILT_RESET_SCOPE,
+            default=DEFAULT_VENETIAN_TILT_RESET_SCOPE,
+        ): vol.In(VENETIAN_TILT_RESET_SCOPES),
         vol.Optional(CONF_VENETIAN_MODE, default=DEFAULT_VENETIAN_MODE): vol.In(
             VENETIAN_MODES
         ),
@@ -156,6 +187,9 @@ def _venetian_extras_schema() -> dict:
             CONF_VENETIAN_POST_SETTLE_HOLD,
             default=DEFAULT_VENETIAN_POST_SETTLE_HOLD_SECONDS,
         ): vol.All(vol.Coerce(float), vol.Range(min=0.0, max=10.0)),
+        vol.Optional(
+            CONF_VENETIAN_POST_SETTLE_MODE, default=DEFAULT_VENETIAN_POST_SETTLE_MODE
+        ): vol.In(VENETIAN_POST_SETTLE_MODES),
         vol.Optional(
             CONF_VENETIAN_BACKROTATE_PUBLISH_LAG,
             default=DEFAULT_VENETIAN_BACKROTATE_PUBLISH_LAG_SECONDS,
@@ -170,8 +204,25 @@ def _venetian_extras_schema() -> dict:
         vol.Optional(CONF_MAX_TILT, default=DEFAULT_MAX_TILT): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=100)
         ),
+        vol.Optional(
+            CONF_MAX_TILT_SUN_ONLY, default=DEFAULT_MAX_TILT_SUN_ONLY
+        ): selector.BooleanSelector(),
         vol.Optional(CONF_MIN_TILT, default=DEFAULT_MIN_TILT): vol.All(
             vol.Coerce(int), vol.Range(min=0, max=100)
+        ),
+        vol.Optional(
+            CONF_MIN_TILT_SUN_ONLY, default=DEFAULT_MIN_TILT_SUN_ONLY
+        ): selector.BooleanSelector(),
+        vol.Optional(
+            CONF_VENETIAN_TILT_SAFETY_MARGIN,
+            default=DEFAULT_VENETIAN_TILT_SAFETY_MARGIN,
+        ): selector.NumberSelector(
+            selector.NumberSelectorConfig(
+                min=MIN_VENETIAN_TILT_SAFETY_MARGIN,
+                max=MAX_VENETIAN_TILT_SAFETY_MARGIN,
+                step=0.05,
+                mode=selector.NumberSelectorMode.SLIDER,
+            )
         ),
     }
 
@@ -230,8 +281,16 @@ class VenetianPolicy(CoverTypePolicy, register=True):
         self._sequencer: DualAxisSequencer | None = None
         self._grace_mgr = None
         self._tilt_skip_above: int = DEFAULT_VENETIAN_TILT_SKIP_ABOVE
+        self._tilt_skip_mode: str = DEFAULT_VENETIAN_TILT_SKIP_MODE
         self._venetian_mode: str = DEFAULT_VENETIAN_MODE
         self._last_tilt: int | None = None
+        # Drift-reset scope gate (issue #808); replaced by the live lambda in
+        # attach(). Defaults to the back-compat "count every tilt send" scope.
+        self._get_tilt_reset_scope = lambda: DEFAULT_VENETIAN_TILT_RESET_SCOPE
+        # Coordinator callback to schedule a single refresh after N seconds,
+        # wired in attach(). Used to wake the update cycle at suppression expiry
+        # so a deferred tilt-only update fires promptly (issue #756).
+        self._schedule_refresh_after: Any | None = None
 
     def disallowed_geometry_fields(
         self,
@@ -297,6 +356,16 @@ class VenetianPolicy(CoverTypePolicy, register=True):
             CONF_VENETIAN_TILT_SKIP_ABOVE, DEFAULT_VENETIAN_TILT_SKIP_ABOVE
         )
         retract_line = [L["geometry.venetian.skip_tilt"].format(skip_above=skip_above)]
+        # Suppress mode (issue #748) gets an extra line — rendered only when
+        # opted in, like the drift-reset line.
+        skip_mode = config.get(
+            CONF_VENETIAN_TILT_SKIP_MODE, DEFAULT_VENETIAN_TILT_SKIP_MODE
+        )
+        skip_suppress_line = (
+            [L["geometry.venetian.skip_tilt_suppress"].format(skip_above=skip_above)]
+            if skip_mode == VENETIAN_TILT_SKIP_SUPPRESS
+            else []
+        )
         venetian_mode = config.get(CONF_VENETIAN_MODE, DEFAULT_VENETIAN_MODE)
         _mode_label = {
             VENETIAN_MODE_POSITION_AND_TILT: L[
@@ -337,23 +406,47 @@ class VenetianPolicy(CoverTypePolicy, register=True):
             CONF_VENETIAN_TILT_RESET_DIRECTION,
             DEFAULT_VENETIAN_TILT_RESET_DIRECTION,
         )
-        drift_reset_line = (
+        # Scope suffix appears only when narrowed to sun-tracking (#808); the
+        # default all_tilt_commands keeps the original single-line phrasing.
+        reset_scope = config.get(
+            CONF_VENETIAN_TILT_RESET_SCOPE,
+            DEFAULT_VENETIAN_TILT_RESET_SCOPE,
+        )
+        if reset_threshold:
+            drift_reset_text = L["geometry.venetian.drift_reset"].format(
+                threshold=reset_threshold, direction=reset_direction
+            )
+            if reset_scope == VENETIAN_TILT_RESET_SCOPE_SOLAR:
+                drift_reset_text += (
+                    " — " + L["geometry.venetian.drift_reset_scope_solar"]
+                )
+            drift_reset_line = [drift_reset_text]
+        else:
+            drift_reset_line = []
+        # Tilt safety margin is opt-in (issue #783): render only when non-zero,
+        # matching the drift-reset line's zero-disables convention.
+        safety_margin = config.get(
+            CONF_VENETIAN_TILT_SAFETY_MARGIN, DEFAULT_VENETIAN_TILT_SAFETY_MARGIN
+        )
+        safety_margin_line = (
             [
-                L["geometry.venetian.drift_reset"].format(
-                    threshold=reset_threshold, direction=reset_direction
+                L["geometry.venetian.tilt_safety_margin"].format(
+                    pct=round(safety_margin * 100)
                 )
             ]
-            if reset_threshold
+            if safety_margin
             else []
         )
         return (
             window_dimensions_lines(config, labels)
             + slat_line
             + retract_line
+            + skip_suppress_line
             + mode_line
             + inverse_tilt_line
             + min_tilt_line
             + max_tilt_line
+            + safety_margin_line
             + post_settle_line
             + backrotate_line
             + drift_reset_line
@@ -564,10 +657,23 @@ class VenetianPolicy(CoverTypePolicy, register=True):
         return replace(result, position=position, tilt=tilt, decision_trace=trace)
 
     def position_context_overrides(self, result: PipelineResult) -> dict[str, Any]:
-        """Thread the resolved tilt into ``PositionContext.tilt``."""
+        """Thread the resolved tilt into ``PositionContext.tilt``.
+
+        When BOTH axes target the same full mechanical endpoint (0/0 or
+        100/100) also set the cover-type-agnostic ``full_endpoint_target`` flag
+        so the command manager forces close_cover/open_cover instead of dropping
+        the move as same_position (issue #755). Only the venetian policy knows
+        the paired tilt, so this decision lives here.
+        """
         if result is None or result.tilt is None:
             return {}
-        return {"tilt": result.tilt}
+        overrides: dict[str, Any] = {"tilt": result.tilt}
+        if result.position == result.tilt and result.position in (
+            POSITION_CLOSED,
+            POSITION_OPEN,
+        ):
+            overrides["full_endpoint_target"] = True
+        return overrides
 
     def attach(self, **kwargs: Any) -> None:  # noqa: D401
         """Construct the dual-axis sequencer once cmd_svc is available."""
@@ -591,15 +697,29 @@ class VenetianPolicy(CoverTypePolicy, register=True):
             post_settle_hold_seconds=kwargs.get(
                 "post_settle_hold_seconds", DEFAULT_VENETIAN_POST_SETTLE_HOLD_SECONDS
             ),
+            post_settle_mode=kwargs.get(
+                "post_settle_mode", DEFAULT_VENETIAN_POST_SETTLE_MODE
+            ),
             backrotate_publish_lag_seconds=kwargs.get(
                 "backrotate_publish_lag_seconds",
                 DEFAULT_VENETIAN_BACKROTATE_PUBLISH_LAG_SECONDS,
             ),
         )
+        # Drift-reset scope (issue #808) is a policy-level gate: the policy owns
+        # the ControlMethod == SOLAR decision (cover-type knowledge stays inside
+        # cover_types/) and passes a neutral ``drift_reset_eligible`` bool to the
+        # sequencer. Default to ``all_tilt_commands`` (back-compat) when unset.
+        self._get_tilt_reset_scope = kwargs.get("get_tilt_reset_scope") or (
+            lambda: DEFAULT_VENETIAN_TILT_RESET_SCOPE
+        )
         if "tilt_skip_above" in kwargs:
             self._tilt_skip_above = int(kwargs["tilt_skip_above"])
+        if "venetian_tilt_skip_mode" in kwargs:
+            self._tilt_skip_mode = str(kwargs["venetian_tilt_skip_mode"])
         if "venetian_mode" in kwargs:
             self._venetian_mode = str(kwargs["venetian_mode"])
+        # Coordinator wake callback for deferred-tilt flushing (issue #756).
+        self._schedule_refresh_after = kwargs.get("schedule_refresh_after")
 
     @property
     def sequencer(self) -> DualAxisSequencer | None:
@@ -660,13 +780,23 @@ class VenetianPolicy(CoverTypePolicy, register=True):
     ) -> int | None:
         """Apply the ``tilt_skip_above`` guard to a tilt decision.
 
-        Returns ``POSITION_OPEN`` (neutral) when the carriage is commanded
-        above the skip threshold so the actuator's tilt cache is overwritten
-        with a benign value rather than the prior solar-cycle tilt; returns
-        ``fallback_tilt`` otherwise. Shared by ``after_position_command`` and
+        Above the skip threshold the behaviour depends on
+        ``venetian_tilt_skip_mode`` (issue #748):
+
+        * ``neutral`` (default) returns ``POSITION_OPEN`` so the actuator's
+          tilt cache is overwritten with a benign value rather than the prior
+          solar-cycle tilt (the #33 behaviour KNX/Shelly need).
+        * ``suppress`` returns ``None`` so NO tilt command is emitted at the
+          open endpoint — mechanically-coupled exterior venetians otherwise
+          get dragged off 100 by any tilt send.
+
+        Returns ``fallback_tilt`` when at or below the threshold. Shared by
+        ``before_position_command``, ``after_position_command`` and
         ``maybe_update_tilt_only`` so the threshold rule lives in one place.
         """
         if position is not None and position > self._tilt_skip_above:
+            if self._tilt_skip_mode == VENETIAN_TILT_SKIP_SUPPRESS:
+                return None
             return POSITION_OPEN
         return fallback_tilt
 
@@ -675,23 +805,74 @@ class VenetianPolicy(CoverTypePolicy, register=True):
         entity_id: str,
         *,
         current_position: int | None,
-        context: Any,  # noqa: ARG002
+        context: Any,
         reason: str,
     ) -> None:
-        """Send a tilt-only update when the position axis won't fire this cycle."""
+        """Send a tilt-only update when the position axis won't fire this cycle.
+
+        Routine tracking cycles that land inside the prior sequence's
+        back-rotate suppression window defer the tilt (issue #756). A forced
+        handler transition (``context.force`` — e.g. ``custom_position_released``)
+        is new handler intent rather than motor back-rotate drift, so it
+        bypasses that deferral and sends the full new tilt immediately — but
+        only once the carriage has stopped moving, preserving the mid-travel
+        suppression guard (issue #770).
+        """
         if self._sequencer is None:
             return
         if self._last_tilt is None:
             return
-        if self._sequencer.is_in_suppression(entity_id):
-            return
         tilt_target = self._resolve_skip_above_tilt(current_position, self._last_tilt)
+        if tilt_target is None:
+            # Suppress mode above the skip threshold: emit no tilt command so
+            # coupled-axis covers are not nudged off the open endpoint (#748).
+            return
+        if self._sequencer.is_in_suppression(entity_id):
+            if context.force and not self._sequencer.is_carriage_moving(entity_id):
+                # Issue #770: a forced handler transition (e.g.
+                # custom_position_released) is new handler intent, not motor
+                # back-rotate drift. Send the full new tilt immediately rather
+                # than deferring it — but only once the carriage has stopped
+                # moving, so tier (a) of the suppression cap still holds.
+                await self._sequencer.update_tilt_only(
+                    entity_id,
+                    tilt_target=tilt_target,
+                    current_position=current_position,
+                    reason=reason,
+                    force=True,
+                    drift_reset_eligible=self._drift_reset_eligible(context),
+                )
+                return
+            # Issue #756: a tilt-only update that lands inside the prior
+            # sequence's back-rotate suppression window cannot send yet. Record
+            # the deferred tilt and schedule a single wake at suppression expiry
+            # so it fires promptly — instead of being dropped until the next
+            # unrelated tracked-entity change. has_pending_secondary_axis keeps
+            # the coordinator re-attempting dispatch in the meantime.
+            self._sequencer.record_pending_tilt(
+                entity_id,
+                tilt_target=tilt_target,
+                current_position=current_position,
+                reason=reason,
+            )
+            if self._schedule_refresh_after is not None:
+                remaining = self._sequencer.suppression_remaining_seconds(entity_id)
+                if remaining is not None:
+                    self._schedule_refresh_after(remaining)
+            return
         await self._sequencer.update_tilt_only(
             entity_id,
             tilt_target=tilt_target,
             current_position=current_position,
             reason=reason,
+            drift_reset_eligible=self._drift_reset_eligible(context),
         )
+
+    def has_pending_secondary_axis(self, entity_id: str) -> bool:
+        """Return True while a deferred tilt-only update is queued (issue #756)."""
+        if self._sequencer is None:
+            return False
+        return self._sequencer.has_pending_tilt(entity_id)
 
     async def apply_user_tilt(
         self,
@@ -764,6 +945,21 @@ class VenetianPolicy(CoverTypePolicy, register=True):
             suppression=self.primary_axis_suppression,
         )
 
+    def _drift_reset_eligible(self, context: Any) -> bool:
+        """Whether this tilt send may accumulate drift and trigger a reset (#808).
+
+        ``all_tilt_commands`` (default) always eligible; ``sun_tracking_only``
+        restricts eligibility to solar-tracking wins (``ControlMethod.SOLAR``).
+        The cover-type-specific ``== SOLAR`` decision lives here so the shared
+        managers/sequencer stay cover-type-agnostic: the policy reads the
+        neutral ``control_method`` off the context and hands the sequencer a
+        plain bool.
+        """
+        return (
+            self._get_tilt_reset_scope() == VENETIAN_TILT_RESET_SCOPE_ALL
+            or getattr(context, "control_method", None) == ControlMethod.SOLAR
+        )
+
     async def before_position_command(
         self,
         cmd_svc,  # noqa: ARG002
@@ -809,6 +1005,7 @@ class VenetianPolicy(CoverTypePolicy, register=True):
             reason=reason,
             force=True,
             verify=False,
+            drift_reset_eligible=self._drift_reset_eligible(context),
         )
 
     async def after_position_command(
@@ -852,4 +1049,5 @@ class VenetianPolicy(CoverTypePolicy, register=True):
             position_target=position,
             tilt_target=tilt_target,
             reason=reason,
+            drift_reset_eligible=self._drift_reset_eligible(context),
         )

@@ -56,6 +56,29 @@ def test_set_position_has_target_block():
     assert svc["target"]["entity"]["integration"] == "adaptive_cover_pro"
 
 
+def test_no_service_target_has_a_device_filter():
+    """No service `target:` may carry a `device:` filter — hassfest rejects it.
+
+    HA's service schema does not support a `device:` selector under `target:`
+    ("Services do not support device filters on target"), so hassfest CI fails
+    the whole integration if one is present. Device targeting still works from
+    automations via entity resolution, so the `entity: integration:` picker is
+    sufficient. This guard keeps the filter out permanently: it was removed once
+    already (the April `services.yaml` fix), silently re-added across every
+    service by #824, and had to be stripped again — this test is what stops the
+    next round-trip.
+    """
+    offenders = [
+        name
+        for name, svc in _load().items()
+        if isinstance((svc or {}).get("target"), dict) and "device" in svc["target"]
+    ]
+    assert not offenders, (
+        "Service `target:` blocks must not contain a `device:` filter — hassfest "
+        f"rejects it (use entity targeting instead): {sorted(offenders)}"
+    )
+
+
 def test_set_position_has_position_field_with_correct_range():
     fields = _load()["set_position"]["fields"]
     assert "position" in fields
@@ -77,6 +100,7 @@ REGISTERED_SERVICES = {
     "emergency_stop",
     "set_position",
     "set_tilt",
+    "engage_manual_override",
     # Options services (registered via register_options_services / OPTIONS_SERVICE_NAMES)
     "set_position_limits",
     "set_sunset_sunrise",
@@ -103,3 +127,13 @@ def test_all_registered_services_have_yaml_entry():
     assert (
         not missing
     ), f"Service(s) registered in Python but missing from services.yaml: {sorted(missing)}"
+
+
+def test_set_position_limits_field_is_default_percentage_not_default_height():
+    """Issue #792: the service field name must match the CONF_DEFAULT_HEIGHT option
+    key (``default_percentage``), or _build_patch silently drops it. The old
+    ``default_height`` name is kept working via a deprecated alias, not the yaml.
+    """
+    fields = _load()["set_position_limits"]["fields"]
+    assert "default_percentage" in fields
+    assert "default_height" not in fields

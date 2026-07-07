@@ -149,7 +149,7 @@
     "label_end_or_sunset": "heure de fin/coucher",
     "label_sunset": "coucher",
     "after_sunrise": "{indent}🌄 Après lever{ann} → {default_pos}% (suivi reprend).",
-    "return_sunset": "{indent}🔚 Retour à la position coucher à l'heure de fin : activé",
+    "return_sunset": "{indent}🔚 Aller à la position par défaut à l'heure de fin : activé",
     "end_of_window": "{indent}🔚 Position de fin de fenêtre → {target} de l'heure de fin jusqu'au coucher (puis la position coucher s'applique, si définie).",
     "end_of_window_needs_return": "{indent}⚠️ La position de fin de fenêtre est définie mais « Déplacer les couvertures à l'heure de fin » est DÉSACTIVÉ — elle ne sera pas appliquée. Activez cette option.",
     "gate_sensors": "{indent}🌗 Filtre de jour : {sensors} décident le jour par rapport à l'obscurité.",
@@ -235,7 +235,10 @@
       "min_tilt": "inclinaison min {min_tilt}%",
       "post_settle_hold": "maintien post-stabilisation {hold}s",
       "backrotate_lag": "délai de publication back-rotate {lag}s",
-      "drift_reset": "réinitialisation de dérive tous les {threshold}% d'inclinaison cumulée (via {direction})"
+      "drift_reset": "réinitialisation de dérive tous les {threshold}% d'inclinaison cumulée (via {direction})",
+      "drift_reset_scope_solar": "commandes de suivi solaire uniquement",
+      "skip_tilt_suppress": "supprimer l'inclinaison à partir de {skip_above}% (pas d'envoi neutre)",
+      "tilt_safety_margin": "marge de sécurité d'inclinaison {pct}%"
     },
     "fov": {
       "computed": "FOV calculé ≈ {deg}°/{deg}° (largeur {w}m, profondeur tableau {d}m)"

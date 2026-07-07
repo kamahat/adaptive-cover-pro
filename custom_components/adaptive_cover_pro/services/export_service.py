@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import json
 import logging
+import os
+import pathlib
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 import voluptuous as vol
@@ -52,6 +56,12 @@ EXPORT_CONFIG_SCHEMA = vol.Schema(
         vol.Required("config_entry_id"): str,
     }
 )
+
+EXPORT_ALL_CONFIG_SCHEMA = vol.Schema({})
+
+_EXPORT_FILENAME = "adaptive_cover_pro_export.json"
+# Kept as a schema-default hint for the import service (relative filename only).
+DEFAULT_EXPORT_PATH = _EXPORT_FILENAME
 
 
 async def async_handle_export(call: ServiceCall) -> dict:
@@ -123,3 +133,55 @@ async def async_handle_export(call: ServiceCall) -> dict:
             CONF_TILT_MODE: options.get(CONF_TILT_MODE),
         },
     }
+
+
+async def async_handle_export_all(call: ServiceCall) -> dict:
+    """Handle the export_all_config service call.
+
+    Writes all non-virtual ACP cover entries (those with a loaded coordinator) to
+    ``<config_dir>/adaptive_cover_pro_export.json`` as a lossless JSON snapshot.
+    The file is written atomically (write to ``.tmp`` then ``os.replace``) via the
+    executor so the event loop is never blocked and a concurrent read never sees a
+    partial file.
+
+    Returns ``{"file": <path>, "count": <n>}`` so the call is also useful in
+    Developer Tools (the response is visible immediately).
+    """
+    from . import (
+        loaded_coordinators,
+    )  # local import avoids circular dependency  # noqa: PLC0415
+
+    hass: HomeAssistant = call.hass
+    coordinators = loaded_coordinators(hass)
+
+    entries = []
+    for entry_id, _coord in coordinators.items():
+        entry = hass.config_entries.async_get_entry(entry_id)
+        if entry is None:
+            continue
+        entries.append(
+            {
+                "entry_id": entry_id,
+                "title": entry.title,
+                "options": dict(entry.options),
+            }
+        )
+
+    payload = {
+        "export_version": 1,
+        "exported_at": datetime.now(UTC).isoformat(),
+        "entries": entries,
+    }
+
+    path = pathlib.Path(hass.config.path(_EXPORT_FILENAME))
+    json_text = json.dumps(payload, indent=2, ensure_ascii=False)
+
+    def _atomic_write() -> None:
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json_text, "utf-8")
+        os.replace(tmp, path)
+
+    await hass.async_add_executor_job(_atomic_write)
+
+    _LOGGER.info("export_all_config: wrote %d entries to %s", len(entries), path)
+    return {"file": str(path), "count": len(entries)}

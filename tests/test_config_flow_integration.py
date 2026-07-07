@@ -57,6 +57,7 @@ from custom_components.adaptive_cover_pro.const import (
     CONF_END_TIME,
     CONF_SUNRISE_OFFSET,
     CONF_SUNSET_OFFSET,
+    CONF_SYNC_SELECT_ALL,
     CONF_INVERSE_STATE,
     CONF_IS_SUNNY_SENSOR,
     CONF_WINDOW_DEPTH,
@@ -73,18 +74,26 @@ pytestmark = pytest.mark.integration
 # Helpers
 # ---------------------------------------------------------------------------
 
+# Per-window facing fields relocated from the sun-tracking step to the geometry
+# step (#778): azimuth, FOV left/right, and shaded distance now submit on
+# geometry alongside the window dimensions.
+_WINDOW_FACING = {
+    CONF_AZIMUTH: 180,
+    CONF_FOV_LEFT: 45,
+    CONF_FOV_RIGHT: 45,
+    CONF_DISTANCE: 0.5,
+}
+
 _VERTICAL_GEOMETRY = {
     CONF_HEIGHT_WIN: 2.1,
     CONF_WINDOW_DEPTH: 0.0,
     CONF_SILL_HEIGHT: 0.0,
+    **_WINDOW_FACING,
 }
 
 _SUN_TRACKING = {
-    CONF_AZIMUTH: 180,
-    CONF_FOV_LEFT: 45,
-    CONF_FOV_RIGHT: 45,
-    # CONF_MIN_ELEVATION / CONF_MAX_ELEVATION are Optional — omit to use defaults
-    CONF_DISTANCE: 0.5,
+    # Behavioural sun-tracking only — the window-facing fields moved to the
+    # geometry step (#778). CONF_MIN_ELEVATION / CONF_MAX_ELEVATION are Optional.
     "blind_spot": False,
 }
 
@@ -880,6 +889,193 @@ async def test_options_flow_sync_empty_selection_no_abort(hass: HomeAssistant) -
 
 
 # ---------------------------------------------------------------------------
+# Phase 2d-1: Options flow — sync "Select all covers" toggle (issue #772)
+# ---------------------------------------------------------------------------
+
+
+async def _setup_sync_select_all_entries(
+    hass: HomeAssistant,
+    *,
+    source_options: dict | None = None,
+    target1_options: dict | None = None,
+    target2_options: dict | None = None,
+):
+    """Create a source + two same-type target entries for select-all sync tests.
+
+    Only the source is fully set up (options flow requires a loaded entry);
+    targets only need to be registered so they show up in ``other_entries``
+    and can receive ``async_update_entry`` calls.
+    """
+    from tests.ha_helpers import VERTICAL_OPTIONS, _patch_coordinator_refresh
+
+    source = MockConfigEntry(
+        domain=DOMAIN,
+        data={"name": "Sync Select All Source", CONF_SENSOR_TYPE: CoverType.BLIND},
+        options=dict(source_options or VERTICAL_OPTIONS),
+        entry_id="sync_sel_all_src",
+        title="Sync Select All Source",
+    )
+    source.add_to_hass(hass)
+    with _patch_coordinator_refresh():
+        await hass.config_entries.async_setup(source.entry_id)
+        await hass.async_block_till_done()
+
+    target1 = MockConfigEntry(
+        domain=DOMAIN,
+        data={"name": "Target One", CONF_SENSOR_TYPE: CoverType.BLIND},
+        options=dict(target1_options or VERTICAL_OPTIONS),
+        entry_id="sync_sel_all_t1",
+        title="Target One",
+    )
+    target1.add_to_hass(hass)
+
+    target2 = MockConfigEntry(
+        domain=DOMAIN,
+        data={"name": "Target Two", CONF_SENSOR_TYPE: CoverType.BLIND},
+        options=dict(target2_options or VERTICAL_OPTIONS),
+        entry_id="sync_sel_all_t2",
+        title="Target Two",
+    )
+    target2.add_to_hass(hass)
+
+    return source, target1, target2
+
+
+async def _navigate_to_sync_step(hass: HomeAssistant, entry_id: str):
+    """Init the options flow for ``entry_id`` and navigate to the sync step."""
+    result = await hass.config_entries.options.async_init(entry_id)
+    if result["type"] == "menu":
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], {"next_step_id": "sync"}
+        )
+    return result
+
+
+@pytest.mark.integration
+async def test_options_flow_sync_select_all_targets_all_same_type(
+    hass: HomeAssistant,
+) -> None:
+    """Select-all with no exclusions targets every same-type other cover (#772)."""
+    source, target1, target2 = await _setup_sync_select_all_entries(hass)
+
+    result = await _navigate_to_sync_step(hass, source.entry_id)
+    assert result["step_id"] == "sync"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"select_all_targets": True, "sync_categories": ["geometry"]},
+    )
+
+    assert result["step_id"] == "sync_confirm"
+    summary = result["description_placeholders"]["entries_summary"]
+    assert target1.title in summary
+    assert target2.title in summary
+
+
+@pytest.mark.integration
+async def test_sync_select_all_excludes_checked_targets(hass: HomeAssistant) -> None:
+    """Select-all removes any checked cover from the sync; the rest stay targeted (#772).
+
+    The multi-select becomes an *exclude* list when the toggle is on, not an
+    override — a checked cover is removed from the all-covers sync.
+    """
+    source, target1, target2 = await _setup_sync_select_all_entries(hass)
+
+    result = await _navigate_to_sync_step(hass, source.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "select_all_targets": True,
+            "target_entries": [target1.entry_id],
+            "sync_categories": ["geometry"],
+        },
+    )
+
+    assert result["step_id"] == "sync_confirm"
+    summary = result["description_placeholders"]["entries_summary"]
+    assert target1.title not in summary
+    assert target2.title in summary
+
+
+@pytest.mark.integration
+async def test_sync_toggle_off_uses_explicit_targets(hass: HomeAssistant) -> None:
+    """Toggle off keeps target_entries as an explicit include list (today's behavior, #772)."""
+    source, target1, target2 = await _setup_sync_select_all_entries(hass)
+
+    result = await _navigate_to_sync_step(hass, source.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {
+            "select_all_targets": False,
+            "target_entries": [target1.entry_id],
+            "sync_categories": ["geometry"],
+        },
+    )
+
+    assert result["step_id"] == "sync_confirm"
+    summary = result["description_placeholders"]["entries_summary"]
+    assert target1.title in summary
+    assert target2.title not in summary
+
+
+@pytest.mark.integration
+async def test_sync_step_toggle_field_rendered_first(hass: HomeAssistant) -> None:
+    """The 'Select all covers' toggle renders above the cover list (#772 follow-up)."""
+    source, target1, target2 = await _setup_sync_select_all_entries(hass)
+
+    result = await _navigate_to_sync_step(hass, source.entry_id)
+    assert result["step_id"] == "sync"
+
+    field_names = [str(key) for key in result["data_schema"].schema]
+
+    toggle_index = field_names.index(CONF_SYNC_SELECT_ALL)
+    targets_index = field_names.index("target_entries")
+
+    assert toggle_index < targets_index
+
+
+@pytest.mark.integration
+async def test_sync_select_all_e2e_copies_geometry_not_per_window_fields(
+    hass: HomeAssistant,
+) -> None:
+    """End-to-end: select-all sync copies geometry, leaves azimuth/entities untouched (#772)."""
+    from tests.ha_helpers import VERTICAL_OPTIONS
+
+    source_options = {**VERTICAL_OPTIONS, CONF_HEIGHT_WIN: 3.5, CONF_AZIMUTH: 180}
+    target_options = {
+        **VERTICAL_OPTIONS,
+        CONF_HEIGHT_WIN: 2.1,
+        CONF_AZIMUTH: 90,
+        CONF_ENTITIES: ["cover.target_blind"],
+    }
+    source, target1, target2 = await _setup_sync_select_all_entries(
+        hass,
+        source_options=source_options,
+        target1_options=target_options,
+        target2_options=target_options,
+    )
+
+    result = await _navigate_to_sync_step(hass, source.entry_id)
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        {"select_all_targets": True, "sync_categories": ["geometry"]},
+    )
+    assert result["step_id"] == "sync_confirm"
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {"confirm": True}
+    )
+    assert result["type"] in ("form", "menu", "create_entry")
+
+    updated_target1 = hass.config_entries.async_get_entry(target1.entry_id)
+    updated_target2 = hass.config_entries.async_get_entry(target2.entry_id)
+    for updated in (updated_target1, updated_target2):
+        assert updated.options[CONF_HEIGHT_WIN] == 3.5
+        assert updated.options[CONF_AZIMUTH] == 90  # per-window field, untouched
+        assert updated.options[CONF_ENTITIES] == ["cover.target_blind"]  # untouched
+
+
+# ---------------------------------------------------------------------------
 # Module-level helpers: _get_azimuth_edges, _get_geometry_schema,
 #                       _build_glare_zones_schema
 # ---------------------------------------------------------------------------
@@ -897,14 +1093,46 @@ def test_get_azimuth_edges_sums_fov():
 
 @pytest.mark.unit
 def test_get_geometry_schema_unknown_type_returns_vertical():
-    """_get_geometry_schema falls back to GEOMETRY_VERTICAL_SCHEMA for unknown types."""
+    """_get_geometry_schema falls back to the vertical geometry for unknown types.
+
+    The window-facing fields (azimuth / FOV / distance) are composed on for every
+    type (#778), so the result is the vertical geometry schema extended with those
+    fields rather than the bare GEOMETRY_VERTICAL_SCHEMA identity.
+    """
     from custom_components.adaptive_cover_pro.config_flow import (
         _get_geometry_schema,
         GEOMETRY_VERTICAL_SCHEMA,
     )
 
     result = _get_geometry_schema("unknown_type")
-    assert result is GEOMETRY_VERTICAL_SCHEMA
+    keys = {str(k) for k in result.schema}
+    assert {str(k) for k in GEOMETRY_VERTICAL_SCHEMA.schema} <= keys
+    for facing in (CONF_AZIMUTH, CONF_FOV_LEFT, CONF_FOV_RIGHT, CONF_DISTANCE):
+        assert facing in keys
+    # Unknown type has no policy → the FOV button is not added.
+    assert CONF_FOV_COMPUTE not in keys
+
+
+@pytest.mark.unit
+def test_get_geometry_schema_unknown_type_with_hass_locale_composes_window_facing():
+    """Unknown type + hass composes window-facing fields via the locale fallback.
+
+    The locale-aware fallback still adds azimuth / FOV / distance with no button.
+    """
+    from unittest.mock import MagicMock
+
+    from homeassistant.util.unit_system import METRIC_SYSTEM
+
+    from custom_components.adaptive_cover_pro.config_flow import _get_geometry_schema
+
+    hass = MagicMock()
+    hass.config.units = METRIC_SYSTEM
+    hass.states.get.return_value = None
+
+    keys = {str(k) for k in _get_geometry_schema("unknown_type", hass).schema}
+    for facing in (CONF_AZIMUTH, CONF_FOV_LEFT, CONF_FOV_RIGHT, CONF_DISTANCE):
+        assert facing in keys
+    assert CONF_FOV_COMPUTE not in keys
 
 
 @pytest.mark.unit
@@ -2002,6 +2230,25 @@ async def test_options_flow_venetian_geometry_saves_mode(hass: HomeAssistant) ->
 # ---------------------------------------------------------------------------
 
 
+@pytest.mark.integration
+async def test_create_new_schema_name_field_is_optional() -> None:
+    """The "name" key in CONFIG_SCHEMA must be Optional, not Required (#771).
+
+    ha-form enforces a voluptuous ``Required`` marker client-side and blocks
+    submission of a blank text field before the request ever reaches the
+    flow handler, so the existing device/entity-name auto-fill logic can
+    never run. The field must be ``Optional`` so a blank "name" can reach
+    Python and trigger the auto-fill.
+    """
+    import voluptuous as vol
+
+    from custom_components.adaptive_cover_pro.config_flow import CONFIG_SCHEMA
+
+    marker = next(k for k in CONFIG_SCHEMA.schema if k == "name")
+    assert isinstance(marker, vol.Optional)
+    assert not isinstance(marker, vol.Required)
+
+
 def _register_cover_with_device(
     hass: HomeAssistant,
     *,
@@ -2209,6 +2456,58 @@ async def test_create_flow_user_typed_name_overrides_device_name(
     assert entry.data["name"] == "My Cover"
 
 
+@pytest.mark.integration
+async def test_create_flow_blank_name_no_entities_gets_fallback_name(
+    hass: HomeAssistant,
+) -> None:
+    """Blank name + zero cover entities selected must not reach finalization
+    with an empty name (#771).
+
+    The auto-fill in ``cover_entities`` Pass 1 only runs when at least one
+    entity is selected; a user can legitimately submit zero entities (add the
+    cover entity later via Configure). Now that "name" is Optional, this
+    combination is reachable via the real UI and must still produce a sane
+    non-empty fallback name/title instead of the malformed
+    ``"Vertical Blind "`` (trailing space) title and empty
+    ``entry.data["name"]``.
+    """
+    result = await hass.config_entries.flow.async_init(
+        DOMAIN, context={"source": "user"}
+    )
+    if result["type"] == "menu":
+        result = await hass.config_entries.flow.async_configure(
+            result["flow_id"], {"next_step_id": "create_new"}
+        )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"name": "", CONF_MODE: CoverType.BLIND}
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {"next_step_id": "quick_setup"}
+    )
+    assert result["step_id"] == "cover_entities"
+
+    # Zero entities selected — auto-fill in Pass 1 never runs.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_ENTITIES: []}
+    )
+    # No entities → no devices to discover → proceeds straight to geometry.
+    assert result["step_id"] == "geometry"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _VERTICAL_GEOMETRY
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _SUN_TRACKING
+    )
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _POSITION
+    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] == "create_entry"
+    entry = result["result"]
+    assert entry.data["name"]
+    assert entry.title != "Vertical Blind "
+
+
 # ---------------------------------------------------------------------------
 # OptionsFlow: position step exposes the My-preset entities toggle
 # ---------------------------------------------------------------------------
@@ -2385,39 +2684,37 @@ async def test_full_setup_persists_fov_and_window_width(
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"], {CONF_ENTITIES: []}
     )
-    # Feed CONF_WINDOW_WIDTH (+ a reveal depth) in the geometry step.
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {**_VERTICAL_GEOMETRY, CONF_WINDOW_WIDTH: 1.6, CONF_WINDOW_DEPTH: 0.5},
-    )
-    # First sun_tracking submit: tick the "Generate FOV from measurements" button.
-    # This triggers a re-render with the derived fov values filled in.
+    # Geometry step now carries the window dims AND the FOV button (#778). First
+    # submit: feed width + reveal depth and tick "Generate FOV from measurements"
+    # → re-render on the same geometry step with the derived fov filled in.
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
-            CONF_AZIMUTH: 180,
+            **_VERTICAL_GEOMETRY,
+            CONF_WINDOW_WIDTH: 1.6,
+            CONF_WINDOW_DEPTH: 0.5,
             CONF_FOV_LEFT: 90,
             CONF_FOV_RIGHT: 90,
-            CONF_DISTANCE: 0.5,
-            "blind_spot": False,
-            "enable_glare_zones": False,
             CONF_FOV_COMPUTE: True,
         },
     )
     assert (
-        result.get("step_id") == "sun_tracking"
+        result.get("step_id") == "geometry"
     ), f"expected re-render on button press, got {result!r}"
-    # Second submit without the button: keep the (now derived) angles and advance.
+    # Second geometry submit without the button: keep the angles and advance.
     result = await hass.config_entries.flow.async_configure(
         result["flow_id"],
         {
-            CONF_AZIMUTH: 180,
+            **_VERTICAL_GEOMETRY,
+            CONF_WINDOW_WIDTH: 1.6,
+            CONF_WINDOW_DEPTH: 0.5,
             CONF_FOV_LEFT: 45,
             CONF_FOV_RIGHT: 45,
-            CONF_DISTANCE: 0.5,
-            "blind_spot": False,
-            "enable_glare_zones": False,
         },
+    )
+    # Then the behavioural sun-tracking step.
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], _SUN_TRACKING_VERTICAL
     )
     # 4-layer order (#613): position → behavior → L3 handlers → L4 automation.
     result = await hass.config_entries.flow.async_configure(
@@ -2467,16 +2764,13 @@ async def test_full_setup_persists_fov_and_window_width(
 
 
 @pytest.mark.asyncio
-async def test_create_flow_sun_tracking_rerender_keeps_typed_azimuth() -> None:
+async def test_create_flow_geometry_rerender_keeps_typed_azimuth() -> None:
     """Create-flow button re-render must not discard the azimuth the user typed.
 
-    Regression guard for issue #565 Defect B: the create-flow _show_sun_tracking_form
-    took no ``values`` argument and never called add_suggested_values_to_schema, so
-    after a re-render the form redrew with the bare schema defaults
-    (DEFAULT_WINDOW_AZIMUTH) instead of the user's just-typed value.
-
-    After the fix, the re-rendered form carries the typed azimuth as a suggested value
-    and self.config[CONF_AZIMUTH] is preserved on the subsequent submit.
+    Regression guard for issue #565 Defect B, now on the geometry step (#778):
+    ``_show_geometry_form`` must re-feed the just-submitted values via
+    add_suggested_values_to_schema so a button re-render redraws with the user's
+    typed azimuth, not the bare schema default (DEFAULT_WINDOW_AZIMUTH).
     """
     from unittest.mock import AsyncMock, MagicMock
 
@@ -2488,15 +2782,17 @@ async def test_create_flow_sun_tracking_rerender_keeps_typed_azimuth() -> None:
     flow.hass.config.units.is_metric = True
     flow.hass.states.get.return_value = None
     flow.type_blind = CoverType.BLIND
-    flow.config = {CONF_WINDOW_WIDTH: 2.0, CONF_WINDOW_DEPTH: 0.5}
-    flow.async_step_position = AsyncMock(
-        return_value={"type": "form", "step_id": "position"}
+    flow.config = {}
+    flow.async_step_sun_tracking = AsyncMock(
+        return_value={"type": "form", "step_id": "sun_tracking"}
     )
 
     # First submit: the user types azimuth 137 and presses the FOV-from-
-    # measurements button → re-render path.
-    result = await flow.async_step_sun_tracking(
+    # measurements button → re-render path on the geometry step.
+    result = await flow.async_step_geometry(
         {
+            CONF_WINDOW_WIDTH: 2.0,
+            CONF_WINDOW_DEPTH: 0.5,
             CONF_AZIMUTH: 137,
             CONF_FOV_LEFT: 30,
             CONF_FOV_RIGHT: 30,
@@ -2505,10 +2801,10 @@ async def test_create_flow_sun_tracking_rerender_keeps_typed_azimuth() -> None:
         }
     )
     assert result["type"] == "form", "expected re-render on button press"
-    assert result["step_id"] == "sun_tracking"
+    assert result["step_id"] == "geometry"
 
-    # After the fix: the re-rendered form must carry 137 as suggested_value for
-    # CONF_AZIMUTH — the user's just-typed input must not be discarded.
+    # The re-rendered form must carry 137 as suggested_value for CONF_AZIMUTH —
+    # the user's just-typed input must not be discarded.
     schema = result.get("data_schema")
     assert schema is not None, "re-render must return a data_schema"
     suggested_azimuth = None
@@ -2519,5 +2815,5 @@ async def test_create_flow_sun_tracking_rerender_keeps_typed_azimuth() -> None:
     assert suggested_azimuth == 137, (
         f"Re-rendered form must carry typed azimuth 137 as suggested_value, "
         f"got {suggested_azimuth!r}. "
-        "Defect B: create-flow _show_sun_tracking_form discards typed input."
+        "Defect B: _show_geometry_form discards typed input."
     )

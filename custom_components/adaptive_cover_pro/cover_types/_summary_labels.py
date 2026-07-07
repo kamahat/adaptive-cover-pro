@@ -72,16 +72,21 @@ GEOMETRY_LABELS_EN: dict[str, str] = {
     "geometry.roof.height_above": "{v}m roof above window (ridge gate)",
     # Venetian-only extras.
     "geometry.venetian.skip_tilt": "skip tilt when position > {skip_above}%",
+    "geometry.venetian.skip_tilt_suppress": (
+        "suppress tilt at/above {skip_above}% (no neutral send)"
+    ),
     "geometry.venetian.mode_position_and_tilt": "position and tilt",
     "geometry.venetian.mode_tilt_only": "tilt only",
     "geometry.venetian.inverse_tilt": "Inverse tilt",
     "geometry.venetian.max_tilt": "max tilt {max_tilt}%",
     "geometry.venetian.min_tilt": "min tilt {min_tilt}%",
+    "geometry.venetian.tilt_safety_margin": "tilt safety margin {pct}%",
     "geometry.venetian.post_settle_hold": "post-settle hold {hold}s",
     "geometry.venetian.backrotate_lag": "back-rotate publish lag {lag}s",
     "geometry.venetian.drift_reset": (
         "drift-reset every {threshold}% accumulated tilt (via {direction})"
     ),
+    "geometry.venetian.drift_reset_scope_solar": "sun-tracking commands only",
     # Computed-FOV read-only line (blind + venetian Measurements mode, #565).
     "geometry.fov.computed": (
         "Computed FOV ≈ {deg}°/{deg}° " "({w} m width, {d} m reveal depth)"

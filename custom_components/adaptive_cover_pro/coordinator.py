@@ -204,6 +204,17 @@ type AdaptiveConfigEntry = ConfigEntry[AdaptiveDataUpdateCoordinator]
 """Config entry whose ``runtime_data`` holds the coordinator instance."""
 
 
+# Skip-record label for a hold-mode dispatch, keyed by the winning control
+# method.  Motion timeout and manual override both hold the cover in place
+# (skip_command=True); the label distinguishes them in diagnostics so a manual
+# hold is not mislabeled as motion (issue #809).  Single source of truth — do
+# not fork a per-method guard block in ``_dispatch_to_cover``.
+_HOLD_SKIP_LABEL: dict[ControlMethod, str] = {
+    ControlMethod.MOTION: "motion_hold",
+    ControlMethod.MANUAL: "manual_override_hold",
+}
+
+
 class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
     """Adaptive cover data update coordinator."""
 
@@ -322,6 +333,13 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         self._pipeline = self._build_pipeline()
         self._pipeline_result = None
 
+        # Resolved-target signature last handed to the dispatch path (issue
+        # #756). The dispatch decision compares the current cycle's resolved
+        # target against this so an override that wins the pipeline is sent even
+        # when the transient ``state_change`` edge was lost (clobbered by a long
+        # in-flight venetian settle/tilt sequence holding the update cycle).
+        self._last_dispatched_target_sig: tuple | None = None
+
         # Snapshot of the last raw config-entry options. The update listener
         # uses it to distinguish Sun Tracking-only changes from options that
         # still require a full reload.
@@ -407,6 +425,10 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         # passed to policy.attach reads a value before the first _update_options
         # cycle; refreshed each cycle (issue #686).
         self._venetian_tilt_reset_direction = _rc_attach.venetian.tilt_reset_direction
+        # Seeded alongside the threshold so the live drift-reset scope lambda
+        # passed to policy.attach reads a value before the first _update_options
+        # cycle; refreshed each cycle (issue #808).
+        self._venetian_tilt_reset_scope = _rc_attach.venetian.tilt_reset_scope
 
         # Cover command service — self-contained: owns positioning, target tracking,
         # and the reconciliation timer (started in async_config_entry_first_refresh).
@@ -460,8 +482,10 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             ),
             event_buffer=self._event_buffer,
             tilt_skip_above=_rc_attach.venetian.tilt_skip_above,
+            venetian_tilt_skip_mode=_rc_attach.venetian.tilt_skip_mode,
             venetian_mode=_rc_attach.venetian.venetian_mode,
             post_settle_hold_seconds=_rc_attach.venetian.post_settle_hold_seconds,
+            post_settle_mode=_rc_attach.venetian.post_settle_mode,
             backrotate_publish_lag_seconds=(
                 _rc_attach.venetian.backrotate_publish_lag_seconds
             ),
@@ -470,6 +494,11 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             get_enforce_delta_at_endpoints=lambda: self._enforce_delta_at_endpoints,
             get_tilt_reset_threshold=lambda: self._venetian_tilt_reset_threshold,
             get_tilt_reset_direction=lambda: self._venetian_tilt_reset_direction,
+            get_tilt_reset_scope=lambda: self._venetian_tilt_reset_scope,
+            # Wake the update cycle at suppression expiry so a deferred
+            # tilt-only update fires promptly (issue #756). No-op for
+            # single-axis policies (base attach ignores it).
+            schedule_refresh_after=self._schedule_refresh_after,
         )
 
         # Time window manager (start/end time checks)
@@ -506,6 +535,11 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         # astronomical fallback the moment the grace window expires (otherwise the
         # fallback would wait for the next state-change/periodic refresh).
         self._gate_fallback_unsub: Callable[[], None] | None = None
+
+        # Issue #756: cancel handle for the single ``async_call_later`` wake that
+        # re-runs the update cycle at venetian back-rotate suppression expiry, so
+        # a tilt-only update deferred while the window was open fires promptly.
+        self._refresh_after_unsub: Callable[[], None] | None = None
 
     def _make_detector_config(self, options) -> DetectorConfig:
         """Build the manual-override DetectorConfig from raw options.
@@ -929,6 +963,38 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             data["entity_id"],
         )
         self.manager.engage_manual_override_from_external(reason="input_sensor")
+        self.state_change = True
+        await self.async_refresh()
+
+    async def async_engage_manual_override(
+        self,
+        entity_ids: list[str],
+        *,
+        end_time: dt.datetime | None = None,
+        duration: dt.timedelta | None = None,
+        trigger: str = "engage_manual_override",
+    ) -> None:
+        """Engage or extend manual override on the given covers, without moving them.
+
+        Backs the ``adaptive_cover_pro.engage_manual_override`` service. Engages
+        each cover purely through the override state machine
+        (:meth:`AdaptiveCoverManager.engage_override` — no ``apply_position``,
+        no command), then refreshes once so the ``manual_override`` binary
+        sensor and ``manual_override_end_time`` sensor reflect the new state
+        immediately (mirrors the input-sensor path at
+        :meth:`async_check_manual_override_input_change`).
+
+        Args:
+            entity_ids: Cover entity IDs to engage.
+            end_time: Optional absolute end passed through to the manager.
+            duration: Optional relative extend-by passed through to the manager.
+            trigger: Diagnostic reason label recorded per cover.
+
+        """
+        for entity_id in entity_ids:
+            self.manager.engage_override(
+                entity_id, end_time=end_time, duration=duration, reason=trigger
+            )
         self.state_change = True
         await self.async_refresh()
 
@@ -1383,20 +1449,15 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             released_slots
         )
 
-        # Handle types of changes
-        if self.state_change:
-            await self.async_handle_state_change(
-                state,
-                options,
-                custom_position_released_entities,
-                safety_release=safety_release,
-                template_release=template_release,
-            )
-        elif auto_expired:
-            # One or more manual overrides just timed out.  Proactively send
-            # the fresh pipeline position so covers don't linger at the
-            # user-moved position until the next solar/entity-state event.
-            await self._async_send_after_override_clear(state, options)
+        # Handle types of changes — single dispatch authority (issue #756).
+        await self._dispatch_for_cycle(
+            state,
+            options,
+            auto_expired=auto_expired,
+            custom_position_released_entities=custom_position_released_entities,
+            safety_release=safety_release,
+            template_release=template_release,
+        )
         if self.cover_state_change:
             await self.async_handle_cover_state_change(state)
         if self.first_refresh:
@@ -1553,6 +1614,12 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                 )
             ),
             policy=self._policy,
+            # Neutral winning-control-method value (issue #808). Cover-type-
+            # agnostic here; the venetian policy reads it to gate drift-reset
+            # scope. None when no pipeline result is available yet.
+            control_method=(
+                self._pipeline_result.control_method if self._pipeline_result else None
+            ),
             **self._policy.position_context_overrides(self._pipeline_result),
         )
 
@@ -1565,24 +1632,38 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
     ) -> tuple[str, str] | None:
         """Send a position command or record a hold-mode skip.
 
-        When the active pipeline result has skip_command=True (hold_position
-        mode during motion timeout), no command is issued. A motion_hold skip
-        record is written instead so diagnostics show why the cover didn't move.
-        All other callers (forced transitions, override clears, window events)
-        bypass this helper and call apply_position directly so they are never
-        blocked by hold mode.
+        When the active pipeline result has skip_command=True (motion-timeout
+        hold_position mode, or a manual-override hold), no command is issued. A
+        hold skip record is written instead so diagnostics show why the cover
+        didn't move; the label reflects the winning control method (motion_hold
+        vs manual_override_hold — issue #809). All other callers (forced
+        transitions, override clears, window events) bypass this helper and call
+        apply_position directly so they are never blocked by hold mode.
         """
         if self._pipeline_result is not None and self._pipeline_result.skip_command:
+            result = self._pipeline_result
+            label = _HOLD_SKIP_LABEL.get(result.control_method, "hold")
+            # Motion holds carry the physical position in ``position`` and leave
+            # held_position None; manual holds keep ``position`` as the would-be
+            # shadow and put the physical position in held_position.  Prefer
+            # held_position when present so the recorded value is the true
+            # physical position for both (byte-identical to the old behaviour
+            # for motion, which has held_position None).
+            held = (
+                result.held_position
+                if result.held_position is not None
+                else result.position
+            )
             self._cmd_svc.record_skipped_action(
                 cover,
-                "motion_hold",
+                label,
                 state,
                 trigger=reason,
                 inverse_state=self._inverse_state,
                 extras={
-                    "held_position": self._pipeline_result.position,
+                    "held_position": held,
                     "would_be_position": state,
-                    "motion_timeout_mode": "hold_position",
+                    "hold_control_method": result.control_method.value,
                 },
             )
             return None
@@ -1665,6 +1746,88 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
                 sent.add(cover)
         return sent
 
+    def _resolved_target_signature(self) -> tuple | None:
+        """Signature of this cycle's resolved cover target (issue #756).
+
+        Captures everything that decides what command would be sent —
+        winning handler, final position (post interpolation / inverse-state),
+        tilt, and the safety / bypass / skip / floor-clamp flags. Comparing it
+        against ``_last_dispatched_target_sig`` lets the dispatch path fire when
+        the resolved target changes between cycles even if the transient
+        ``state_change`` edge was lost. ``None`` when no pipeline result exists.
+        """
+        result = self._pipeline_result
+        if result is None:
+            return None
+        return (
+            result.control_method.value,
+            self.state,
+            result.tilt,
+            result.is_safety,
+            result.bypass_auto_control,
+            result.skip_command,
+            result.floor_clamp_applied,
+        )
+
+    async def _dispatch_for_cycle(
+        self,
+        state: int,
+        options,
+        *,
+        auto_expired: bool,
+        custom_position_released_entities: set[str],
+        safety_release: bool,
+        template_release: bool,
+    ) -> None:
+        """Decide and run command dispatch for this update cycle (issue #756).
+
+        The single dispatch authority. Dispatch fires when either:
+          * a tracked-entity ``state_change`` edge arrived this cycle, OR
+          * the resolved cover target changed versus the last-dispatched one
+            (``target_changed``) — even with no ``state_change`` edge. This is
+            the #756 fix: a long-blocking venetian settle/tilt sequence holding
+            the update cycle could clobber the ``state_change`` flag, stranding
+            an override that had already won the pipeline. Comparing resolved
+            targets recovers the lost dispatch on the very next cycle.
+
+        The last-dispatched signature is recorded only when no cover still has a
+        pending secondary-axis (venetian tilt) command, so a deferred tilt keeps
+        being re-attempted until it actually sends.
+        """
+        current_sig = self._resolved_target_signature()
+        target_changed = (
+            self._last_dispatched_target_sig is not None
+            and current_sig is not None
+            and current_sig != self._last_dispatched_target_sig
+        )
+        if self.state_change:
+            await self.async_handle_state_change(
+                state,
+                options,
+                custom_position_released_entities,
+                safety_release=safety_release,
+                template_release=template_release,
+                target_changed=target_changed,
+            )
+        elif auto_expired:
+            # One or more manual overrides just timed out.  Proactively send
+            # the fresh pipeline position so covers don't linger at the
+            # user-moved position until the next solar/entity-state event.
+            await self._async_send_after_override_clear(state, options)
+        elif target_changed:
+            # No state_change edge this cycle, but the resolved target moved
+            # since the last dispatch — send it through the same path.
+            await self.async_handle_state_change(
+                state,
+                options,
+                custom_position_released_entities,
+                safety_release=safety_release,
+                template_release=template_release,
+                target_changed=True,
+            )
+        if not any(self._policy.has_pending_secondary_axis(e) for e in self.entities):
+            self._last_dispatched_target_sig = current_sig
+
     async def async_handle_state_change(
         self,
         state: int,
@@ -1673,6 +1836,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         *,
         safety_release: bool = False,
         template_release: bool = False,
+        target_changed: bool = False,
     ):
         """Send position commands to all covers when a tracked entity changes.
 
@@ -1754,6 +1918,7 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             or custom_position_sensor_triggered
             or custom_position_released
             or floor_clamp
+            or target_changed
         )
         if custom_position_released or safety_release:
             reason = "custom_position_released"
@@ -1768,6 +1933,15 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
             self.logger.debug(
                 "Floor clamp active — bypassing time/position delta gates to "
                 "raise cover to floor position %s",
+                state,
+            )
+        elif target_changed and not self.state_change:
+            # Issue #756: dispatch driven purely by a resolved-target change
+            # (the lost-state-change-edge recovery), with no other force driver.
+            reason = "target_changed"
+            self.logger.debug(
+                "Resolved target changed without a state-change edge — "
+                "bypassing time/position delta gates to send position %s",
                 state,
             )
         else:
@@ -2069,6 +2243,9 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         # Mirror the venetian drift-reset direction (issue #686) so the live
         # lambda wired into policy.attach picks up mid-session changes.
         self._venetian_tilt_reset_direction = rc.venetian.tilt_reset_direction
+        # Mirror the venetian drift-reset scope (issue #808) so the live
+        # lambda wired into policy.attach picks up mid-session changes.
+        self._venetian_tilt_reset_scope = rc.venetian.tilt_reset_scope
         self._time_mgr.update_config(
             start_time=rc.time_window.start_time,
             start_time_entity=rc.time_window.start_time_entity,
@@ -2881,6 +3058,29 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         self._gate_fallback_unsub = None
         await self.async_request_refresh()
 
+    @callback
+    def _schedule_refresh_after(self, secs: float) -> None:
+        """Schedule one refresh ``secs`` from now (issue #756).
+
+        Injected into the cover-type policy so a venetian tilt-only update that
+        was deferred while the back-rotate suppression window was open gets a
+        prompt wake at window expiry — instead of waiting for the next
+        unrelated tracked-entity change. Any in-flight wake is cancelled first
+        so there is never more than one outstanding.
+        """
+        if self._refresh_after_unsub is not None:
+            self._refresh_after_unsub()
+            self._refresh_after_unsub = None
+        delay = secs if secs and secs > 0 else 0
+        self._refresh_after_unsub = async_call_later(
+            self.hass, delay, self._on_refresh_after_due
+        )
+
+    async def _on_refresh_after_due(self, _now: dt.datetime) -> None:
+        """Fire when a scheduled deferred-tilt wake is due: request a refresh."""
+        self._refresh_after_unsub = None
+        await self.async_request_refresh()
+
     async def _check_sunset_window_transition(self) -> None:
         """Delegate astronomical-sunset-window transition handling to the tracker.
 
@@ -2936,6 +3136,11 @@ class AdaptiveDataUpdateCoordinator(DataUpdateCoordinator[AdaptiveCoverData]):
         if self._gate_fallback_unsub is not None:
             self._gate_fallback_unsub()
             self._gate_fallback_unsub = None
+
+        # Cancel the deferred-tilt refresh wake (issue #756).
+        if self._refresh_after_unsub is not None:
+            self._refresh_after_unsub()
+            self._refresh_after_unsub = None
 
         self.logger.debug("Coordinator shutdown complete")
 

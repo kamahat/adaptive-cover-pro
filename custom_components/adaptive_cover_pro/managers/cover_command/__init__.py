@@ -7,7 +7,7 @@ from collections.abc import Iterator
 from typing import Any
 
 from homeassistant.components.cover.const import DOMAIN as COVER_DOMAIN
-from homeassistant.const import STATE_UNAVAILABLE
+from homeassistant.const import STATE_CLOSED, STATE_OPEN, STATE_UNAVAILABLE
 from homeassistant.core import Context, HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.event import async_track_time_interval
@@ -17,6 +17,8 @@ from ...const import (
     DEFAULT_TRANSIT_TIMEOUT_SECONDS,
     MAX_POSITION_RETRIES,
     POSITION_CHECK_INTERVAL_MINUTES,
+    POSITION_CLOSED,
+    POSITION_OPEN,
     POSITION_TOLERANCE_PERCENT,
 )
 from ...cover_types.base import (
@@ -897,6 +899,53 @@ class CoverCommandService:
             logger=self._logger,
         )
 
+    def _same_position_via_target_fallback(
+        self,
+        entity_id: str,
+        position: int,
+        context: PositionContext,
+    ) -> bool:
+        """Same-position gate fallback for an unresolved current position (issue #779).
+
+        Somfy RTS (and any open/close-only cover without genuine position
+        feedback) reports HA state ``unknown``/``unavailable`` forever, so
+        ``_get_current_position`` always returns ``None`` and the
+        same-position gate in ``apply_position`` never sees a genuine
+        reading to compare against — the exact same command gets resent on
+        every update cycle even though the cover was already commanded to
+        (and mechanically at) that state.
+
+        Falls back to the last *commanded* target (``get_target``) compared
+        against this cycle's *routed decision* rather than the raw
+        ``position``. Delegates to :func:`route_service_call` — the single
+        source of truth for routing — instead of re-deriving the threshold
+        math, so every axis (position-capable, My-preset ``stop_cover``, and
+        open/close endpoint) is compared using the exact same rule that
+        ``_prepare_service_call`` uses to build the outbound command
+        (issue #779 follow-up regression from PR #781, which hand-rolled a
+        partial copy of this math and ignored ``use_my_position``).
+
+        Only consulted when ``_current is None``; the delta/time gates and
+        reconciliation intentionally keep reading the real (unknown) current
+        position and are untouched by this fallback.
+        """
+        last_target = self.get_target(entity_id)
+        if last_target is None:
+            return False
+
+        caps = self.get_cover_capabilities(entity_id)
+        axis = self._policy.select_default_axis(caps)
+        plan = route_service_call(
+            entity_id,
+            position,
+            caps,
+            axis=axis,
+            use_my_position=context.use_my_position,
+            open_close_threshold=self._open_close_threshold,
+            endpoint_use_open_close=self._endpoint_use_open_close,
+        )
+        return last_target == plan.routed_target
+
     # ------------------------------------------------------------------ #
     # Primary entry point
     # ------------------------------------------------------------------ #
@@ -958,6 +1007,20 @@ class CoverCommandService:
 
         _current = self._get_current_position(entity_id)
 
+        # Full mechanical endpoint forcing (issue #755). When the owning
+        # cover-type policy (venetian) flagged this update as a paired full
+        # endpoint (0/0 or 100/100), the endpoint_use_open_close feature is on,
+        # and the cover is not actually parked at the mechanical stop (HA state
+        # not closed/open — NOT a position tolerance), bypass the same-position
+        # band and the delta/time gates so route_service_call can emit
+        # close_cover/open_cover (#697). This is cover-type-agnostic: the flag
+        # carries the decision, the manager never inspects cover type.
+        force_endpoint = (
+            context.full_endpoint_target
+            and self._endpoint_use_open_close
+            and not self._is_at_mechanical_stop(state_obj, position)
+        )
+
         # Hard kill switch — blocks ALL commands, including safety overrides and
         # force=True calls.  Must be checked before any bypass branch.
         if not self._enabled:
@@ -1011,12 +1074,44 @@ class CoverCommandService:
         # sun_just_appeared is the one exception: the sun transitioning in/out of
         # validity is a sentinel that we must re-confirm the cover position even
         # if it hasn't changed numerically.
+        #
+        # force_endpoint is the other exception (issue #755): a venetian whose
+        # desired final state is a full mechanical endpoint (0/0 or 100/100) must
+        # NOT be swallowed by this _position_tolerance carve-out — it falls
+        # through to routing so close_cover/open_cover fires. Idempotency for
+        # that case is owned by the HA-state mechanical-stop check above, not by
+        # tolerance, so the gap can't be reintroduced here.
+        #
+        # _current is None is its own exception (issue #779): Somfy RTS covers
+        # (and any open/close-only cover without genuine position feedback) sit
+        # at HA state unknown/unavailable forever, so _current never resolves
+        # and this gate would never fire — the same command gets resent every
+        # cycle. _same_position_via_target_fallback compares the last
+        # *commanded* target against this cycle's *routed* decision (via
+        # route_service_call, see its docstring) instead of a live reading, so
+        # position-capable, My-preset stop_cover, and open/close endpoint
+        # covers are all handled by the one routing source of truth. Delta/time
+        # gates and reconciliation deliberately keep reading the real (unknown)
+        # _current — this fallback is scoped to the same-position gate only.
         if (
             not context.sun_just_appeared
-            and _current is not None
+            and not force_endpoint
             and (
-                _current == position
-                or (position in (0, 100) and self._at_target(_current, position))
+                (
+                    _current is not None
+                    and (
+                        _current == position
+                        or (
+                            position in (0, 100) and self._at_target(_current, position)
+                        )
+                    )
+                )
+                or (
+                    _current is None
+                    and self._same_position_via_target_fallback(
+                        entity_id, position, context
+                    )
+                )
             )
         ):
             if context.policy is not None and context.tilt is not None:
@@ -1035,7 +1130,7 @@ class CoverCommandService:
                 current_position=_current,
             )
 
-        if not context.force:
+        if not context.force and not force_endpoint:
             if not self._check_position_delta(
                 entity_id,
                 position,
@@ -1197,6 +1292,20 @@ class CoverCommandService:
         the same-position gate in apply_position (endpoint-only tolerance).
         """
         return abs(actual - target) <= self._position_tolerance
+
+    def _is_at_mechanical_stop(self, state_obj, position: int) -> bool:
+        """Return True if the cover is parked at the full mechanical stop.
+
+        Idempotency check for the issue #755 endpoint forcing: uses the HA
+        entity *state* (``closed`` for 0, ``open`` for 100) rather than position
+        tolerance, matching hardware that reports closed/open only at the exact
+        endpoint. Returns False for any non-endpoint target.
+        """
+        if position == POSITION_CLOSED:
+            return state_obj is not None and state_obj.state == STATE_CLOSED
+        if position == POSITION_OPEN:
+            return state_obj is not None and state_obj.state == STATE_OPEN
+        return False
 
     # ------------------------------------------------------------------ #
     # Target-reached notification (called by coordinator state-change handler)

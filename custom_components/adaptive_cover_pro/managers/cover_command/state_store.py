@@ -84,3 +84,13 @@ class PositionContext:
     # dual-axis covers can run their settle+tilt sequence without leaking the
     # logic into this shared service.
     policy: Any = None
+    # Set by the owning cover-type policy (venetian) when BOTH axes target the
+    # same full mechanical endpoint (0/0 or 100/100). Cover-type-agnostic: the
+    # manager only honors the bool, never inspects cover type. Issue #755.
+    full_endpoint_target: bool = False
+    # Winning pipeline control method for this update cycle. Populated by the
+    # coordinator from the PipelineResult; cover-type-agnostic (concrete type
+    # ControlMethod | None, consumed by the owning policy's command hooks — e.g.
+    # the venetian drift-reset scope gate, issue #808). Typed ``Any`` to keep
+    # this leaf module free of package imports.
+    control_method: Any = None
